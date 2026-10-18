@@ -47,7 +47,7 @@ const buttonVariants = cva(
       },
       variant: {
         header:
-          "[--control-icon-color:currentColor] border-transparent text-foreground [:hover,[data-pressed]]:bg-foreground/12 [:hover,[data-pressed]]:text-foreground disabled:opacity-40 aria-disabled:opacity-40",
+          "[--control-icon-color:currentColor] border-transparent bg-foreground/8 text-foreground [:hover,[data-pressed]]:bg-foreground/16 [:hover,[data-pressed]]:text-foreground disabled:opacity-40 aria-disabled:opacity-40",
         default:
           "not-disabled:inset-shadow-[0_1px_--theme(--color-white/16%)] border-primary bg-primary text-primary-foreground shadow-primary/24 shadow-xs [:active,[data-pressed]]:inset-shadow-[0_1px_--theme(--color-black/8%)] [:disabled,:active,[data-pressed]]:shadow-none [:hover,[data-pressed]]:bg-primary/90",
         destructive:

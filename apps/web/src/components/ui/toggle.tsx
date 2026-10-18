@@ -27,7 +27,7 @@ const toggleVariants = cva(
       },
       variant: {
         header:
-          "border-transparent text-foreground shadow-none before:shadow-none hover:bg-foreground/12 data-pressed:bg-foreground/12 data-pressed:text-foreground [&_svg:not([class*='opacity-'])]:opacity-100 disabled:opacity-40 aria-disabled:opacity-40",
+          "border-transparent bg-foreground/8 text-foreground shadow-none before:shadow-none hover:bg-foreground/16 data-pressed:bg-foreground/16 data-pressed:text-foreground [&_svg:not([class*='opacity-'])]:opacity-100 disabled:opacity-40 aria-disabled:opacity-40",
         default: "border-transparent",
         pill: "border-transparent rounded-full px-3 font-normal text-muted-foreground data-pressed:text-foreground",
         ghost:

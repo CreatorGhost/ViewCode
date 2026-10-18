@@ -7872,7 +7872,7 @@ export default function ChatView(props: ChatViewProps) {
         threadRef={activeThreadRef}
         state={deviceState}
       />
-      {rightPanelControlsAtRoot ? panelLayoutControls : null}
+      {inlineRightPanelOwnsTitleBar && rightPanelControlsAtRoot ? panelLayoutControls : null}
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
@@ -7893,7 +7893,9 @@ export default function ChatView(props: ChatViewProps) {
               className="pointer-events-none fixed top-[calc(var(--workspace-controls-top)+var(--workspace-sheet-inset-top,0px))] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
             />
           ) : null}
-          {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
+          {inlineRightPanelOwnsTitleBar && !rightPanelControlsAtRoot && !rightPanelControlsInPanel
+            ? panelLayoutControls
+            : null}
           {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
           <ChatHeader
             threadGoal={threadGoalControls.goal}
@@ -7906,9 +7908,7 @@ export default function ChatView(props: ChatViewProps) {
             parentThreadLink={parentThreadLink}
             onOpenThread={onOpenRelatedThreadStable}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
-            toolbarControlCount={
-              inlineRightPanelOwnsTitleBar ? 1 : shouldUsePlanSidebarSheet ? 2 : 3
-            }
+            toolbarControlCount={inlineRightPanelOwnsTitleBar ? 1 : 0}
             actions={
               <div data-chat-header-actions className="flex shrink-0 items-center gap-2">
                 <ViewCodeHeaderProjectActions
@@ -7966,6 +7966,7 @@ export default function ChatView(props: ChatViewProps) {
                   disabled={!canOperateThread}
                   disabledReason="You do not have permission to operate this thread"
                 />
+                {!inlineRightPanelOwnsTitleBar ? panelToggleControls : null}
               </div>
             }
             onNewThreadInProject={handleNewThreadInActiveProjectStable}
