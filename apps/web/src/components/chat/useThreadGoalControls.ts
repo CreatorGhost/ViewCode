@@ -1,3 +1,5 @@
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { isViewCodePanelThreadPreparing } from "./ensureViewCodePanelThread";
 import type { EnvironmentId, ThreadGoal, ThreadId } from "@t3tools/contracts";
 import { threadGoalUpdate, type GoalCommandAction } from "@t3tools/client-runtime/threadGoal";
 
@@ -52,6 +54,21 @@ export function useThreadGoalControls(input: {
     readonly goalPaused?: boolean;
     readonly debugMode?: boolean;
   }) => {
+    // Record-only panel creation captures these fields before its receipt.
+    // Block edits across all callers until that handover finishes; a later
+    // reconciliation could overwrite another client's newer server values.
+    if (
+      environmentId !== null &&
+      threadId !== null &&
+      isViewCodePanelThreadPreparing(scopeThreadRef(environmentId, threadId))
+    ) {
+      toastManager.add({
+        type: "info",
+        title: "Preparing thread",
+        description: "Try changing the goal or debug mode again in a moment.",
+      });
+      return;
+    }
     if (isServerThread) {
       if (environmentId !== null && threadId !== null) {
         updateServer(environmentId, threadId, fields);

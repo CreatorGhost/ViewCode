@@ -8735,6 +8735,7 @@ export default function ChatView(props: ChatViewProps) {
         <ThreadGoalDialog
           goal={threadGoalControls.goal}
           canPause={isServerThread}
+          disabled={isEnsuringPanelThread}
           onSave={threadGoalControls.saveGoal}
           onSetPaused={threadGoalControls.setGoalPaused}
           onClear={threadGoalControls.clearGoal}

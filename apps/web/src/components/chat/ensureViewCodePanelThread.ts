@@ -31,6 +31,11 @@ export interface EnsureViewCodePanelThreadInput {
 
 const pending = new Map<string, Promise<ScopedThreadRef | null>>();
 
+/** Read synchronously from every goal/debug entrypoint, including stale click handlers. */
+export function isViewCodePanelThreadPreparing(threadRef: ScopedThreadRef): boolean {
+  return pending.has(scopedThreadKey(threadRef));
+}
+
 export function makeEnsureViewCodePanelThread(deps: {
   readonly create: (input: {
     environmentId: EnvironmentId;
