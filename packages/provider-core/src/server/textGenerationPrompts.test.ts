@@ -250,6 +250,7 @@ describe("buildThreadTitlePrompt", () => {
       message: "Investigate reconnect regressions after session restore",
     });
 
+    expect(result.prompt).toContain("recognize this ViewCode thread weeks later");
     expect(result.prompt).toContain("User message:");
     expect(result.prompt).toContain("Investigate reconnect regressions after session restore");
     expect(result.prompt).not.toContain("Attachment metadata:");

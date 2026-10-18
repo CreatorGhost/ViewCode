@@ -269,7 +269,10 @@ describe("updateOutdatedHost", () => {
           ),
         ),
       );
-      expect(error).toMatchObject({ _tag: "OutdatedHostUpdateError" });
+      expect(error).toMatchObject({
+        _tag: "OutdatedHostUpdateError",
+        message: "Update ViewCode on Build Mac manually; it cannot update itself.",
+      });
       expect(opened).toBe(false);
     }),
   );

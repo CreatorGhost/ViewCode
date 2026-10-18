@@ -1,5 +1,4 @@
 import {
-  DEFAULT_SERVER_SETTINGS,
   DEFAULT_UNIFIED_SETTINGS,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -251,7 +250,7 @@ describe("getChangedBrowserSettingLabels", () => {
       "Recording mouse presses",
       "Open links in",
       "Floating preview",
-      "Open pull requests in T3 Code",
+      "Open pull requests in ViewCode",
     ]);
   });
 });
