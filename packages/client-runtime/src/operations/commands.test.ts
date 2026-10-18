@@ -149,6 +149,37 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
 });
 
 describe("V2 environment commands", () => {
+  it.effect.each(["start", "queue"] as const)(
+    "includes explicit permission and interaction modes atomically in %s admission",
+    (dispatchMode) =>
+      Effect.gen(function* () {
+        const commands: OrchestrationV2Command[] = [];
+        const supervisor = yield* makeSupervisor({ commands, projects: [] });
+        yield* startThreadTurn({
+          commandId: CommandId.make(`admit-modes:${dispatchMode}`),
+          threadId: v2ThreadId,
+          message: {
+            messageId: MessageId.make(`message:${dispatchMode}`),
+            role: "user",
+            text: "Preserve these modes",
+            attachments: [],
+          },
+          runtimeMode: "approval-required",
+          interactionMode: "plan",
+          dispatchMode,
+        }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+        expect(commands).toHaveLength(1);
+        expect(commands[0]).toMatchObject({
+          type: "message.dispatch",
+          runtimeMode: "approval-required",
+          interactionMode: "plan",
+          dispatchMode: {
+            type: dispatchMode === "queue" ? "queue_after_active" : "start_immediately",
+          },
+        });
+      }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
   it.effect("routes projects through the event-sourced project transport", () =>
     Effect.gen(function* () {
       const projects: ProjectMutation[] = [];

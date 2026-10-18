@@ -150,4 +150,33 @@ it.layer(layerTest)("RuntimePolicyV2", (it) => {
       assert.equal(yield* modeFor(providerInstanceId, "auto-accept-edits"), "auto-accept-edits");
     }),
   );
+  it.effect("uses admitted run modes and still narrows unsupported provider modes", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const thread = makeThread({
+        now,
+        worktreePath: "/project-worktree",
+        runtimeMode: "full-access",
+      });
+      const restricted = yield* policy.resolve({
+        thread,
+        modelSelection,
+        run: { runtimeMode: "approval-required", interactionMode: "plan" },
+      });
+      assert.equal(restricted.runtimeMode, "approval-required");
+      assert.equal(restricted.interactionMode, "plan");
+      assert.equal(restricted.cwd, "/project-worktree");
+      const unsupported = yield* policy.resolve({
+        thread,
+        modelSelection: { instanceId: grokInstanceId, model: "test-model" },
+        run: { runtimeMode: "auto-accept-edits", interactionMode: "plan" },
+      });
+      assert.equal(unsupported.runtimeMode, "approval-required");
+      assert.equal(unsupported.interactionMode, "plan");
+      const legacy = yield* policy.resolve({ thread, modelSelection, run: {} });
+      assert.equal(legacy.runtimeMode, "full-access");
+      assert.equal(legacy.interactionMode, "default");
+    }),
+  );
 });

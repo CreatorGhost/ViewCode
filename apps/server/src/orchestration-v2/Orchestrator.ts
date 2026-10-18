@@ -4065,6 +4065,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
       }
 
+      const steeringCommand = input.command;
+      const requestedModesSource =
+        steeringCommand.type === "message.dispatch"
+          ? steeringCommand
+          : input.projection.runs.find((run) => run.id === steeringCommand.queuedRunId);
+      const requestedModes = {
+        runtimeMode: requestedModesSource?.runtimeMode ?? input.projection.thread.runtimeMode,
+        interactionMode:
+          requestedModesSource?.interactionMode ?? input.projection.thread.interactionMode,
+      };
+      yield* refuseAboveDispatchModeLimit(input.command, input.command.threadId, requestedModes);
       const session = sessionOption.value;
       const now = yield* DateTime.now;
       const emitEvent = emit(input.events, input.command);
@@ -4199,6 +4210,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       );
 
       if (steeringPolicy === "active_steering") {
+        if (
+          requestedModes.runtimeMode !==
+            (targetRun.runtimeMode ??
+              targetRun.viewcodeRuntimeMode ??
+              input.projection.thread.runtimeMode) ||
+          requestedModes.interactionMode !==
+            (targetRun.interactionMode ?? input.projection.thread.interactionMode)
+        ) {
+          return yield* new OrchestratorCommandRejectedError({
+            commandId: input.command.commandId,
+            commandType: input.command.type,
+            cause:
+              "Queue this message or restart the turn to use different permission or interaction modes.",
+          });
+        }
         const instanceChanged =
           input.projection.thread.providerInstanceId !== input.modelSelection.instanceId;
         if (
@@ -4479,6 +4505,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       );
       const restartedRun: OrchestrationV2Run = {
         ...targetRun,
+        ...requestedModes,
         providerInstanceId: input.modelSelection.instanceId,
         modelSelection: input.modelSelection,
         providerThreadId: restartProviderThread.id,
@@ -4847,6 +4874,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         projection = yield* getProjectionWithPendingEvents(command.threadId, events);
       }
       const modelSelection = command.modelSelection ?? projection.thread.modelSelection;
+      yield* refuseAboveDispatchModeLimit(command, command.threadId, {
+        runtimeMode: command.runtimeMode ?? projection.thread.runtimeMode,
+        interactionMode: command.interactionMode ?? projection.thread.interactionMode,
+      });
       let dispatchMode = resolveMessageDispatchIntent(
         projection,
         command.dispatchMode,
@@ -5169,6 +5200,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 ),
               );
         const run: OrchestrationV2Run = {
+          runtimeMode: command.runtimeMode ?? projection.thread.runtimeMode,
+          interactionMode: command.interactionMode ?? projection.thread.interactionMode,
           id: runId,
           threadId: command.threadId,
           ordinal,
@@ -5535,6 +5568,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   mapDispatchError(command),
                 );
         const run: OrchestrationV2Run = {
+          runtimeMode: command.runtimeMode ?? projection.thread.runtimeMode,
+          interactionMode: command.interactionMode ?? projection.thread.interactionMode,
           id: runId,
           threadId: command.threadId,
           ordinal,
@@ -6247,6 +6282,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ),
         );
       const run: OrchestrationV2Run = {
+        runtimeMode: command.runtimeMode ?? projection.thread.runtimeMode,
+        interactionMode: command.interactionMode ?? projection.thread.interactionMode,
         id: runId,
         threadId: command.threadId,
         ordinal,

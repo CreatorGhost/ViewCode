@@ -1,6 +1,7 @@
 import {
   ModelSelection,
   OrchestrationV2AppThread,
+  type OrchestrationV2Run,
   ProjectId,
   ProviderInstanceId,
   type RuntimeMode,
@@ -43,6 +44,7 @@ export interface RuntimePolicyV2Shape {
   readonly resolve: (input: {
     readonly thread: OrchestrationV2AppThread;
     readonly modelSelection: ModelSelection;
+    readonly run?: Pick<OrchestrationV2Run, "runtimeMode" | "interactionMode">;
   }) => Effect.Effect<ProviderAdapter.ProviderAdapterV2RuntimePolicy, RuntimePolicyV2Error>;
 }
 
@@ -53,8 +55,8 @@ export class RuntimePolicyV2 extends Context.Service<RuntimePolicyV2, RuntimePol
 export const layer: Layer.Layer<RuntimePolicyV2> = Layer.succeed(RuntimePolicyV2, {
   resolve: (input) =>
     Effect.succeed({
-      runtimeMode: input.thread.runtimeMode,
-      interactionMode: input.thread.interactionMode,
+      runtimeMode: input.run?.runtimeMode ?? input.thread.runtimeMode,
+      interactionMode: input.run?.interactionMode ?? input.thread.interactionMode,
       cwd: input.thread.worktreePath,
     }),
 });
@@ -112,8 +114,11 @@ export const layerFromProjectStore: Layer.Layer<
             ),
           ));
         return ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-          runtimeMode: providerRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),
-          interactionMode: input.thread.interactionMode,
+          runtimeMode: providerRuntimeMode(
+            input.run?.runtimeMode ?? input.thread.runtimeMode,
+            supportedRuntimeModes,
+          ),
+          interactionMode: input.run?.interactionMode ?? input.thread.interactionMode,
           cwd,
         });
       }),

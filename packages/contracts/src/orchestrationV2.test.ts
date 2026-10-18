@@ -33,6 +33,7 @@ import {
   OrchestrationV2ProviderThread,
   OrchestrationV2ProviderThreadJson,
   OrchestrationV2RpcSchemas,
+  OrchestrationV2RunJson,
   OrchestrationV2ShellSnapshot,
   OrchestrationV2SubscribeThreadInput,
   OrchestrationV2Subagent,
@@ -46,6 +47,7 @@ import {
 } from "./orchestrationV2.ts";
 
 const now = DateTime.makeUnsafe("2026-04-20T00:00:00.000Z");
+const encodeQueuedRunJson = Schema.encodeSync(OrchestrationV2RunJson);
 function emptyThreadProjection() {
   return {
     thread: {
@@ -1552,5 +1554,67 @@ describe("latestProviderTurnForAttempt", () => {
     ];
     expect(latestProviderTurnForAttempt(turns, RunAttemptId.make("goal-attempt"))?.id).toBe("last");
     expect(latestProviderTurnForAttempt(turns, null)).toBeUndefined();
+  });
+});
+
+describe("queued execution mode wire compatibility", () => {
+  const message = {
+    type: "message.dispatch",
+    createdBy: "user",
+    creationSource: "mobile",
+    commandId: "queue-modes-wire",
+    threadId: "thread-modes-wire",
+    messageId: "message-modes-wire",
+    text: "Keep these permissions",
+    attachments: [],
+    dispatchMode: { type: "queue_after_active" },
+  };
+
+  it("preserves optional modes through the actual dispatch RPC codec and accepts older clients", () => {
+    const codec = Schema.toCodecJson(OrchestrationV2RpcSchemas.dispatchCommand.input);
+    const command = decodeOrchestrationV2Command({
+      ...message,
+      runtimeMode: "approval-required",
+      interactionMode: "plan",
+    });
+    const decoded = Schema.decodeSync(codec)(Schema.encodeSync(codec)(command));
+    expect(decoded).toMatchObject({ runtimeMode: "approval-required", interactionMode: "plan" });
+    const legacy = decodeOrchestrationV2Command(message);
+    expect(legacy).not.toHaveProperty("runtimeMode");
+    expect(legacy).not.toHaveProperty("interactionMode");
+    expect(() =>
+      decodeOrchestrationV2Command({ ...message, runtimeMode: "unrestricted" }),
+    ).toThrow();
+  });
+
+  it("preserves run snapshots through persisted JSON and accepts pre-snapshot runs", () => {
+    const encoded = {
+      id: "run-modes-wire",
+      threadId: "thread-modes-wire",
+      ordinal: 1,
+      providerInstanceId: "codex",
+      modelSelection: { instanceId: "codex", model: "test-model" },
+      providerThreadId: null,
+      userMessageId: "message-modes-wire",
+      rootNodeId: null,
+      activeAttemptId: null,
+      status: "queued",
+      requestedAt: DateTime.formatIso(now),
+      startedAt: null,
+      completedAt: null,
+      checkpointId: null,
+      contextHandoffId: null,
+    };
+    const decode = Schema.decodeUnknownSync(OrchestrationV2RunJson);
+    const current = decode({
+      ...encoded,
+      runtimeMode: "approval-required",
+      interactionMode: "plan",
+    });
+    const restored = decode(JSON.parse(JSON.stringify(encodeQueuedRunJson(current))));
+    expect(restored).toMatchObject({ runtimeMode: "approval-required", interactionMode: "plan" });
+    const legacy = decode(encoded);
+    expect(legacy).not.toHaveProperty("runtimeMode");
+    expect(legacy).not.toHaveProperty("interactionMode");
   });
 });

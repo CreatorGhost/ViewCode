@@ -29,10 +29,12 @@ import * as Stream from "effect/Stream";
 import { createPendingAttachmentId, resolveAttachmentPath } from "../attachmentStore.ts";
 import { ChatAttachmentId } from "@t3tools/contracts";
 import * as ServerConfig from "../config.ts";
+import { AdminProviderPolicyRef } from "../provider/AdminProviderPolicy.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
+import { DispatchModeLimit } from "./DispatchModeLimit.ts";
 import * as EffectWorker from "./EffectWorker.ts";
 import * as ProjectionMaintenance from "./ProjectionMaintenance.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -42,6 +44,7 @@ import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ThreadLaunch from "./ThreadLaunchService.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as ThreadMessageIntake from "./ThreadMessageIntake.ts";
+import { userFacingDispatchErrorMessage } from "./UserFacingErrors.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 
 const instanceId = ProviderInstanceId.make("codex");
@@ -53,11 +56,12 @@ const makeControlledProvider = Effect.gen(function* () {
   const inputs = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2TurnInput>();
   const events = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
   const deliveries = yield* Ref.make<ReadonlyArray<MessageId>>([]);
+  const nativeTurns = new Map<ProviderTurnId, ProviderAdapter.ProviderAdapterV2TurnInput>();
   const turnFor = (input: ProviderAdapter.ProviderAdapterV2TurnInput) =>
     Effect.gen(function* () {
       const now = yield* DateTime.now;
       return {
-        id: ProviderTurnId.make(`native-turn:${input.runId}`),
+        id: ProviderTurnId.make(`native-turn:${input.runId}:${input.attemptId}`),
         providerThreadId: input.providerThread.id,
         nodeId: input.rootNodeId,
         runAttemptId: input.attemptId,
@@ -119,15 +123,37 @@ const makeControlledProvider = Effect.gen(function* () {
           startTurn: (request) =>
             Effect.gen(function* () {
               yield* Ref.update(deliveries, (current) => [...current, request.message.messageId]);
+              const turn = yield* turnFor(request);
+              nativeTurns.set(turn.id, request);
               yield* Queue.offer(events, {
                 type: "provider_turn.updated",
                 driver,
-                providerTurn: yield* turnFor(request),
+                providerTurn: turn,
               });
               yield* Queue.offer(inputs, request);
             }),
           steerTurn: () => Effect.die("Queue tests must not steer"),
-          interruptTurn: () => Effect.void,
+          interruptTurn: (request) =>
+            Effect.gen(function* () {
+              const interrupted = nativeTurns.get(request.providerTurnId);
+              assert.isDefined(interrupted);
+              const turn = yield* turnFor(interrupted);
+              yield* Queue.offer(events, {
+                type: "provider_turn.updated",
+                driver,
+                providerTurn: { ...turn, status: "interrupted", completedAt: yield* DateTime.now },
+              });
+              yield* Queue.offer(events, {
+                type: "turn.terminal",
+                driver,
+                providerThreadId: interrupted.providerThread.id,
+                providerTurnId: turn.id,
+                runOrdinal: PositiveInt.make(interrupted.runOrdinal),
+                status: "interrupted",
+                failure: null,
+                threadDisposition: "reusable",
+              });
+            }),
           readThreadSnapshot: () => Effect.die("Queue tests must not read provider history"),
           rollbackThread: () => Effect.die("Queue tests must not roll back"),
           forkThread: () => Effect.die("Queue tests must not fork"),
@@ -174,7 +200,7 @@ const makeFixture = Effect.gen(function* () {
   );
   const settings = ServerSettings.layerTest({
     providerInstances: { [instanceId]: { driver, enabled: true, config: {} } },
-  });
+  }).pipe(Layer.orDie);
   const makeRuntime = (
     provider: Effect.Success<typeof makeControlledProvider>,
     recover = false,
@@ -182,7 +208,12 @@ const makeFixture = Effect.gen(function* () {
     const native = ProviderReplayHarness.layerWithRegistry(
       { name: "viewcode-shared-queue" },
       ProviderAdapterRegistry.layerFromAdapters([provider.adapter]),
-      { databaseLayer: database, recoverOnStartup: recover, serverConfigLayer: config },
+      {
+        databaseLayer: database,
+        recoverOnStartup: recover,
+        serverConfigLayer: config,
+        serverSettingsLayer: settings,
+      },
     );
     return Layer.mergeAll(
       ThreadManagement.layer,
@@ -438,7 +469,11 @@ it.effect(
         yield* dispatch(message("active"));
         yield* Queue.take(beforeRestart.inputs);
         yield* dispatch(message("first", "First durable message"));
-        yield* dispatch(message("second", "Second durable message"));
+        yield* dispatch({
+          ...message("second", "Second durable message"),
+          runtimeMode: "approval-required",
+          interactionMode: "plan",
+        });
         const first = yield* runFor("first");
         const second = yield* runFor("second");
         yield* dispatch({
@@ -491,6 +526,8 @@ it.effect(
         const first = yield* Queue.take(afterRestart.inputs);
         assert.equal(first.runId, queuedBefore.second.id);
         assert.equal(first.message.text, "Edited before restart");
+        assert.equal(first.runtimePolicy.runtimeMode, "approval-required");
+        assert.equal(first.runtimePolicy.interactionMode, "plan");
         yield* afterRestart.complete(first);
         const second = yield* Queue.take(afterRestart.inputs);
         assert.equal(second.runId, queuedBefore.first.id);
@@ -594,7 +631,11 @@ it.effect.each(["machine", "project"] as const)(
                 },
               },
         );
-        const command = message("blocked");
+        const command = {
+          ...message("blocked"),
+          runtimeMode: "full-access" as const,
+          interactionMode: "default" as const,
+        };
         const result = yield* dispatch(command).pipe(Effect.result);
         assert.equal(result._tag, "Failure");
         if (result._tag === "Failure")
@@ -606,6 +647,287 @@ it.effect.each(["machine", "project"] as const)(
         yield* awaitStatus(yield* runFor("active"), "completed");
         yield* EffectWorker.OrchestrationEffectWorkerV2.use((worker) => worker.drain());
         assert.deepEqual(yield* Ref.get(provider.deliveries), [MessageId.make("active")]);
+      }).pipe(Effect.provide(fixture.makeRuntime(provider)));
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "executes every queued message with its admitted modes despite later thread changes",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const provider = yield* makeControlledProvider;
+      yield* Effect.gen(function* () {
+        yield* createThread(fixture.workspace);
+        yield* dispatch(message("active"));
+        const active = yield* Queue.take(provider.inputs);
+        yield* dispatch({
+          ...message("restricted-plan"),
+          runtimeMode: "approval-required",
+          interactionMode: "plan",
+        });
+        yield* dispatch({
+          type: "thread.runtime-mode.set",
+          commandId: CommandId.make("thread-auto"),
+          threadId,
+          runtimeMode: "auto",
+        });
+        yield* dispatch({
+          type: "thread.interaction-mode.set",
+          commandId: CommandId.make("thread-plan"),
+          threadId,
+          interactionMode: "plan",
+        });
+        // Older clients omit the additive fields; admission still captures the then-current modes.
+        yield* dispatch(message("inherited-plan"));
+        yield* dispatch({
+          type: "thread.runtime-mode.set",
+          commandId: CommandId.make("thread-full"),
+          threadId,
+          runtimeMode: "full-access",
+        });
+        yield* dispatch({
+          type: "thread.interaction-mode.set",
+          commandId: CommandId.make("thread-default"),
+          threadId,
+          interactionMode: "default",
+        });
+        yield* provider.complete(active);
+        const restricted = yield* Queue.take(provider.inputs);
+        assert.equal(restricted.message.messageId, "restricted-plan");
+        assert.equal(restricted.runtimePolicy.runtimeMode, "approval-required");
+        assert.equal(restricted.runtimePolicy.interactionMode, "plan");
+        yield* provider.complete(restricted);
+        const inherited = yield* Queue.take(provider.inputs);
+        assert.equal(inherited.message.messageId, "inherited-plan");
+        assert.equal(inherited.runtimePolicy.runtimeMode, "auto");
+        assert.equal(inherited.runtimePolicy.interactionMode, "plan");
+        yield* provider.complete(inherited);
+        yield* awaitStatus(yield* runFor("inherited-plan"), "completed");
+      }).pipe(Effect.provide(fixture.makeRuntime(provider)));
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect.each([
+  { runtimeMode: "full-access" as const, interactionMode: "plan" as const },
+  { runtimeMode: "approval-required" as const, interactionMode: "default" as const },
+])("rejects explicit queued modes above a limited caller ceiling: %j", (modes) =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const provider = yield* makeControlledProvider;
+    yield* Effect.gen(function* () {
+      yield* createThread(fixture.workspace);
+      yield* dispatch({
+        type: "thread.runtime-mode.set",
+        commandId: CommandId.make("limit-runtime"),
+        threadId,
+        runtimeMode: "approval-required",
+      });
+      yield* dispatch({
+        type: "thread.interaction-mode.set",
+        commandId: CommandId.make("limit-interaction"),
+        threadId,
+        interactionMode: "plan",
+      });
+      yield* dispatch(message("active"));
+      const active = yield* Queue.take(provider.inputs);
+      const result = yield* dispatch({ ...message("above-ceiling"), ...modes }).pipe(
+        Effect.provideService(DispatchModeLimit, {
+          runtimeMode: "approval-required",
+          interactionMode: "plan",
+        }),
+        Effect.result,
+      );
+      assert.equal(result._tag, "Failure");
+      if (result._tag === "Failure")
+        assert.equal(result.failure._tag, "OrchestratorThreadAboveModeLimitError");
+      assert.isFalse((yield* projection).messages.some((entry) => entry.id === "above-ceiling"));
+      yield* provider.complete(active);
+      yield* awaitStatus(yield* runFor("active"), "completed");
+      yield* EffectWorker.OrchestrationEffectWorkerV2.use((worker) => worker.drain());
+      assert.deepEqual(yield* Ref.get(provider.deliveries), [MessageId.make("active")]);
+    }).pipe(Effect.provide(fixture.makeRuntime(provider)));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "keeps admitted permission snapshots held when current project policy disables the provider",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const provider = yield* makeControlledProvider;
+      yield* Effect.gen(function* () {
+        yield* createThread(fixture.workspace);
+        yield* dispatch(message("active"));
+        const active = yield* Queue.take(provider.inputs);
+        yield* dispatch({
+          ...message("queued-before-disable"),
+          runtimeMode: "full-access",
+          interactionMode: "default",
+        });
+        const settings = yield* ServerSettings.ServerSettingsService;
+        yield* settings.updateSettings({
+          projectSettingsOverrides: {
+            [ProjectId.make("shared-queue-project")]: {
+              providerInstances: { [instanceId]: { enabled: false } },
+            },
+          },
+        });
+        yield* provider.complete(active);
+        yield* awaitStatus(yield* runFor("active"), "completed");
+        // resumeQueuedRuns runs the same authoritative headless policy under the thread lock.
+        assert.equal(
+          yield* Orchestrator.OrchestratorV2.use((orchestrator) => orchestrator.resumeQueuedRuns),
+          0,
+        );
+        yield* EffectWorker.OrchestrationEffectWorkerV2.use((worker) => worker.drain());
+        const current = yield* runFor("queued-before-disable");
+        assert.equal(current.status, "queued");
+        assert.isTrue(current.queueHeld);
+        assert.equal(current.runtimeMode, "full-access");
+        assert.deepEqual(yield* Ref.get(provider.deliveries), [MessageId.make("active")]);
+      }).pipe(Effect.provide(fixture.makeRuntime(provider)));
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "does not let explicit run modes or project enablement bypass an admin provider block",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const provider = yield* makeControlledProvider;
+      yield* Effect.gen(function* () {
+        yield* createThread(fixture.workspace);
+        const settings = yield* ServerSettings.ServerSettingsService;
+        yield* settings.updateSettings({
+          projectSettingsOverrides: {
+            [ProjectId.make("shared-queue-project")]: {
+              providerInstances: { [instanceId]: { enabled: true } },
+            },
+          },
+        });
+        const command = {
+          ...message("admin-blocked"),
+          runtimeMode: "full-access" as const,
+          interactionMode: "default" as const,
+        };
+        const result = yield* dispatch(command).pipe(Effect.result);
+        assert.equal(result._tag, "Failure");
+        if (result._tag === "Failure")
+          assert.equal(result.failure._tag, "ThreadManagementProviderInstanceDisabledError");
+        assert.isEmpty((yield* projection).runs);
+        assert.deepEqual(yield* Ref.get(provider.deliveries), []);
+      }).pipe(Effect.provide(fixture.makeRuntime(provider)));
+    }).pipe(
+      Effect.provideService(AdminProviderPolicyRef, { blockedDrivers: ["codex"], problem: null }),
+      Effect.provide(NodeServices.layer),
+    ),
+);
+
+const awaitProviderTurn = (input: ProviderAdapter.ProviderAdapterV2TurnInput) =>
+  Orchestrator.OrchestratorV2.use((orchestrator) =>
+    orchestrator.streamStoredEventsFrom({ threadId }).pipe(
+      Stream.filter(
+        (stored) =>
+          stored.event.type === "provider-turn.updated" &&
+          stored.event.payload.runAttemptId === input.attemptId &&
+          stored.event.payload.status === "running",
+      ),
+      Stream.take(1),
+      Stream.runDrain,
+    ),
+  );
+
+it.effect("applies newly requested narrower modes to an explicit interrupt and restart", () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const provider = yield* makeControlledProvider;
+    yield* Effect.gen(function* () {
+      yield* createThread(fixture.workspace);
+      yield* dispatch(message("active"));
+      const active = yield* Queue.take(provider.inputs);
+      yield* awaitProviderTurn(active);
+      yield* dispatch({
+        ...message("restart-narrow"),
+        runtimeMode: "approval-required",
+        interactionMode: "plan",
+        dispatchMode: { type: "restart_active", targetRunId: active.runId },
+      });
+      const restarted = yield* Queue.take(provider.inputs);
+      assert.equal(restarted.runId, active.runId);
+      assert.notEqual(restarted.attemptId, active.attemptId);
+      assert.equal(restarted.runtimePolicy.runtimeMode, "approval-required");
+      assert.equal(restarted.runtimePolicy.interactionMode, "plan");
+      yield* provider.complete(restarted);
+      yield* awaitStatus(yield* runFor("restart-narrow"), "completed");
+    }).pipe(Effect.provide(fixture.makeRuntime(provider)));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect.each(["direct", "queued-promotion"] as const)(
+  "rejects live %s steering with different modes without consuming the queued message",
+  (source) =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const provider = yield* makeControlledProvider;
+      yield* Effect.gen(function* () {
+        yield* createThread(fixture.workspace);
+        yield* dispatch(message("active"));
+        const active = yield* Queue.take(provider.inputs);
+        yield* awaitProviderTurn(active);
+        const restricted = {
+          ...message("restricted-steer"),
+          runtimeMode: "approval-required" as const,
+          interactionMode: "plan" as const,
+        };
+        if (source === "queued-promotion") yield* dispatch(restricted);
+        const command: OrchestrationV2Command =
+          source === "queued-promotion"
+            ? {
+                type: "queued-message.promote-to-steer",
+                commandId: CommandId.make("promote-restricted"),
+                threadId,
+                queuedRunId: (yield* runFor("restricted-steer")).id,
+                targetRunId: active.runId,
+              }
+            : { ...restricted, dispatchMode: { type: "steer_active", targetRunId: active.runId } };
+        const rejected = yield* dispatch(command).pipe(Effect.result);
+        assert.equal(rejected._tag, "Failure");
+        if (rejected._tag === "Failure") {
+          assert.equal(rejected.failure._tag, "OrchestratorCommandRejectedError");
+          assert.equal(
+            userFacingDispatchErrorMessage(rejected.failure),
+            "Queue this message or restart the turn to use different permission or interaction modes.",
+          );
+        }
+        const repeated = yield* dispatch(command).pipe(Effect.result);
+        assert.equal(repeated._tag, "Failure");
+        if (repeated._tag === "Failure")
+          assert.equal(repeated.failure._tag, "OrchestratorCommandPreviouslyRejectedError");
+        assert.equal((yield* runFor("active")).status, "running");
+        assert.deepEqual(yield* Ref.get(provider.deliveries), [MessageId.make("active")]);
+        if (source === "queued-promotion") {
+          const retained = yield* runFor("restricted-steer");
+          assert.equal(retained.status, "queued");
+          assert.equal(retained.runtimeMode, "approval-required");
+          yield* provider.complete(active);
+          const delivered = yield* Queue.take(provider.inputs);
+          assert.equal(delivered.message.messageId, restricted.messageId);
+          assert.equal(delivered.runtimePolicy.runtimeMode, "approval-required");
+          assert.equal(delivered.runtimePolicy.interactionMode, "plan");
+          yield* provider.complete(delivered);
+          yield* awaitStatus(retained, "completed");
+          assert.deepEqual(yield* Ref.get(provider.deliveries), [
+            MessageId.make("active"),
+            restricted.messageId,
+          ]);
+        } else {
+          assert.isFalse(
+            (yield* projection).messages.some((entry) => entry.id === restricted.messageId),
+          );
+          yield* provider.complete(active);
+          yield* awaitStatus(yield* runFor("active"), "completed");
+        }
       }).pipe(Effect.provide(fixture.makeRuntime(provider)));
     }).pipe(Effect.provide(NodeServices.layer)),
 );
