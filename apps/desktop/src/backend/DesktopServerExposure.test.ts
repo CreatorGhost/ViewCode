@@ -16,6 +16,7 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopNetworkInterfaces from "./DesktopNetworkInterfaces.ts";
 import * as DesktopServerExposure from "./DesktopServerExposure.ts";
+import * as DesktopTailscaleGate from "./DesktopTailscaleGate.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 
 const encoder = new TextEncoder();
@@ -106,6 +107,7 @@ function layer(input: {
   });
 
   return DesktopServerExposure.layer.pipe(
+    Layer.provideMerge(DesktopTailscaleGate.layer),
     Layer.provideMerge(input.desktopSettingsLayer ?? DesktopAppSettings.layer),
     Layer.provideMerge(NodeFileSystem.layer),
     Layer.provideMerge(NodeHttpClient.layerUndici),
@@ -281,6 +283,58 @@ describe("DesktopServerExposure", () => {
       Effect.die("network interfaces were read in local-only mode"),
     ),
   );
+  it.effect("runs no tailscale for Same Wi-Fi alone", () => {
+    let statusReads = 0;
+    return withHarness(
+      {
+        ...lanNetworkInterfaces,
+        vpn0: [{ address: "100.74.126.34", family: "IPv4", internal: false }],
+      },
+      Effect.gen(function* () {
+        const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+        yield* serverExposure.configureFromSettings({ port: 4173 });
+        yield* serverExposure.setMode("network-accessible");
+
+        // Without the CLI, an address on an interface that is not Tailscale's is not listed.
+        const endpoints = yield* serverExposure.getAdvertisedEndpoints;
+        assert.deepEqual(
+          endpoints.map((endpoint) => endpoint.httpBaseUrl),
+          ["http://127.0.0.1:4173/", "http://192.168.1.20:4173/"],
+        );
+        assert.equal(statusReads, 0);
+      }),
+      {},
+      layerMockSpawner(`{"Self":{"TailscaleIPs":["100.74.126.34"]}}`, () => {
+        statusReads += 1;
+      }),
+    );
+  });
+
+  it.effect("runs no tailscale with Serve on when Tailscale is turned off in Settings", () => {
+    let statusReads = 0;
+    return withHarness(
+      lanNetworkInterfaces,
+      Effect.gen(function* () {
+        const environment = yield* DesktopEnvironment.DesktopEnvironment;
+        const fileSystem = yield* FileSystem.FileSystem;
+        yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
+        yield* fileSystem.writeFileString(
+          environment.serverSettingsPath,
+          JSON.stringify({ tailscaleEnabled: false }),
+        );
+        const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+        yield* serverExposure.configureFromSettings({ port: 4173 });
+        yield* serverExposure.setTailscaleServeEnabled({ enabled: true });
+        yield* serverExposure.getAdvertisedEndpoints;
+        assert.equal(statusReads, 0);
+      }),
+      {},
+      layerMockSpawner(`{"Self":{"DNSName":"laptop.tail1234.ts.net."}}`, () => {
+        statusReads += 1;
+      }),
+    );
+  });
+
   it.effect("uses cached Tailscale identity to exclude another VPN's pairing address", () => {
     let statusReads = 0;
     return withHarness(
@@ -293,6 +347,8 @@ describe("DesktopServerExposure", () => {
         const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
         yield* serverExposure.configureFromSettings({ port: 4173 });
         yield* serverExposure.setMode("network-accessible");
+        // Tailscale Serve is the feature that reads `tailscale status`.
+        yield* serverExposure.setTailscaleServeEnabled({ enabled: true });
 
         const endpoints = yield* serverExposure.getAdvertisedEndpoints;
         assert.deepEqual(
