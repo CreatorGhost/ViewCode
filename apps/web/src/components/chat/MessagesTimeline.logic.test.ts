@@ -30,6 +30,7 @@ import {
   deriveMessagesTimelineRows,
   timelineEntryTurnFoldRunId,
   deriveMessagesTimelineRowsWithState,
+  insertPullRequestRows,
   shouldCollapseUserMessage,
   liveWorkEntryLabel,
   normalizeCompactToolLabel,
@@ -5788,5 +5789,46 @@ describe("timeline end and minimap geometry", () => {
     for (const width of [0, 14, 40]) {
       expect(resolveTimelineMinimapInteractiveWidth(width, true)).toBe("22rem");
     }
+  });
+});
+
+describe("insertPullRequestRows", () => {
+  const row = (id: string, createdAt: string, extra: Partial<MessagesTimelineRow> = {}) =>
+    ({ kind: "turn-fold", id, createdAt, ...extra }) as MessagesTimelineRow;
+  const ids = (rows: ReadonlyArray<MessagesTimelineRow>) => rows.map((entry) => entry.id);
+
+  it("places each card where the thread got its pull request, oldest first", () => {
+    const rows = [
+      row("ask", "2026-10-19T10:00:00Z"),
+      row("reply", "2026-10-19T10:05:00Z"),
+      row("next", "2026-10-19T11:00:00Z"),
+    ];
+    expect(
+      ids(
+        insertPullRequestRows(rows, [
+          { key: "b", anchorAt: "2026-10-19T10:30:00Z" },
+          { key: "a", anchorAt: "2026-10-19T10:20:00Z" },
+        ]),
+      ),
+    ).toEqual(["ask", "reply", "pull-request:a", "pull-request:b", "next"]);
+  });
+
+  it("puts a card linked after everything at the end, under the conversation so far", () => {
+    const rows = [row("ask", "2026-10-19T10:00:00Z"), row("reply", "2026-10-19T10:05:00Z")];
+    expect(
+      ids(insertPullRequestRows(rows, [{ key: "a", anchorAt: "2026-10-19T12:00:00Z" }])),
+    ).toEqual(["ask", "reply", "pull-request:a"]);
+  });
+
+  it("never splits a run of work log", () => {
+    const rows = [
+      row("step-1", "2026-10-19T10:00:00Z", { continuesWorkLog: true }),
+      row("step-2", "2026-10-19T10:02:00Z", { followsWorkLog: true, continuesWorkLog: true }),
+      row("step-3", "2026-10-19T10:04:00Z", { followsWorkLog: true }),
+      row("reply", "2026-10-19T10:05:00Z"),
+    ];
+    expect(
+      ids(insertPullRequestRows(rows, [{ key: "a", anchorAt: "2026-10-19T10:01:00Z" }])),
+    ).toEqual(["step-1", "step-2", "step-3", "pull-request:a", "reply"]);
   });
 });

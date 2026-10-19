@@ -624,6 +624,13 @@ type MessagesTimelineRowContent =
       htmlRender: HtmlRenderReference;
     }
   | {
+      /** The thread's pull request card, where the thread got the pull request. */
+      kind: "pull-request";
+      id: string;
+      createdAt: string;
+      pullRequestKey: string;
+    }
+  | {
       kind: "mcp-app";
       id: string;
       createdAt: string;
@@ -2237,6 +2244,11 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;
 
+    case "pull-request": {
+      const bp = b as typeof a;
+      return a.createdAt === bp.createdAt && a.pullRequestKey === bp.pullRequestKey;
+    }
+
     case "html-render": {
       // Entries rebuild on any tool update; an equal page must keep its mounted frame.
       const bh = b as typeof a;
@@ -2340,4 +2352,41 @@ export function shouldCollapseUserMessage(text: string): boolean {
     visible.length > MAX_COLLAPSED_USER_MESSAGE_LENGTH ||
     visible.split("\n").length > MAX_COLLAPSED_USER_MESSAGE_LINES
   );
+}
+
+/**
+ * Places each pull request card at the point the thread got it: before the first row that came
+ * later, but never inside a run of work log (its rail would break), so a card linked mid-turn
+ * lands after that turn's steps so far. One linked after everything sits at the end until the
+ * conversation moves on past it.
+ */
+export function insertPullRequestRows(
+  rows: ReadonlyArray<MessagesTimelineRow>,
+  pullRequests: ReadonlyArray<{ readonly key: string; readonly anchorAt: string }>,
+): MessagesTimelineRow[] {
+  if (pullRequests.length === 0) return [...rows];
+  const result = [...rows];
+  const ordered = pullRequests.toSorted(
+    (left, right) => Date.parse(left.anchorAt) - Date.parse(right.anchorAt),
+  );
+  // Oldest first: a later card always lands after an earlier one in the same gap.
+  for (const pullRequest of ordered) {
+    const anchor = Date.parse(pullRequest.anchorAt);
+    let index = result.findIndex(
+      (row) =>
+        row.kind !== "pull-request" &&
+        row.createdAt !== null &&
+        Number.isFinite(anchor) &&
+        Date.parse(row.createdAt) > anchor,
+    );
+    if (index === -1) index = result.length;
+    while (index < result.length && result[index]?.followsWorkLog === true) index += 1;
+    result.splice(index, 0, {
+      kind: "pull-request",
+      id: `pull-request:${pullRequest.key}`,
+      createdAt: pullRequest.anchorAt,
+      pullRequestKey: pullRequest.key,
+    });
+  }
+  return result;
 }
