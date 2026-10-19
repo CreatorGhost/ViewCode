@@ -5054,7 +5054,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         ) : null}
       </div>
     ) : null;
-  const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
+  const { active: panelAnimationsActive, durationMs: panelAnimationMs } =
     usePanelAnimationSettings();
   const composerMainSurfaceRef = useComposerRestingTransition(
     composerControlsCollapsed,
@@ -5062,7 +5062,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     restingComposerControlsRef,
     onComposerOverlayHeightChange,
     panelAnimationsActive,
-    panelAnimationDurationMs,
+    panelAnimationMs,
   );
   const canTrackComposerScrollGesture =
     routeKind === "server" && activeThreadId !== null && !isMobileViewport;

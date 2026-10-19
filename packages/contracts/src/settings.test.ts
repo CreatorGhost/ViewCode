@@ -613,17 +613,25 @@ describe("ClientSettings appearance contrast", () => {
 
 describe("ClientSettings panel animations", () => {
   it("defaults to a short slide", () => {
-    expect(decodeClientSettings({}).panelAnimationDurationMs).toBe(200);
+    expect(decodeClientSettings({}).panelAnimationMs).toBe(200);
+  });
+
+  it("slides for a client that saved the old 0ms default under the previous key", () => {
+    const saved = {
+      ...encodeClientSettings(decodeClientSettings({})),
+      panelAnimationDurationMs: 0,
+    };
+    expect(decodeClientSettings(saved).panelAnimationMs).toBe(200);
   });
 
   it.each([0, 400])("accepts a panel animation duration: %s", (value) => {
-    expect(decodeClientSettingsPatch({ panelAnimationDurationMs: value })).toEqual({
-      panelAnimationDurationMs: value,
+    expect(decodeClientSettingsPatch({ panelAnimationMs: value })).toEqual({
+      panelAnimationMs: value,
     });
   });
 
   it.each([-1, 401, 150.5])("rejects an invalid panel animation duration: %s", (value) => {
-    expect(() => decodeClientSettingsPatch({ panelAnimationDurationMs: value })).toThrow();
+    expect(() => decodeClientSettingsPatch({ panelAnimationMs: value })).toThrow();
   });
 });
 

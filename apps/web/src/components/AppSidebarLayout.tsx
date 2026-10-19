@@ -339,7 +339,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const projectTint = useActiveProjectTint();
-  const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
+  const { active: panelAnimationsActive, durationMs: panelAnimationMs } =
     usePanelAnimationSettings();
   // Settings routes show the settings nav in place of whichever thread
   // sidebar is active.
@@ -374,7 +374,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const sidebarProviderStyle = {
     // Clamped at render so a narrowed window never squeezes main; the saved width is kept.
     "--sidebar-width": `${Math.min(sidebarWidth, sidebarMaximumWidth)}px`,
-    "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
+    "--panel-animation-duration": `${panelAnimationMs}ms`,
   } as CSSProperties;
 
   useEffect(() => {

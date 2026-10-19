@@ -31,7 +31,7 @@ export function usePanelAnimationSettings(): {
   active: boolean;
   durationMs: PanelAnimationDurationMs;
 } {
-  const durationMs = useClientSettings((settings) => settings.panelAnimationDurationMs);
+  const durationMs = useClientSettings((settings) => settings.panelAnimationMs);
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const suppressed = useContext(PanelAnimationSuppressionContext);
   return { active: durationMs > 0 && !prefersReducedMotion && !suppressed, durationMs };

@@ -358,7 +358,7 @@ function PullRequestsRouteView() {
   const selectedPullRequestSurface =
     selectedRightPanelSurface?.kind === "pull-request" ? selectedRightPanelSurface : null;
   const activePullRequestSurface = rightPanelState.isOpen ? selectedPullRequestSurface : null;
-  const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
+  const { active: panelAnimationsActive, durationMs: panelAnimationMs } =
     usePanelAnimationSettings();
   const rightPanelPresenceValue = {
     activeSurface: selectedPullRequestSurface,
@@ -369,7 +369,7 @@ function PullRequestsRouteView() {
     rightPanelPresenceValue,
     panelAnimationsActive,
     rightPanelRef?.threadId ?? null,
-    panelAnimationDurationMs,
+    panelAnimationMs,
   );
   const rightPanelPresent = rightPanelPresence.present;
   const renderedPullRequestSurface = rightPanelPresence.value?.activeSurface ?? null;
@@ -1537,7 +1537,7 @@ function PullRequestsRouteView() {
         )}
         style={
           panelAnimationsActive
-            ? { transitionDuration: `${panelAnimationDurationMs}ms` }
+            ? { transitionDuration: `${panelAnimationMs}ms` }
             : undefined
         }
       />

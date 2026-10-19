@@ -336,7 +336,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   // Panel motion slides content on the compositor and changes the layout once, never per
   // frame (PreviewPanelShell, index.css), so it can be on by default; 0 turns it off.
-  panelAnimationDurationMs: PanelAnimationDurationMs.pipe(
+  // Renamed from `panelAnimationDurationMs`: clients save the whole settings object, so every
+  // existing browser and desktop app had stored that key's old default of 0 and never got motion.
+  panelAnimationMs: PanelAnimationDurationMs.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PANEL_ANIMATION_DURATION_MS)),
   ),
   browserDefaultViewport: PreviewViewportSetting.pipe(
@@ -1839,7 +1841,7 @@ export const ClientSettingsPatch = Schema.Struct({
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),
   appearanceContrast: Schema.optionalKey(AppearanceContrast),
-  panelAnimationDurationMs: Schema.optionalKey(PanelAnimationDurationMs),
+  panelAnimationMs: Schema.optionalKey(PanelAnimationDurationMs),
   browserDefaultViewport: Schema.optionalKey(PreviewViewportSetting),
   browserDefaultZoomFactor: Schema.optionalKey(PreviewZoomFactor),
   browserDefaultAppearance: Schema.optionalKey(PreviewAppearancePreference),
