@@ -589,6 +589,12 @@ The branch's fork point is the parent of its oldest first-parent commit, not `gi
 After the agent merges the base in, `merge-base` would move to the base tip and the base commits
 that conflicted would disappear from the card.
 
+Each PR card is a `pull-request` timeline row placed by `insertPullRequestRows` at the link's
+`linkedAt`, which is when the thread got the link, not when the host created the pull request. A
+pull request linked by hand later sits where it was linked. Folded cards render from the link
+snapshot only and never mount the full card, so the graph and checks reads stay with the one
+current card per thread.
+
 "Resolving" survives reloads and other devices without stored state. The thread's latest user
 message being the Resolve prompt, while its run is active, means the agent is resolving.
 `prFlowResolvePrompt` and `prFlowResolvePromptNumber` must keep matching each other.

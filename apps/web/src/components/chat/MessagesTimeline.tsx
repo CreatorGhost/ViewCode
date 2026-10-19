@@ -233,6 +233,7 @@ import { useAssistantCitationTarget, type CitationHistoryPage } from "./useAssis
 import {
   computeStableMessagesTimelineRows,
   deriveMessagesTimelineRowsWithState,
+  insertPullRequestRows,
   type MessagesTimelineRowsProjection,
   liveWorkEntryLabel,
   resolveAssistantMessageCopyState,
@@ -383,6 +384,7 @@ interface TimelineRowSharedState {
   onWorktreeSetupWorkLocally: (() => void) | null;
   onOpenWorktreeSetupTerminal: ((terminalId: string) => void) | null;
   workGroupViewState: WorkGroupViewState;
+  renderPullRequest: ((key: string) => ReactNode) | null;
 }
 
 interface TimelineRowActivityState {
@@ -457,6 +459,11 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END = {
   },
 } as const satisfies MaintainScrollAtEndOptions;
 const EMPTY_TIMELINE_RUNS: ReadonlyArray<HandoffTimelineRun> = [];
+export interface TimelinePullRequest {
+  readonly key: string;
+  readonly anchorAt: string;
+}
+const EMPTY_TIMELINE_PULL_REQUESTS: ReadonlyArray<TimelinePullRequest> = [];
 const EMPTY_RUN_IDS: ReadonlySet<RunId> = new Set();
 const TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH = {
   ...TIMELINE_MAINTAIN_SCROLL_AT_END,
@@ -491,6 +498,9 @@ interface MessagesTimelineProps {
   isCompacting?: boolean;
   awaitingUser?: boolean;
   footer?: ReactNode;
+  /** The thread's pull requests, each placed in the conversation where the thread got it. */
+  pullRequests?: ReadonlyArray<TimelinePullRequest>;
+  renderPullRequest?: (key: string) => ReactNode;
 
   listRef: React.RefObject<LegendListRef | null>;
   timelineEntries: ReadonlyArray<TimelineEntry>;
@@ -587,6 +597,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
   activeTurnStartedAt = null,
   worktreeSetup = null,
   footer = null,
+  pullRequests = EMPTY_TIMELINE_PULL_REQUESTS,
+  renderPullRequest,
   onCancelWorktreeSetup,
   retryableWorkspacePreparationRunIds = EMPTY_RUN_IDS,
   onRetryWorkspacePreparation,
@@ -900,7 +912,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     worktreeSetup,
     undeliveredMessages,
   });
-  const rows = useStableRows(rawRows, listIdentityKey);
+  const rows = useStableRows(useRowsWithPullRequests(rawRows, pullRequests), listIdentityKey);
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
@@ -1294,6 +1306,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onWorktreeSetupWorkLocally: onWorktreeSetupWorkLocally ?? null,
     onOpenWorktreeSetupTerminal: onOpenWorktreeSetupTerminal ?? null,
     workGroupViewState,
+    renderPullRequest: renderPullRequest ?? null,
   };
   const compactionAwaitingRow =
     isCompacting && !rows.some((row) => row.kind === "context-compaction" && row.active);
@@ -2035,12 +2048,18 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
       {row.kind === "html-render" ? <HtmlRenderTimelineRow row={row} /> : null}
       {row.kind === "mcp-app" ? <McpAppTimelineRow row={row} /> : null}
+      {row.kind === "pull-request" ? <PullRequestTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
       {row.kind === "worktree-setup" ? <WorktreeSetupTimelineRow row={row} /> : null}
       {row.kind === "event" ? <V2EventTimelineRow row={row} /> : null}
     </div>
   );
 });
+
+function PullRequestTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "pull-request" }> }) {
+  const { renderPullRequest } = use(TimelineRowCtx);
+  return renderPullRequest === null ? null : renderPullRequest(row.pullRequestKey);
+}
 
 function WorktreeSetupTimelineRow({
   row,
@@ -5038,6 +5057,23 @@ function useIncrementalTimelineRows(
   );
   setState({ identity, input, projection });
   return projection.rows;
+}
+
+/** The rows with the pull request cards placed in them; the same array while neither changes. */
+function useRowsWithPullRequests(
+  rows: MessagesTimelineRow[],
+  pullRequests: ReadonlyArray<TimelinePullRequest>,
+): MessagesTimelineRow[] {
+  const signature = pullRequests.map((entry) => `${entry.key}\0${entry.anchorAt}`).join("\n");
+  const [state, setState] = useState<{
+    readonly source: MessagesTimelineRow[] | null;
+    readonly signature: string;
+    readonly value: MessagesTimelineRow[];
+  }>({ source: null, signature: "", value: rows });
+  if (state.source === rows && state.signature === signature) return state.value;
+  const value = pullRequests.length === 0 ? rows : insertPullRequestRows(rows, pullRequests);
+  setState({ source: rows, signature, value });
+  return value;
 }
 
 function useStableRows(rows: MessagesTimelineRow[], identity: string): MessagesTimelineRow[] {

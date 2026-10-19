@@ -659,6 +659,25 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
+/* A pull request card folding to its one line and back (PrFlowFoldFrame): grid rows, never
+   height. Reduced motion swaps at once. */
+.pr-flow-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+.pr-flow-fold[data-open="false"] {
+  grid-template-rows: 0fr;
+}
+.pr-flow-fold > * {
+  overflow: hidden;
+  min-height: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pr-flow-fold {
+    transition: grid-template-rows var(--dur-row) var(--ease-out-expo);
+  }
+}
+
 /* Live PR flow states (open conflicts, resolving, running checks) keep the activity shimmer's
    beat: two sweeps then a rest over 1.8s, stepped, paused off screen by observeVisibleAnimation
    (--visible-animation-state), and gone under reduced motion. The glow only fades in and out;

@@ -3,7 +3,13 @@ import type {
   GitGraphLane,
   GitPullRequestGraph,
   PullRequestCheck,
+  ThreadPullRequestLink,
 } from "@t3tools/contracts";
+import {
+  resolveThreadCurrentPullRequestLink,
+  threadPullRequestKeyOf,
+  visibleThreadPullRequests,
+} from "@t3tools/shared/threadPullRequests";
 
 /**
  * One pull request on its way from "Create PR" to merged, as the chat shows it. The card, its
@@ -118,6 +124,8 @@ export interface PrFlow {
   readonly base: string | null;
   readonly additions: number | null;
   readonly deletions: number | null;
+  /** When the host merged it, for how long the merge is news. */
+  readonly mergedAt: string | null;
   /** A draft cannot be merged until it is marked ready. */
   readonly draft: boolean;
   /** Newest first: the branch, the base since the fork, and the fork itself last. */
@@ -524,6 +532,7 @@ export interface PrFlowPullRequest {
   readonly headBranch: string;
   readonly baseBranch: string;
   readonly isDraft?: boolean | undefined;
+  readonly mergedAt?: string | null | undefined;
   readonly additions?: number | undefined;
   readonly deletions?: number | undefined;
   readonly checksState?: "passing" | "failing" | "pending" | null | undefined;
@@ -597,6 +606,7 @@ export function prFlowFromPullRequest(
     base: pr.baseBranch,
     additions: pr.additions ?? null,
     deletions: pr.deletions ?? null,
+    mergedAt: pr.mergedAt ?? null,
     draft: pr.isDraft === true,
     rows: laid?.rows ?? [],
     headCommits: graph?.head.length ?? null,
@@ -624,6 +634,7 @@ export function prFlowCreating(input: {
     base: null,
     additions: null,
     deletions: null,
+    mergedAt: null,
     draft: false,
     rows: [],
     headCommits: input.commitsToPush,
@@ -631,4 +642,74 @@ export function prFlowCreating(input: {
     checks: null,
     step: null,
   };
+}
+
+/** How long a merge stays news: until then the merged card and the composer chip stay. */
+export const PR_MERGE_NEWS_MS = 60_000;
+/** The merged moment (purple wave, "Merged into <base>") before the card folds to one line. */
+export const PR_MERGED_MOMENT_MS = 2_200;
+
+export interface PrFlowTimelinePullRequest {
+  /** `threadPullRequestKeyOf`: host, repository and number. */
+  readonly key: string;
+  /** Where the card sits in the conversation: when the thread got the pull request. */
+  readonly anchorAt: string;
+}
+
+/**
+ * The thread's pull requests as timeline cards, oldest first, and which one is current: the
+ * latest open one (or the newest when none is open). Only that one is live.
+ */
+export function prFlowTimelinePullRequests(links: ReadonlyArray<ThreadPullRequestLink>): {
+  readonly pullRequests: ReadonlyArray<PrFlowTimelinePullRequest>;
+  readonly currentKey: string | null;
+} {
+  const visible = visibleThreadPullRequests(links);
+  const current = resolveThreadCurrentPullRequestLink(visible);
+  return {
+    pullRequests: visible
+      .map((link) => ({ key: threadPullRequestKeyOf(link), anchorAt: link.linkedAt }))
+      .toSorted((left, right) => Date.parse(left.anchorAt) - Date.parse(right.anchorAt)),
+    currentKey: current === null ? null : threadPullRequestKeyOf(current),
+  };
+}
+
+export type PrFlowFoldChoice = "expanded" | "collapsed";
+
+/**
+ * Whether a pull request's timeline card shows as one line. The reader's own choice wins. A
+ * closed one folds; a merged one folds once its merged moment has played, or at once when the
+ * merge is no longer news; an open one folds unless it is the current pull request.
+ */
+export function prFlowFolded(input: {
+  readonly state: "open" | "merged" | "closed";
+  readonly current: boolean;
+  readonly choice: PrFlowFoldChoice | null;
+  /** How long ago it merged; null while open or when the host gave no time. */
+  readonly mergedAgoMs: number | null;
+  readonly mergedMomentOver: boolean;
+}): boolean {
+  if (input.choice !== null) return input.choice === "collapsed";
+  switch (input.state) {
+    case "closed":
+      return true;
+    case "merged":
+      return (
+        input.mergedMomentOver ||
+        input.mergedAgoMs === null ||
+        input.mergedAgoMs >= PR_MERGE_NEWS_MS
+      );
+    case "open":
+      return !input.current;
+  }
+}
+
+/** The composer chip shows the current pull request while it is open, or merged and still news. */
+export function prFlowChipShown(input: {
+  readonly state: "open" | "merged" | "closed";
+  readonly mergedAgoMs: number | null;
+}): boolean {
+  if (input.state === "open") return true;
+  if (input.state === "closed") return false;
+  return input.mergedAgoMs !== null && input.mergedAgoMs < PR_MERGE_NEWS_MS;
 }

@@ -540,7 +540,12 @@ import {
 } from "../lib/attachmentUploadQueue";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
-import { ThreadPrFlowCard, ThreadPrStatusChips } from "./chat/prFlow/ThreadPrFlowCard";
+import {
+  ThreadPrCreatingCard,
+  ThreadPrStatusChips,
+  ThreadPrTimelineCard,
+  useThreadTimelinePullRequests,
+} from "./chat/prFlow/ThreadPrFlowCard";
 import { previewEnvironment } from "../state/preview";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -1601,6 +1606,15 @@ export default function ChatView(props: ChatViewProps) {
     return labels;
   })();
   const activeThreadRef = useActiveThreadRef(activeThread);
+  // The thread's pull requests, each a card in the conversation where the thread got it.
+  const timelinePullRequests = useThreadTimelinePullRequests(
+    isServerThread ? activeThreadRef : null,
+  );
+  const renderTimelinePullRequest = useStableCallback((pullRequestKey: string) =>
+    activeThreadRef === null ? null : (
+      <ThreadPrTimelineCard threadRef={activeThreadRef} pullRequestKey={pullRequestKey} />
+    ),
+  );
   const terminalActions = useThreadTerminalActions(activeThreadRef);
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const activeEnvironmentServerBrowser = useEnvironmentSupportsServerBrowser(
@@ -8135,15 +8149,22 @@ export default function ChatView(props: ChatViewProps) {
                         </div>
                       )}
                       {isServerThread && activeThreadRef ? (
-                        // The thread's pull request, at the end of the conversation it came from.
+                        // A pull request the git menu is opening has no place in the
+                        // conversation yet; once linked, its card sits where it was linked.
                         <div className="chat-content-lane pt-3 empty:hidden">
-                          <ThreadPrFlowCard threadRef={activeThreadRef} />
+                          <ThreadPrCreatingCard threadRef={activeThreadRef} />
                         </div>
                       ) : null}
                       {threadStatusLine}
                     </>
                   )
                 }
+                {...(paintOnlyDisplayedTimeline
+                  ? {}
+                  : {
+                      pullRequests: timelinePullRequests,
+                      renderPullRequest: renderTimelinePullRequest,
+                    })}
                 listRef={legendListRef}
                 timelineEntries={displayedTimeline.entries}
                 runs={paintOnlyDisplayedTimeline ? [] : (serverProjection?.runs ?? [])}
