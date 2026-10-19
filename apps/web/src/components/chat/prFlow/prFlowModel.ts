@@ -48,7 +48,12 @@ export interface PrFlowConflictFile {
 }
 
 export interface PrFlowConflicts {
-  /** Conflicting hunks; 0 when only the host knows it conflicts, not where. */
+  /**
+   * What `total` and `resolved` count, the same unit everywhere in the card: clashing hunks when
+   * the checkout could read them, else conflicted files of the merge in progress.
+   */
+  readonly unit: "conflict" | "file";
+  /** 0 when only the host knows it conflicts, not where. */
   readonly total: number;
   readonly resolved: number;
   readonly files: ReadonlyArray<PrFlowConflictFile>;
@@ -177,19 +182,19 @@ export function prFlowStatus(flow: PrFlow): PrFlowStatus {
         target: conflictWord.toLowerCase(),
       };
     case "resolving": {
+      const unit = conflicts?.unit ?? "conflict";
       const total = conflicts?.total ?? 0;
       const resolved = conflicts?.resolved ?? 0;
       const remaining = total - resolved;
       const progress =
         total > 0 && remaining > 0
-          ? `Resolving conflict ${Math.min(resolved + 1, total)} of ${total}`
+          ? `Resolving ${unit} ${Math.min(resolved + 1, total)} of ${total}`
           : null;
       return {
         tone: "busy",
         label: flow.step ?? progress ?? "Working…",
         short: "Resolving",
-        target:
-          total === 0 ? "resolving" : remaining > 0 ? plural(remaining, "conflict") : "resolved",
+        target: total === 0 ? "resolving" : remaining > 0 ? plural(remaining, unit) : "resolved",
       };
     }
     case "testing": {
@@ -448,7 +453,7 @@ function prFlowRows(
         lane: commit.lane,
         refs: commit.refs,
         parents: commit.parents,
-        conflicts: conflict?.count ?? 0,
+        conflicts: (unresolved === null ? conflict?.count : conflict?.open) ?? 0,
         resolved:
           conflict !== undefined
             ? conflict.open === 0 && unresolved !== null
@@ -473,8 +478,22 @@ function prFlowRows(
             resolved: false,
           } satisfies PrFlowCommitRow,
         ];
-  const total = files.reduce((sum, file) => sum + file.count, 0);
-  const resolvedCount = files.reduce((sum, file) => sum + (file.resolved ? file.count : 0), 0);
+  const conflicts: PrFlowConflicts | null =
+    files.length > 0
+      ? {
+          unit: "conflict",
+          total: files.reduce((sum, file) => sum + file.count, 0),
+          resolved: files.reduce((sum, file) => sum + (file.resolved ? file.count : 0), 0),
+          files: files.map(({ baseCommits: _baseCommits, ...file }) => file),
+        }
+      : graph.resolving !== null && graph.resolving.total > 0
+        ? {
+            unit: "file",
+            total: graph.resolving.total,
+            resolved: Math.max(0, graph.resolving.total - graph.resolving.unresolved.length),
+            files: [],
+          }
+        : null;
   const merging: ReadonlyArray<PrFlowMergeRow> =
     graph.resolving === null
       ? []
@@ -483,8 +502,8 @@ function prFlowRows(
             kind: "merging",
             key: "merging",
             subject: `Merge ${options.base} into ${options.head}`,
-            done: Math.max(0, graph.resolving.total - graph.resolving.unresolved.length),
-            total: graph.resolving.total,
+            done: conflicts?.resolved ?? 0,
+            total: conflicts?.total ?? 0,
             parents: [graph.head[0]?.sha, graph.base[0]?.sha].filter(
               (sha): sha is string => sha !== undefined,
             ),
@@ -492,14 +511,7 @@ function prFlowRows(
         ];
   return {
     rows: [...merging, ...commits, ...fork],
-    conflicts:
-      files.length === 0
-        ? null
-        : {
-            total,
-            resolved: resolvedCount,
-            files: files.map(({ baseCommits: _baseCommits, ...file }) => file),
-          },
+    conflicts,
   };
 }
 
@@ -569,7 +581,9 @@ export function prFlowFromPullRequest(
           head: pr.headBranch,
           resolving: phase === "resolving",
         });
-  const conflicts = laid?.conflicts ?? (conflicting ? { total: 0, resolved: 0, files: [] } : null);
+  const conflicts: PrFlowConflicts | null =
+    laid?.conflicts ??
+    (conflicting ? { unit: "conflict", total: 0, resolved: 0, files: [] } : null);
   const command =
     phase === "resolving" && sources.command !== null
       ? prFlowCommandStep(sources.command, pr.baseBranch, pr.headBranch)

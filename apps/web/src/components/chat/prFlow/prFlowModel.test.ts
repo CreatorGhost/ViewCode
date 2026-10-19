@@ -183,15 +183,18 @@ describe("prFlowFromPullRequest", () => {
       label: "Resolving conflict 2 of 3",
       target: "2 conflicts",
     });
-    expect(halfway?.rows[0]).toMatchObject({ kind: "merging", done: 1, total: 2 });
+    // The merge row, the header and the footer count the same thing: clashes, not files.
+    expect(halfway?.rows[0]).toMatchObject({ kind: "merging", done: 1, total: 3 });
     expect(
       halfway?.rows.flatMap((row) =>
-        row.kind === "commit" && row.lane === "base" ? [[row.sha, row.resolved]] : [],
+        row.kind === "commit" && row.lane === "base"
+          ? [[row.sha, row.resolved, row.conflicts]]
+          : [],
       ),
     ).toEqual([
-      ["keys", true],
-      ["rotate", false],
-      ["fork", false],
+      ["keys", true, 0],
+      ["rotate", false, 2],
+      ["fork", false, 0],
     ]);
 
     const done = prFlowFromPullRequest(pr, {
@@ -199,6 +202,25 @@ describe("prFlowFromPullRequest", () => {
       graph: { ...GRAPH, resolving: { total: 2, unresolved: [] } },
     });
     expect(done && prFlowStatus(done)).toMatchObject({ label: "Working…", target: "resolved" });
+  });
+
+  it("counts files when the checkout cannot say where the clashes are", () => {
+    const flow = prFlowFromPullRequest(
+      { ...OPEN, mergeability: "conflicting" },
+      {
+        ...IDLE,
+        graph: {
+          ...GRAPH,
+          conflicts: null,
+          resolving: { total: 3, unresolved: ["a.ts", "b.ts"] },
+        },
+      },
+    );
+    expect(flow && prFlowStatus(flow)).toMatchObject({
+      label: "Resolving file 2 of 3",
+      target: "2 files",
+    });
+    expect(flow?.rows[0]).toMatchObject({ kind: "merging", done: 1, total: 3 });
   });
 
   it("names what the agent is running while it resolves", () => {

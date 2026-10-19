@@ -252,7 +252,7 @@ function PrFlowRowFrame({
         <div
           className={cn(
             "relative flex h-7 items-center gap-2 rounded-md pr-1",
-            highlight && "bg-branch/8",
+            highlight && "bg-branch/10",
           )}
         >
           <svg
@@ -344,7 +344,7 @@ function RowNode({ row, flow }: { row: PrFlowRow; flow: PrFlow }) {
     <circle
       cx={LANE_X[row.lane]}
       cy={MID}
-      r={row.lane === "head" ? 3.5 : 3}
+      r={row.lane === "head" ? 4 : 3.5}
       className={tone}
       fill="currentColor"
     />

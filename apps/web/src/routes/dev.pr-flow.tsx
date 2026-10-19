@@ -125,6 +125,13 @@ const check = (
     : { completedAt: new Date(Date.now() - 120_000 + seconds * 1000).toISOString() }),
 });
 
+const passedChecks = () => [
+  check("Tests", "success", 38),
+  check("Lint", "success", 9),
+  check("typecheck", "success", 21),
+  check("Vercel Preview", "success", 64),
+];
+
 const PR: PrFlowPullRequest = {
   number: 128,
   url: "https://github.com/example/app/pull/128",
@@ -260,12 +267,7 @@ const STEPS: ReadonlyArray<{ readonly name: string; readonly flow: () => PrFlow 
         {
           ...IDLE,
           graph: RESOLVED_GRAPH,
-          checks: [
-            check("Tests", "success", 38),
-            check("Lint", "success", 9),
-            check("typecheck", "success", 21),
-            check("Vercel Preview", "success", 64),
-          ],
+          checks: passedChecks(),
         },
       ),
   },
@@ -274,7 +276,7 @@ const STEPS: ReadonlyArray<{ readonly name: string; readonly flow: () => PrFlow 
     flow: () =>
       prFlowFromPullRequest(
         { ...PR, mergeability: "mergeable", checksState: "passing" },
-        { ...IDLE, graph: RESOLVED_GRAPH, merging: true, checks: [check("Tests", "success", 38)] },
+        { ...IDLE, graph: RESOLVED_GRAPH, merging: true, checks: passedChecks() },
       ),
   },
   {
@@ -285,7 +287,7 @@ const STEPS: ReadonlyArray<{ readonly name: string; readonly flow: () => PrFlow 
         {
           ...IDLE,
           graph: { ...RESOLVED_GRAPH, merged: true },
-          checks: [check("Tests", "success", 38)],
+          checks: passedChecks(),
         },
       ),
   },
