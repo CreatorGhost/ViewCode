@@ -577,7 +577,8 @@ interface ProviderInstanceCardProps {
   readonly onSelect?: (() => void) | undefined;
   readonly readOnly?: boolean | undefined;
   readonly canWriteSettings?: boolean;
-  readonly onUpdate: (nextInstance: ProviderInstanceConfig) => void;
+  /** Resolves false when the update was not saved. */
+  readonly onUpdate: (nextInstance: ProviderInstanceConfig) => Promise<boolean> | void;
   readonly onDelete?: (() => void) | undefined;
   readonly headerAction?: ReactNode | undefined;
   readonly setup?: ReactNode;
@@ -652,9 +653,19 @@ export function ProviderInstanceCard({
   const blockedByAdmin =
     liveProvider?.disabledByAdmin === true ||
     isAdminBlockedProvider(instance, policyConfig?.adminBlockedProviderDrivers ?? []);
+  // The switch flips on click: the saved settings can take seconds to come back, and a switch
+  // that ignores the click reads as broken. It shows the clicked value until this instance's
+  // settings change (whatever the server stored) or the save fails.
+  const [pendingEnabled, setPendingEnabled] = useState<{
+    readonly value: boolean;
+    readonly from: ProviderInstanceConfig;
+  } | null>(null);
+  if (pendingEnabled !== null && pendingEnabled.from !== instance) setPendingEnabled(null);
   const enabled =
     !blockedByAdmin &&
-    (projectOverride?.effectiveEnabled ?? resolveProviderInstanceEnabled(instance));
+    (projectOverride?.effectiveEnabled ??
+      pendingEnabled?.value ??
+      resolveProviderInstanceEnabled(instance));
   const compatibility = enabled ? liveProvider?.compatibilityAdvisory : undefined;
   const statusKey: ProviderStatusKey = enabled
     ? ((liveProvider?.status as ProviderStatusKey | undefined) ?? "warning")
@@ -752,7 +763,11 @@ export function ProviderInstanceCard({
       projectOverride.onChange(value);
       return;
     }
-    onUpdate({ ...instance, enabled: value });
+    const pending = { value, from: instance };
+    setPendingEnabled(pending);
+    void Promise.resolve(onUpdate({ ...instance, enabled: value })).then((saved) => {
+      if (saved === false) setPendingEnabled((current) => (current === pending ? null : current));
+    });
   };
 
   const updateAccentColor = (value: string) => {
