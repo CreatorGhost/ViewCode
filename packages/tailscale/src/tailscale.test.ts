@@ -23,10 +23,12 @@ import {
   parseTailscaleStatus,
   readTailscaleSshEnabled,
   readTailscaleStatus,
+  resolveTailscaleBlock,
   TAILSCALE_STATUS_TIMEOUT,
   TailscaleCommandExitError,
   TailscaleCommandSpawnError,
   TailscaleCommandTimeoutError,
+  TailscaleDisabledError,
   TailscaleStatusParseError,
 } from "./tailscale.ts";
 
@@ -386,6 +388,39 @@ describe("tailscale", () => {
         { command: "tailscale", args: ["serve", "--https=8443", "off"] },
       ]);
     });
+  });
+
+  it.effect("runs no command at all while VIEWCODE_DISABLE_TAILSCALE is set", () => {
+    let spawned = 0;
+    const layer = layerMockSpawner(() => {
+      spawned++;
+      return { stdout: tailscaleStatusJson };
+    });
+    return Effect.gen(function* () {
+      const status = yield* readTailscaleStatus.pipe(Effect.flip);
+      const prefs = yield* readTailscaleSshEnabled.pipe(Effect.flip);
+      const serve = yield* ensureTailscaleServe({ localPort: 3773 }).pipe(Effect.flip);
+      for (const error of [status, prefs, serve]) {
+        assert.instanceOf(error, TailscaleDisabledError);
+      }
+      assert.equal(spawned, 0);
+    }).pipe(
+      Effect.provide(layer),
+      Effect.provideService(HostProcess.Environment, { VIEWCODE_DISABLE_TAILSCALE: "1" }),
+    );
+  });
+
+  it("lets the environment switch outrank the setting", () => {
+    assert.equal(resolveTailscaleBlock({ env: {}, settingEnabled: true }), null);
+    assert.equal(resolveTailscaleBlock({ env: {}, settingEnabled: false }), "setting");
+    assert.equal(
+      resolveTailscaleBlock({ env: { VIEWCODE_DISABLE_TAILSCALE: "true" }, settingEnabled: true }),
+      "environment",
+    );
+    assert.equal(
+      resolveTailscaleBlock({ env: { VIEWCODE_DISABLE_TAILSCALE: "0" }, settingEnabled: true }),
+      null,
+    );
   });
 
   describe("finding the CLI off PATH", () => {

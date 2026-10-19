@@ -14,7 +14,10 @@ import { useEffect, useState } from "react";
 import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
 import { isLoopbackHostname } from "~/environments/primary/target";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { environmentPresentations } from "~/state/presentation";
+import { serverEnvironment } from "~/state/server";
+import { useAtomCommand } from "~/state/use-atom-command";
 
 export interface RemoteOpenHost {
   readonly kind: "ssh-alias" | RemoteOpenTarget["kind"];
@@ -88,6 +91,53 @@ function remoteOpenStatesEqual(previous: RemoteOpenState, next: RemoteOpenState)
   return previous.host.kind === next.host.kind && previous.host.host === next.host.host;
 }
 
+/**
+ * ViewCode: SSH routes fetched when "open in editor" is used. The server
+ * config no longer probes for them (that ran `tailscale` on every page load),
+ * so until the user asks, a remote environment's config may carry none.
+ */
+type RequestedRemoteOpenTargets =
+  | { readonly status: "loading" }
+  | { readonly status: "done"; readonly targets: ReadonlyArray<RemoteOpenTarget> };
+
+const requestedRemoteOpenTargetsAtom = Atom.family((environmentId: EnvironmentId) =>
+  Atom.make<RequestedRemoteOpenTargets | null>(null).pipe(
+    Atom.keepAlive,
+    Atom.withLabel(`remote-open-requested-targets:${environmentId}`),
+  ),
+);
+
+const NO_REQUESTED_TARGETS_ATOM = Atom.make<RequestedRemoteOpenTargets | null>(null);
+
+/**
+ * Asks the server for SSH routes now, for "open in editor" on a remote
+ * environment. `looking` is true while it answers.
+ */
+export function useRemoteOpenTargetsLookup(environmentId: EnvironmentId | null) {
+  const resolveTargets = useAtomCommand(serverEnvironment.resolveRemoteOpenTargets, {
+    reportFailure: false,
+  });
+  const requested = useAtomValue(
+    environmentId === null
+      ? NO_REQUESTED_TARGETS_ATOM
+      : requestedRemoteOpenTargetsAtom(environmentId),
+  );
+  const looking = requested?.status === "loading";
+  const lookUp = () => {
+    if (environmentId === null || looking) return;
+    const atom = requestedRemoteOpenTargetsAtom(environmentId);
+    appAtomRegistry.set(atom, { status: "loading" });
+    void resolveTargets({ environmentId, input: {} }).then((result) => {
+      // An older server has no such request; its config already carries the routes.
+      appAtomRegistry.set(
+        atom,
+        result._tag === "Success" ? { status: "done", targets: result.value.targets } : null,
+      );
+    });
+  };
+  return { looking, lookUp };
+}
+
 // The presentation changes with every server config push and reconnect. This
 // keeps the previous resolution while it is equal, so subscribers re-render only
 // when where files open actually changes.
@@ -99,12 +149,16 @@ const remoteOpenResolutionAtom = Atom.family((environmentId: EnvironmentId) =>
       return UNRESOLVED_REMOTE_OPEN;
     }
     const profile = Option.getOrNull(entry.profile);
+    const requested = get(requestedRemoteOpenTargetsAtom(environmentId));
     const next: RemoteOpenResolution = {
       state: resolveRemoteOpenState({
         target: entry.target,
         sshAlias:
           profile !== null && profile._tag === "SshConnectionProfile" ? profile.target.alias : null,
-        remoteOpenTargets: presentation?.serverConfig?.remoteOpenTargets,
+        remoteOpenTargets:
+          requested?.status === "done"
+            ? requested.targets
+            : presentation?.serverConfig?.remoteOpenTargets,
         isDesktopRenderer: window.desktopBridge !== undefined,
       }),
       isResolved: true,

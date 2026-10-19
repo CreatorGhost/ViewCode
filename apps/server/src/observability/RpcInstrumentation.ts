@@ -213,6 +213,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverGetProviderWorkspaceSnapshot]: "viewcode",
   [WS_METHODS.serverGetComputerUseStatus]: "viewcode",
   [WS_METHODS.serverGetComputerUseActivity]: "viewcode",
+  [WS_METHODS.serverResolveRemoteOpenTargets]: "viewcode",
   [WS_METHODS.providerAccountAdd]: "viewcode",
   [WS_METHODS.providerAccountPrepareSignIn]: "viewcode",
   [WS_METHODS.serverDetectProviders]: "viewcode",

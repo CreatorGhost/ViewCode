@@ -347,6 +347,7 @@ import {
   ServerLifecycleStreamEvent,
   ServerRemoveKeybindingInput,
   ServerRemoveKeybindingResult,
+  ServerRemoteOpenTargetsResult,
   ServerProviderUpdatedPayload,
   ServerProviderWorkspaceSnapshot,
   ServerSelfUpdateError,
@@ -553,6 +554,7 @@ export const WS_METHODS = {
   serverGetProviderWorkspaceSnapshot: "server.getProviderWorkspaceSnapshot",
   serverGetComputerUseStatus: "server.getComputerUseStatus",
   serverGetComputerUseActivity: "server.getComputerUseActivity",
+  serverResolveRemoteOpenTargets: "server.resolveRemoteOpenTargets",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
   serverUpdateServerWithProgress: "server.updateServerWithProgress",
@@ -748,6 +750,17 @@ const WsServerGetComputerUseStatusRpc = Rpc.make(WS_METHODS.serverGetComputerUse
 const WsServerGetComputerUseActivityRpc = Rpc.make(WS_METHODS.serverGetComputerUseActivity, {
   payload: Schema.Struct({}),
   success: ComputerUseActivity,
+  error: EnvironmentAuthorizationError,
+});
+
+/**
+ * Looks for an SSH route to this server for "open in editor" now, reading
+ * Tailscale status when it is allowed. Clients call it when that feature is
+ * used, never on load.
+ */
+const WsServerResolveRemoteOpenTargetsRpc = Rpc.make(WS_METHODS.serverResolveRemoteOpenTargets, {
+  payload: Schema.Struct({}),
+  success: ServerRemoteOpenTargetsResult,
   error: EnvironmentAuthorizationError,
 });
 
@@ -2207,6 +2220,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetProviderWorkspaceSnapshotRpc,
   WsServerGetComputerUseStatusRpc,
   WsServerGetComputerUseActivityRpc,
+  WsServerResolveRemoteOpenTargetsRpc,
   WsServerUpdateProviderRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,

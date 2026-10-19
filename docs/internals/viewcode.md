@@ -581,10 +581,19 @@ goal state. Debug guidance must not alter the provider's own permission policy.
   (PATH, then fixed install paths such as the Mac app's bundled CLI, which never
   joins PATH; never a spawn; `knownTailscaleExecutablePaths` in `packages/tailscale`
   is shared with the spawns, which fall back the same way), whose "Turn on"
-  reuses `setTailscaleServeEnabled`. Launch turns Serve on when the CLI is found and
-  `tailscale status` shows a tailnet name (`tailscaleAutoServe`, default on, persisted
-  only as `false`); turning Serve off also sets it false, so ViewCode never turns Serve
-  back on after the user turned it off. Pairing still gates every phone. The dialog
+  reuses `setTailscaleServeEnabled`. Launch turns Serve on only when the user opted in
+  (`tailscaleAutoServe`, default off) and `tailscale status` shows a tailnet name;
+  turning Serve off also sets it false. Pairing still gates every phone.
+- Nothing runs `tailscale` on startup, a config read or a page load: endpoint
+  security on managed Macs kills the process that spawns it
+  ([managed-macos.md](../operations/managed-macos.md)). Only a Tailscale feature the
+  user is using may: Serve, the Connect phone Tailscale tab, or "open in editor"
+  from a remote client, which asks `server.resolveRemoteOpenTargets` when its menu
+  opens (the config only carries the last answer). Server spawns go through
+  `environment/TailscaleAccess.ts` (60s cache), desktop ones through
+  `DesktopTailscaleGate`; both answer "allowed?" with `resolveTailscaleBlock`, where
+  `VIEWCODE_DISABLE_TAILSCALE` outranks the `tailscaleEnabled` setting. Add an admin
+  policy there, not at a call site. The dialog
   does not offer upstream's hosted T3 Connect tunnel:
   Quick connect does that job on the user's own account, and a third choice only
   confused people. Native managed relay infrastructure remains upstream code, but ViewCode hides

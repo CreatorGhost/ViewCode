@@ -6,7 +6,9 @@ import {
   desktopNetworkAccessStateAtom,
   refreshDesktopNetworkAccessState,
 } from "~/state/desktopNetworkAccess";
+import { usePrimaryEnvironmentId } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
+import { describeTailscaleBlock, useTailscaleBlock } from "~/state/tailscaleAccess";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
@@ -28,7 +30,18 @@ export function TailscalePhone({
   const network = useEnvironmentQuery(desktopNetworkAccessStateAtom).data;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const tailscaleBlock = useTailscaleBlock(usePrimaryEnvironmentId());
 
+  if (tailscaleBlock !== null) {
+    return (
+      <Alert variant="warning">
+        <TriangleAlertIcon />
+        <AlertDescription>
+          {describeTailscaleBlock(tailscaleBlock)} Use Quick connect or Same Wi-Fi instead.
+        </AlertDescription>
+      </Alert>
+    );
+  }
   if (!network) {
     return (
       <div className="flex justify-center py-8">

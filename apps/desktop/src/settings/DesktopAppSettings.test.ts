@@ -131,7 +131,7 @@ describe("DesktopSettings", () => {
         serverExposureMode: "local-only",
         tailscaleServeEnabled: false,
         tailscaleServePort: 443,
-        tailscaleAutoServe: true,
+        tailscaleAutoServe: false,
         updateChannel: "nightly",
         updateChannelConfiguredByUser: false,
         wslBackendEnabled: false,
@@ -162,7 +162,7 @@ describe("DesktopSettings", () => {
           serverExposureMode: "network-accessible",
           tailscaleServeEnabled: true,
           tailscaleServePort: 8443,
-          tailscaleAutoServe: true,
+          tailscaleAutoServe: false,
           updateChannel: "latest",
           updateChannelConfiguredByUser: true,
           wslBackendEnabled: false,
@@ -273,7 +273,7 @@ describe("DesktopSettings", () => {
           serverExposureMode: "network-accessible",
           tailscaleServeEnabled: true,
           tailscaleServePort: 8443,
-          tailscaleAutoServe: true,
+          tailscaleAutoServe: false,
           updateChannel: "latest",
           updateChannelConfiguredByUser: false,
           wslBackendEnabled: false,
@@ -331,7 +331,7 @@ describe("DesktopSettings", () => {
             serverExposureMode: "network-accessible",
             tailscaleServeEnabled: true,
             tailscaleServePort: 8443,
-            tailscaleAutoServe: true,
+            tailscaleAutoServe: false,
             updateChannel: "nightly",
             updateChannelConfiguredByUser: true,
             wslBackendEnabled: false,
@@ -364,21 +364,26 @@ describe("DesktopSettings", () => {
     ),
   );
 
-  it.effect("remembers that the user turned Tailscale Serve off", () =>
+  it.effect("keeps launch-time Serve off until the user opts in, and off once Serve is off", () =>
     withSettings(
       Effect.gen(function* () {
         const environment = yield* DesktopEnvironment.DesktopEnvironment;
         const fileSystem = yield* FileSystem.FileSystem;
         const settings = yield* DesktopAppSettings.DesktopAppSettings;
-        assert.isTrue((yield* settings.get).tailscaleAutoServe);
+        const readPersisted = Effect.flatMap(
+          fileSystem.readFileString(environment.desktopSettingsPath),
+          decodeDesktopSettingsPatch,
+        );
+        // Checking at launch runs `tailscale status`, so a plain install never does.
+        assert.isFalse((yield* settings.get).tailscaleAutoServe);
+
+        yield* settings.setTailscaleServe({ enabled: false, port: Option.none(), automatic: true });
+        assert.deepEqual(yield* readPersisted, { tailscaleAutoServe: true });
+        assert.isTrue((yield* settings.load).tailscaleAutoServe);
 
         yield* settings.setTailscaleServe({ enabled: true, port: Option.none() });
         yield* settings.setTailscaleServe({ enabled: false, port: Option.none() });
-
-        const persisted = yield* decodeDesktopSettingsPatch(
-          yield* fileSystem.readFileString(environment.desktopSettingsPath),
-        );
-        assert.deepEqual(persisted, { tailscaleAutoServe: false });
+        assert.deepEqual(yield* readPersisted, {});
         assert.isFalse((yield* settings.load).tailscaleAutoServe);
       }),
     ),
@@ -401,7 +406,7 @@ describe("DesktopSettings", () => {
           serverExposureMode: "local-only",
           tailscaleServeEnabled: false,
           tailscaleServePort: 443,
-          tailscaleAutoServe: true,
+          tailscaleAutoServe: false,
           updateChannel: "nightly",
           updateChannelConfiguredByUser: false,
           wslBackendEnabled: false,
@@ -431,7 +436,7 @@ describe("DesktopSettings", () => {
           serverExposureMode: "local-only",
           tailscaleServeEnabled: false,
           tailscaleServePort: 443,
-          tailscaleAutoServe: true,
+          tailscaleAutoServe: false,
           updateChannel: "latest",
           updateChannelConfiguredByUser: true,
           wslBackendEnabled: false,
@@ -460,7 +465,7 @@ describe("DesktopSettings", () => {
           serverExposureMode: "local-only",
           tailscaleServeEnabled: true,
           tailscaleServePort: 443,
-          tailscaleAutoServe: true,
+          tailscaleAutoServe: false,
           updateChannel: "latest",
           updateChannelConfiguredByUser: false,
           wslBackendEnabled: false,

@@ -1,16 +1,11 @@
 import type { ServerDirectEndpoint } from "@t3tools/contracts";
-import {
-  buildTailscaleHttpsBaseUrl,
-  probeTailscaleHttpsEndpoint,
-  readTailscaleStatus,
-} from "@t3tools/tailscale";
+import { buildTailscaleHttpsBaseUrl, probeTailscaleHttpsEndpoint } from "@t3tools/tailscale";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { HttpClient } from "effect/http";
-import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as NodeNet from "node:net";
 import * as NodeOS from "node:os";
 
@@ -18,12 +13,13 @@ import { isPrivateNetworkHost, isTailnetHost } from "@t3tools/shared/hostClassif
 
 import * as ServerConfig from "../config.ts";
 import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "../startupAccess.ts";
+import * as TailscaleAccess from "./TailscaleAccess.ts";
 
 type NetworkInterfacesMap = ReturnType<typeof NodeOS.networkInterfaces>;
 
 /**
- * Stays under the config read's own discovery timeout, so a slow `tailscale`
- * CLI drops only the tailnet name and never the LAN addresses.
+ * Stays under the config read's own discovery timeout, so a slow Serve probe
+ * drops only the tailnet name and never the LAN addresses.
  */
 const TAILSCALE_ENDPOINT_TIMEOUT = Duration.seconds(3);
 
@@ -96,7 +92,7 @@ export function resolveBoundEndpoints(input: {
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const tailscale = yield* TailscaleAccess.TailscaleAccess;
   const httpClient = yield* HttpClient.HttpClient;
 
   const resolve = Effect.gen(function* () {
@@ -113,10 +109,12 @@ export const make = Effect.gen(function* () {
     // loopback, so it works even for a loopback-only server. The name is only
     // listed once it answers as this server: Serve setup can fail without
     // stopping startup. Anything slower than the probe leaves it out rather
-    // than holding back the addresses already found.
+    // than holding back the addresses already found. The name comes from the
+    // status Serve setup read at startup: this runs on every config read, so
+    // it never spawns `tailscale` itself.
     if (config.tailscaleServeEnabled) {
-      const servedUrl = yield* readTailscaleStatus.pipe(
-        Effect.map((status) => status.magicDnsName),
+      const servedUrl = yield* tailscale.cachedStatus.pipe(
+        Effect.map((status) => Option.getOrNull(status)?.magicDnsName ?? null),
         Effect.flatMap((magicDnsName) => {
           if (magicDnsName === null) return Effect.succeed(null);
           const httpBaseUrl = buildTailscaleHttpsBaseUrl({
@@ -129,8 +127,6 @@ export const make = Effect.gen(function* () {
         }),
         Effect.timeoutOption(TAILSCALE_ENDPOINT_TIMEOUT),
         Effect.map(Option.flatMap(Option.fromNullishOr)),
-        Effect.orElseSucceed(() => Option.none<string>()),
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.provideService(HttpClient.HttpClient, httpClient),
       );
       if (Option.isSome(servedUrl)) {
