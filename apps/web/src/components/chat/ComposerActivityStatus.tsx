@@ -1,5 +1,6 @@
 import { CircleAlertIcon } from "lucide-react";
 
+import { BlurSwap } from "~/components/ui/blur-swap";
 import { Spinner } from "~/components/ui/spinner";
 
 import { threadSyncLabel, type ThreadSyncPhase } from "../../threadSync";
@@ -17,7 +18,7 @@ export function ComposerActivityRow({ phase }: { readonly phase: ThreadSyncPhase
           data-composer-sync-status={phase}
           role="status"
         >
-          {threadSyncLabel(phase)}
+          <BlurSwap swapKey={phase}>{threadSyncLabel(phase)}</BlurSwap>
         </span>
       </ComposerBanner.Content>
     </ComposerBanner.Row>

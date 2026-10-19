@@ -143,7 +143,7 @@ function PrFlowPreview() {
           </p>
           {flow ? (
             <>
-              <div className="pr-flow-swap self-end rounded-xl border bg-muted/60 px-3 py-1.5">
+              <div className="blur-swap self-end rounded-xl border bg-muted/60 px-3 py-1.5">
                 Create PR
               </div>
               <ActivityLine
@@ -159,19 +159,19 @@ function PrFlowPreview() {
             </>
           ) : null}
           {reached("conflicts") ? (
-            <p className="pr-flow-swap leading-relaxed text-secondary-label">
+            <p className="blur-swap leading-relaxed text-secondary-label">
               PR #128 is open, but main moved on while we worked: Mira's provider-limits change
               touched the same lines in handoff.ts and limits.ts. I can merge main in and resolve
               them.
             </p>
           ) : null}
           {reached("resolving") ? (
-            <div className="pr-flow-swap self-end rounded-xl border bg-muted/60 px-3 py-1.5">
+            <div className="blur-swap self-end rounded-xl border bg-muted/60 px-3 py-1.5">
               Resolve conflicts
             </div>
           ) : null}
           {reached("ready") ? (
-            <p className="pr-flow-swap leading-relaxed text-secondary-label">
+            <p className="blur-swap leading-relaxed text-secondary-label">
               Done. I kept Mira's limits change and moved the retry after it, so a retried turn
               reads the new limits. All 42 tests pass, and #128 is ready to merge.
             </p>
@@ -198,7 +198,7 @@ function PrFlowPreview() {
 
 function ActivityLine({ label, live = false }: { label: string; live?: boolean }) {
   return (
-    <div className="pr-flow-swap flex items-center gap-1.5 text-row text-muted-foreground">
+    <div className="blur-swap flex items-center gap-1.5 text-row text-muted-foreground">
       <ChevronRightIcon aria-hidden className="size-3.5" />
       <span className={live ? "live-tool-shine" : undefined}>{label}</span>
     </div>

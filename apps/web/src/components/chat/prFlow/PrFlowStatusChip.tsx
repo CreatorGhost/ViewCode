@@ -27,7 +27,7 @@ export function PrFlowStatusChip({ flow }: { flow: PrFlow }) {
         creating ? "border-transparent bg-foreground text-background" : "bg-card",
       )}
     >
-      <span key={status.short} className="pr-flow-swap flex items-center gap-1.5">
+      <span key={status.short} className="blur-swap flex items-center gap-1.5">
         {status.tone === "busy" ? (
           <LoaderCircleIcon aria-hidden className="size-3 animate-spin" />
         ) : (

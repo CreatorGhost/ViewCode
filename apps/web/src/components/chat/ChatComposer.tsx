@@ -1057,6 +1057,7 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
     document.body,
   );
 }
+import { BlurSwap } from "../ui/blur-swap";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -1290,9 +1291,12 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
               opticalSize={size === "xs" ? "default" : "large"}
             />
           )}
-          <span data-composer-control-label className="sr-only sm:not-sr-only">
+          <BlurSwap
+            swapKey={props.interactionMode}
+            render={<span data-composer-control-label className="sr-only sm:not-sr-only" />}
+          >
             {props.interactionMode === "plan" ? "Plan" : "Build"}
-          </span>
+          </BlurSwap>
         </TooltipTrigger>
         <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
       </Tooltip>
@@ -1322,7 +1326,14 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
             }
           >
             <ComposerControlIcon icon={RuntimeModeIcon} size={size} />
-            <SelectValue data-composer-control-label>{runtimeModeOption.label}</SelectValue>
+            <SelectValue data-composer-control-label>
+              <BlurSwap
+                swapKey={runtimeModeOption.mode}
+                render={<span className="block truncate" />}
+              >
+                {runtimeModeOption.label}
+              </BlurSwap>
+            </SelectValue>
           </TooltipTrigger>
           <SelectPopup alignItemWithTrigger={false} {...composerFloatingLayerProps}>
             {props.runtimeModeOptions.map((option) => {

@@ -120,6 +120,7 @@ import { getSourceControlPresentation, sourceControlIcon } from "~/sourceControl
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
 import { useOpenLink } from "~/browser/useOpenLink";
+import { BlurSwap } from "./ui/blur-swap";
 
 interface GitActionsControlProps {
   presentation?: "toolbar" | "menu";
@@ -372,14 +373,20 @@ function GitActionProgressButtonContent({
       role="status"
     >
       <Spinner aria-hidden="true" className="row-start-1 -mx-0.5 shrink-0" />
-      <p
-        className={cn(
-          "row-start-1 min-w-0 truncate text-left",
-          isPanel && THREAD_DETAILS_PANEL_LABEL_CLASS,
-        )}
+      <BlurSwap
+        appear
+        swapKey={progress.status}
+        render={
+          <p
+            className={cn(
+              "row-start-1 min-w-0 truncate text-left",
+              isPanel && THREAD_DETAILS_PANEL_LABEL_CLASS,
+            )}
+          />
+        }
       >
         {progress.status}
-      </p>
+      </BlurSwap>
       {!isPanel ? (
         <GitActionElapsedTime
           startedAtMs={progress.startedAtMs}
@@ -422,9 +429,15 @@ function GitActionSuccessButtonContent({ success }: { success: InlineGitActionSu
       role="status"
     >
       <CheckIcon aria-hidden="true" className="size-3.5 shrink-0 text-success" />
-      <p className={cn("min-w-0 truncate text-left", THREAD_DETAILS_PANEL_LABEL_CLASS)}>
+      <BlurSwap
+        appear
+        swapKey={success.title}
+        render={
+          <p className={cn("min-w-0 truncate text-left", THREAD_DETAILS_PANEL_LABEL_CLASS)} />
+        }
+      >
         {success.title}
-      </p>
+      </BlurSwap>
       <div
         className={cn(
           "col-start-2 grid min-w-0 transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
@@ -1745,14 +1758,20 @@ export default function GitActionsControl({
                   SourceControlIcon={SourceControlIcon}
                   {...(isPanel ? { className: THREAD_DETAILS_PANEL_ICON_CLASS } : {})}
                 />
-                <span
-                  className={cn(
-                    "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
-                    isPanel && cn("not-sr-only ml-0 truncate", THREAD_DETAILS_PANEL_LABEL_CLASS),
-                  )}
+                <BlurSwap
+                  swapKey={quickAction.label}
+                  render={
+                    <span
+                      className={cn(
+                        "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
+                        isPanel &&
+                          cn("not-sr-only ml-0 truncate", THREAD_DETAILS_PANEL_LABEL_CLASS),
+                      )}
+                    />
+                  }
                 >
                   {quickAction.label}
-                </span>
+                </BlurSwap>
               </PopoverTrigger>
               <PopoverPopup tooltipStyle side="bottom" align="start">
                 {quickActionDisabledReason}
@@ -1772,14 +1791,19 @@ export default function GitActionsControl({
                 SourceControlIcon={SourceControlIcon}
                 {...(isPanel ? { className: THREAD_DETAILS_PANEL_ICON_CLASS } : {})}
               />
-              <span
-                className={cn(
-                  "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
-                  isPanel && cn("not-sr-only ml-0 truncate", THREAD_DETAILS_PANEL_LABEL_CLASS),
-                )}
+              <BlurSwap
+                swapKey={quickAction.label}
+                render={
+                  <span
+                    className={cn(
+                      "sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5",
+                      isPanel && cn("not-sr-only ml-0 truncate", THREAD_DETAILS_PANEL_LABEL_CLASS),
+                    )}
+                  />
+                }
               >
                 {quickAction.label}
-              </span>
+              </BlurSwap>
             </ThreadDetailsControl>
           )}
           {isPanel && gitActionProgress ? (
