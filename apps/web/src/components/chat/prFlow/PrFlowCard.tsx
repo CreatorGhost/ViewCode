@@ -3,6 +3,7 @@ import { type CSSProperties, type ReactNode, useState } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { formatRelativeElapsed } from "~/timestampFormat";
+import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 import { cn } from "~/lib/utils";
 import { GitHubIcon, GitLabIcon } from "../../Icons";
 import { PullRequestGlyph } from "../../pullRequest/pullRequestIcons";
@@ -10,6 +11,7 @@ import { BlurSwap } from "../../ui/blur-swap";
 import { Button } from "../../ui/button";
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../../ui/preview-card";
 import { Spinner } from "../../ui/spinner";
+import { ActivityShimmerOverlay } from "../ActivityShimmerOverlay";
 import {
   GRAPH_WIDTH,
   type GraphNode,
@@ -392,7 +394,8 @@ function CommitRowContent({
       {conflicting ? (
         <span
           key="conflicts"
-          className="blur-swap flex size-4.5 shrink-0 items-center justify-center rounded-full border border-warning/50 bg-warning-surface text-2xs text-warning-foreground tabular-nums"
+          ref={observeVisibleAnimation}
+          className="pr-flow-glow pr-flow-glow-badge blur-swap flex size-4.5 shrink-0 items-center justify-center rounded-full border border-warning/50 bg-warning-surface text-2xs text-warning-foreground tabular-nums"
         >
           {row.conflicts}
         </span>
@@ -418,7 +421,9 @@ function MergingRowContent({
 }) {
   return (
     <>
-      <span className="min-w-0 truncate text-foreground">{row.subject}</span>
+      <ShimmerLabel live text={row.subject}>
+        <span className="block truncate text-muted-foreground">{row.subject}</span>
+      </ShimmerLabel>
       <span
         className={cn(
           "max-w-40 shrink-0 truncate rounded px-1.5 font-mono text-2xs leading-5",
@@ -439,7 +444,8 @@ function MergingRowContent({
         style={{ left: GRAPH_WIDTH + 8 }}
       >
         <span
-          className="pr-flow-progress block h-full origin-left bg-success"
+          ref={observeVisibleAnimation}
+          className="pr-flow-progress pr-flow-bar-shine block h-full origin-left bg-success"
           style={{ transform: `scaleX(${row.total === 0 ? 0 : row.done / row.total})` }}
         />
       </span>
@@ -483,11 +489,7 @@ function CheckIcon({ check }: { check: PrFlowCheck }) {
     case "skipped":
       return <MinusIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />;
     case "running":
-      return (
-        <span aria-hidden className="flex size-3.5 shrink-0 items-center justify-center">
-          <span className="size-2 rounded-full border border-muted-foreground" />
-        </span>
-      );
+      return <Spinner size="xs" tone="muted" />;
   }
 }
 
@@ -501,18 +503,44 @@ function PrFlowCheckChips({
   return (
     <div className="flex flex-wrap gap-1.5 pt-1 pl-0.5">
       {checks.map((check, index) => (
-        <PreviewCard key={`${check.name}:${check.state}`}>
+        // Keyed by name: a check that finishes swaps its icon and word in place.
+        <PreviewCard key={check.name}>
           <PreviewCardTrigger
             render={
               <span
-                className="blur-swap flex h-6 cursor-default items-center gap-1.5 rounded-full border px-2 text-xs"
+                className={cn(
+                  "blur-swap flex h-6 cursor-default items-center gap-1.5 rounded-full border px-2 text-xs",
+                  check.state === "failed" && "border-destructive/40",
+                )}
                 style={{ animationDelay: `${index * 100}ms` }}
               />
             }
           >
-            <CheckIcon check={check} />
-            <span className="max-w-40 truncate">{check.name}</span>
-            <span className="text-muted-foreground">{check.result}</span>
+            <CheckIcon key={check.state} check={check} />
+            <ShimmerLabel live={check.state === "running"} text={check.name}>
+              <span
+                className={cn(
+                  "block max-w-40 truncate",
+                  check.state === "running" && "text-muted-foreground",
+                )}
+              >
+                {check.name}
+              </span>
+            </ShimmerLabel>
+            <BlurSwap
+              swapKey={check.result}
+              render={
+                <span
+                  className={
+                    check.state === "failed"
+                      ? "text-destructive-foreground"
+                      : "text-muted-foreground"
+                  }
+                />
+              }
+            >
+              {check.result}
+            </BlurSwap>
           </PreviewCardTrigger>
           <PreviewCardPopup side="top" align="start">
             <div className="flex max-w-80 items-center gap-3 px-2.5 py-1.5 text-xs">
@@ -629,26 +657,51 @@ function PrFlowFooter({
           <PreviewCardPopup side="top" align="start">
             <ConflictLines conflicts={conflicts} base={base} />
           </PreviewCardPopup>
-        </PreviewCard>{" "}
-        with {base}
+        </PreviewCard>
+        <span className="text-muted-foreground"> with {base}</span>
       </>
     ) : (
       status.label
     );
+  // Open conflicts wait on the reader; the rest is work in flight. Both shine until they settle.
+  const live = status.tone === "busy" || flow.phase === "conflicts";
+  const liveText =
+    flow.phase === "conflicts" && conflicts !== null && conflicts.files.length > 0
+      ? `${status.short} with ${base}`
+      : status.label;
   return (
     <div className="flex min-h-8 items-center gap-2 px-0.5 pt-1">
       <FooterIcon flow={flow} status={status} />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <BlurSwap swapKey={status.label} render={<p className="truncate" />}>
-          {label}
-        </BlurSwap>
+        <ShimmerLabel
+          live={live}
+          glow={flow.phase === "conflicts"}
+          text={liveText}
+          band={flow.phase === "conflicts" ? "pr-flow-warning-band" : undefined}
+        >
+          <BlurSwap
+            swapKey={status.label}
+            render={
+              <p
+                className={cn(
+                  "truncate",
+                  status.tone === "busy" && "text-muted-foreground",
+                  flow.phase === "conflicts" && "text-warning-foreground",
+                )}
+              />
+            }
+          >
+            {label}
+          </BlurSwap>
+        </ShimmerLabel>
         {flow.phase === "testing" && checks !== null && checks.total > 0 ? (
           <span
             aria-hidden
             className="block h-0.5 w-56 max-w-full overflow-hidden rounded-full bg-muted"
           >
             <span
-              className="pr-flow-progress block h-full origin-left bg-success"
+              ref={observeVisibleAnimation}
+              className="pr-flow-progress pr-flow-bar-shine block h-full origin-left bg-success"
               style={{ transform: `scaleX(${checks.done / checks.total})` }}
             />
           </span>
@@ -663,6 +716,37 @@ function PrFlowFooter({
         />
       </BlurSwap>
     </div>
+  );
+}
+
+/**
+ * A label with the activity shimmer while `live`: the shared moving shine, running only while on
+ * screen, and with `glow` a soft amber pulse behind it on the same beat. Settled, it is just the
+ * label. `text` is what the shine draws, the label as plain text.
+ */
+function ShimmerLabel({
+  live,
+  glow = false,
+  text,
+  band,
+  children,
+}: {
+  live: boolean;
+  glow?: boolean;
+  text: string;
+  band?: string | undefined;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      ref={live ? observeVisibleAnimation : undefined}
+      className={cn("block w-fit max-w-full min-w-0", live && glow && "pr-flow-glow")}
+    >
+      <span className="relative block overflow-hidden whitespace-nowrap">
+        {children}
+        {live ? <ActivityShimmerOverlay className={band}>{text}</ActivityShimmerOverlay> : null}
+      </span>
+    </span>
   );
 }
 
