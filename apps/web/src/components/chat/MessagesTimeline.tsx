@@ -337,6 +337,7 @@ import {
   formatReviewCommentFence,
   type ReviewCommentContext,
 } from "../../reviewCommentContext";
+import { ActivityShimmerOverlay } from "./ActivityShimmerOverlay";
 
 interface TimelineRowSharedState {
   citationRequest: AssistantCitationTarget | null;
@@ -3818,23 +3819,6 @@ function ExpandedWorkGroupEntries({
 
 const workEntryKey = (entry: TimelineWorkEntry) => entry.id;
 
-function ActivityShimmerOverlay({ children }: { children: ReactNode }) {
-  return (
-    <span
-      aria-hidden
-      className="live-activity-focus pointer-events-none absolute inset-y-0 select-none"
-    >
-      <span className="live-activity-focus-counter block">
-        <span className="live-activity-focus-aligned block text-foreground">
-          <WorkLogRail ends={NO_RAIL_ENDS}>{children}</WorkLogRail>
-        </span>
-      </span>
-    </span>
-  );
-}
-
-const NO_RAIL_ENDS = { above: false, below: false };
-
 function workspaceRelativeFilePath(path: string, workspaceRoot: string | undefined): string {
   const normalized = path.replaceAll("\\", "/");
   const root = workspaceRoot?.replaceAll("\\", "/").replace(/\/+$/, "");
@@ -3877,8 +3861,14 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
             </span>
           ) : (
             <span className="flex min-w-0 items-baseline gap-1.5 tabular-nums">
-              <span ref={observeVisibleAnimation} className="work-log-shine text-foreground">
+              <span
+                ref={observeVisibleAnimation}
+                className="relative overflow-hidden whitespace-nowrap text-foreground"
+              >
                 {row.createdAt ? "Working for " : "Working"}
+                <ActivityShimmerOverlay className={LIVE_SHIMMER_BAND}>
+                  {row.createdAt ? "Working for " : "Working"}
+                </ActivityShimmerOverlay>
               </span>
               {row.createdAt ? (
                 <span className="text-muted-foreground">
@@ -3960,6 +3950,9 @@ function ThinkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "think
   );
 }
 
+/** The live label reads darkest; its shimmer band lifts it toward the background. */
+const LIVE_SHIMMER_BAND = "text-muted-foreground";
+
 /** The step running now: a spinner on the rail and a shimmer across its label. */
 function LiveActivityRow({
   label,
@@ -3993,13 +3986,12 @@ function LiveActivityRow({
         label={
           <BlurSwap
             swapKey={swapKey}
-            render={
-              <span
-                className={cn("block w-fit max-w-full truncate", animated && "work-log-shine")}
-              />
-            }
+            render={<span className="relative block w-fit max-w-full overflow-hidden truncate" />}
           >
             {label}
+            {animated ? (
+              <ActivityShimmerOverlay className={LIVE_SHIMMER_BAND}>{label}</ActivityShimmerOverlay>
+            ) : null}
           </BlurSwap>
         }
       />

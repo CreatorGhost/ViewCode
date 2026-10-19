@@ -16,6 +16,8 @@ import {
   type GitManagerServiceError,
   type GitPreparePullRequestThreadInput,
   type GitPreparePullRequestThreadResult,
+  type GitPullRequestGraph,
+  type GitPullRequestGraphInput,
   type GitPullRequestRefInput,
   type VcsPullResult,
   type VcsRemoveWorktreeInput,
@@ -29,6 +31,7 @@ import {
 } from "@t3tools/contracts";
 
 import * as GitManager from "./GitManager.ts";
+import { readPullRequestGraph } from "./pullRequestGraph.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
@@ -71,6 +74,10 @@ export class GitWorkflowService extends Context.Service<
     readonly listRefs: (
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
+    /** The pull request's commits against its base and where they clash; null off a Git checkout. */
+    readonly pullRequestGraph: (
+      input: GitPullRequestGraphInput,
+    ) => Effect.Effect<GitPullRequestGraph | null, GitCommandError>;
     readonly createWorktree: (
       input: VcsCreateWorktreeInput,
       options?: GitVcsDriver.CreateWorktreeOptions,
@@ -366,6 +373,12 @@ export const make = Effect.gen(function* () {
       detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(
         Effect.flatMap((isGitRepository) =>
           isGitRepository ? git.listRefs(input) : Effect.succeed(nonRepositoryListRefs()),
+        ),
+      ),
+    pullRequestGraph: (input) =>
+      detectGitRepositoryForCommand("GitWorkflowService.pullRequestGraph", input.cwd).pipe(
+        Effect.flatMap((isGitRepository) =>
+          isGitRepository ? readPullRequestGraph(git, input) : Effect.succeed(null),
         ),
       ),
     createWorktree: (input, options) =>

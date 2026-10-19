@@ -540,7 +540,7 @@ import {
 } from "../lib/attachmentUploadQueue";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
-import { ThreadPrFlowCard } from "./chat/prFlow/ThreadPrFlowCard";
+import { ThreadPrFlowCard, ThreadPrStatusChips } from "./chat/prFlow/ThreadPrFlowCard";
 import { previewEnvironment } from "../state/preview";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -8272,6 +8272,9 @@ export default function ChatView(props: ChatViewProps) {
                         />
                       </div>
                     </div>
+                  ) : null}
+                  {!isDraftHeroState && isServerThread && activeThreadRef ? (
+                    <ThreadPrStatusChips threadRef={activeThreadRef} />
                   ) : null}
                   <div
                     ref={draftHeroComposerAnchorRef}

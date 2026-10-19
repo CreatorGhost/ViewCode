@@ -151,6 +151,21 @@ export function useThreadProjection(ref: ScopedThreadRef | null): EnvironmentThr
   );
 }
 
+/**
+ * One value read from the thread's projection, re-rendering only when it changes. `select` must
+ * be defined outside the component and return a primitive: the projection changes on every
+ * streamed token.
+ */
+export function useThreadProjectionSelector<A>(
+  ref: ScopedThreadRef | null,
+  select: (thread: EnvironmentThread | null) => A,
+): A {
+  return useAtomValue(
+    ref === null ? EMPTY_THREAD_PROJECTION_ATOM : environmentThreadDetails.threadAtom(ref),
+    select,
+  );
+}
+
 export function useThreadStatus(ref: ScopedThreadRef | null): EnvironmentThreadStatus {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_STATUS_ATOM : environmentThreadDetails.statusAtom(ref),
