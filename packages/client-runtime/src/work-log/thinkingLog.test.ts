@@ -14,6 +14,8 @@ import {
   workLogLabelTone,
   workLogMarker,
   workLogMarkerLane,
+  workLogLiveLabel,
+  workLogStepRuns,
 } from "./thinkingLog.ts";
 
 const base = {
@@ -226,5 +228,76 @@ describe("labels", () => {
     expect(webChipLabel("https://docs.rs/x", "  x – Rust ")).toBe("x – Rust");
     expect(webChipLabel("https://www.docs.rs/x", undefined)).toBe("docs.rs");
     expect(webChipLabel("not a url", undefined)).toBeNull();
+  });
+});
+
+describe("workLogStepRuns", () => {
+  const thought = (id: string) => entry(id, { itemType: "reasoning", tone: "thinking" });
+  const runs = (entries: ReadonlyArray<WorkLogPresentationEntry>) =>
+    workLogStepRuns(entries, { entry: (item) => item, visible: () => true }).map((run) =>
+      run.map((item) => item.id),
+    );
+
+  it("merges consecutive steps of one kind and splits at a new kind", () => {
+    expect(
+      runs([
+        read("r1", "a.ts"),
+        read("r2", "b.ts"),
+        command("c1", 0),
+        command("c2", 0),
+        read("r3", "c.ts"),
+      ]),
+    ).toEqual([["r1", "r2"], ["c1", "c2"], ["r3"]]);
+  });
+
+  it("gives every failure its own step", () => {
+    expect(runs([command("c1", 0), command("f1", 1), command("f2", 1), command("c2", 0)])).toEqual([
+      ["c1"],
+      ["f1"],
+      ["f2"],
+      ["c2"],
+    ]);
+  });
+
+  it("puts a thought with the call it leads into, or the last step when none follows", () => {
+    expect(runs([read("r1", "a.ts"), thought("t1"), command("c1", 0), thought("t2")])).toEqual([
+      ["r1"],
+      ["t1", "c1", "t2"],
+    ]);
+    expect(runs([thought("t1"), read("r1", "a.ts"), thought("t2"), read("r2", "b.ts")])).toEqual([
+      ["t1", "r1", "t2", "r2"],
+    ]);
+    expect(runs([thought("t1")])).toEqual([["t1"]]);
+  });
+
+  it("lets hidden entries ride along without splitting a step", () => {
+    const hidden = new Set(["h"]);
+    expect(
+      workLogStepRuns([read("r1", "a.ts"), command("h", 0), read("r2", "b.ts")], {
+        entry: (item) => item,
+        visible: (item) => !hidden.has(item.id),
+      }).map((run) => run.map((item) => item.id)),
+    ).toEqual([["r1", "h", "r2"]]);
+  });
+});
+
+describe("workLogLiveLabel", () => {
+  it("says what the running step is doing", () => {
+    expect(
+      workLogLiveLabel(entry("c", { itemType: "command_execution", command: "bun run typecheck" })),
+    ).toBe("Running bun run typecheck");
+    expect(workLogLiveLabel(read("r", "src/router.ts"))).toBe("Reading router.ts");
+    expect(
+      workLogLiveLabel(
+        entry("e", {
+          itemType: "file_change",
+          structuredPayload: item({ type: "file_change", fileName: "src/session.ts" }),
+        }),
+      ),
+    ).toBe("Editing session.ts");
+    expect(workLogLiveLabel(entry("s", { itemType: "file_search" }))).toBe(
+      "Searching the codebase",
+    );
+    expect(workLogLiveLabel(entry("t", { itemType: "reasoning", tone: "thinking" }))).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import {
   type ToolGroupSummaryKind,
   type WorkLogPresentationEntry,
 } from "./presentation.ts";
+import { commandDisplayText } from "./commandLabel.ts";
 
 /**
  * The thinking-log look: every step sits on one vertical rail with a small marker, and the
@@ -24,7 +25,9 @@ export type WorkLogMarkerKind =
   /** Branch work (subagents) that has finished and merged back. */
   | "merged"
   /** The turn finished. */
-  | "finish";
+  | "finish"
+  /** The live turn's header, which the rail hangs from. */
+  | "header";
 
 export type WorkLogLabelTone = "active" | "done" | "dim";
 
@@ -131,6 +134,90 @@ export function workLogChipSetsEqual(a: WorkLogChipSet, b: WorkLogChipSet): bool
       a.chips.length === b.chips.length &&
       a.chips.every((chip, index) => chip.key === b.chips[index]?.key))
   );
+}
+
+/**
+ * Splits a contiguous run of work into the log's steps, one row each. Steps of the same kind
+ * merge (consecutive reads, edits or successful commands); a failure always stands alone as a
+ * dead end. Entries without a kind of their own (see `workLogStepKey`) and hidden entries join the
+ * step they lead into, since a thought usually announces the next call, or the last step when
+ * nothing follows.
+ */
+export function workLogStepRuns<Entry>(
+  entries: ReadonlyArray<Entry>,
+  options: {
+    readonly entry: (item: Entry) => WorkLogPresentationEntry;
+    readonly visible: (item: Entry) => boolean;
+  },
+): Entry[][] {
+  const runs: Entry[][] = [];
+  let current: Entry[] | null = null;
+  let currentKey: string | null = null;
+  let pending: Entry[] = [];
+  for (const item of entries) {
+    const key = options.visible(item) ? workLogStepKey(options.entry(item)) : null;
+    if (key === null) {
+      pending.push(item);
+      continue;
+    }
+    if (current !== null && key === currentKey) {
+      current.push(...pending, item);
+    } else {
+      current = [...pending, item];
+      currentKey = key;
+      runs.push(current);
+    }
+    pending = [];
+  }
+  if (pending.length > 0) {
+    if (current !== null) current.push(...pending);
+    else runs.push(pending);
+  }
+  return runs;
+}
+
+/**
+ * What makes two steps the same kind of step. Thoughts, status updates and approval prompts have
+ * no kind of their own (null): they belong to the call they lead into.
+ */
+export function workLogStepKey(entry: WorkLogPresentationEntry): string | null {
+  if (
+    entry.itemType === "reasoning" ||
+    entry.itemType === "approval_request" ||
+    entry.itemType === "user_input_request"
+  ) {
+    return null;
+  }
+  if (workEntryDisplayIndicatesToolFailure(entry)) return `failed:${entry.id}`;
+  const action = toolGroupAction(entry);
+  return action === "update" ? null : `${action}:${entry.toolSource?.key ?? ""}`;
+}
+
+/**
+ * The live step in plain words ("Reading router.ts", "Running bun test"), or null when the step
+ * has no friendlier wording than its tool's own.
+ */
+export function workLogLiveLabel(entry: WorkLogPresentationEntry): string | null {
+  switch (toolGroupAction(entry)) {
+    case "command": {
+      const command = entry.command?.trim();
+      return command ? `Running ${commandDisplayText(command)}` : null;
+    }
+    case "read": {
+      const [path] = workEntryInputPaths(entry);
+      return path ? `Reading ${fileChipName(path)}` : "Reading files";
+    }
+    case "edit": {
+      const [path] = workEntryChangedPaths(entry);
+      return path ? `Editing ${fileChipName(path)}` : "Editing files";
+    }
+    case "code-search":
+      return "Searching the codebase";
+    case "search":
+      return "Searching the web";
+    default:
+      return null;
+  }
 }
 
 export function workLogHeaderLabel(input: {
