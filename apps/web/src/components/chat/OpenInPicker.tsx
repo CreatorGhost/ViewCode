@@ -15,8 +15,10 @@ import {
   useRemoteCapableEditors,
   useRemoteOpenHint,
   useRemoteOpenState,
+  useRemoteOpenTargetsLookup,
 } from "../../remoteOpen";
 import { useEnvironment } from "../../state/environments";
+import { describeTailscaleBlock, useTailscaleBlock } from "../../state/tailscaleAccess";
 import { ChevronDownIcon, FolderClosedIcon, SquareArrowOutUpRightIcon } from "lucide-react";
 
 import { Group, GroupSeparator } from "../ui/group";
@@ -238,6 +240,13 @@ export const OpenInPicker = memo(function OpenInPicker({
   const [menuOpen, setMenuOpen] = useComposerMenuState(
     isHostEditorDenied && additionalMenuItems === undefined,
   );
+  const sshRouteLookup = useRemoteOpenTargetsLookup(environmentId);
+  const tailscaleBlock = useTailscaleBlock(environmentId);
+  // Looking for an SSH route can run `tailscale` on the server, so it happens
+  // only when the user opens this menu, never when the page loads.
+  const onEditorMenuOpenChange = (open: boolean) => {
+    if (open && remote.mode === "remote-unavailable") sshRouteLookup.lookUp();
+  };
   const remoteCapableEditors = useRemoteCapableEditors();
   const [remoteHintSeen, markRemoteHintSeen] = useRemoteOpenHint();
   const environmentLabel = useEnvironment(environmentId)?.label ?? "this machine";
@@ -319,9 +328,18 @@ export const OpenInPicker = memo(function OpenInPicker({
   const editorItems = (
     <>
       {remote.mode === "remote-unavailable" ? (
-        <MenuItem density={presentation === "menu" ? "touch" : "default"} disabled>
-          No SSH route to {environmentLabel}
-        </MenuItem>
+        <>
+          <MenuItem density={presentation === "menu" ? "touch" : "default"} disabled>
+            {sshRouteLookup.looking
+              ? `Looking for an SSH route to ${environmentLabel}…`
+              : `No SSH route to ${environmentLabel}`}
+          </MenuItem>
+          {tailscaleBlock !== null && !sshRouteLookup.looking ? (
+            <MenuItem density={presentation === "menu" ? "touch" : "default"} disabled>
+              {describeTailscaleBlock(tailscaleBlock)}
+            </MenuItem>
+          ) : null}
+        </>
       ) : (
         <>
           {options.length === 0 && (
@@ -375,7 +393,7 @@ export const OpenInPicker = memo(function OpenInPicker({
             )}
           </MenuItem>
         )}
-        <MenuSub>
+        <MenuSub onOpenChange={onEditorMenuOpenChange}>
           <MenuSubTrigger density="touch" disabled={isHostEditorDenied}>
             <SquareArrowOutUpRightIcon className="size-4" />
             <MenuItemLabel>Open in…</MenuItemLabel>
@@ -435,7 +453,13 @@ export const OpenInPicker = memo(function OpenInPicker({
       ) : compact ? null : (
         <GroupSeparator className="hidden @3xl/header-actions:block" />
       )}
-      <Menu open={menuOpen} onOpenChange={setMenuOpen}>
+      <Menu
+        open={menuOpen}
+        onOpenChange={(open) => {
+          setMenuOpen(open);
+          onEditorMenuOpenChange(open);
+        }}
+      >
         <MenuTrigger
           disabled={isHostEditorDenied && additionalMenuItems === undefined}
           render={

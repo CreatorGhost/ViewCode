@@ -1,6 +1,8 @@
 import { SmartphoneIcon } from "lucide-react";
 
-import { useUpdatePrimarySettings } from "../../hooks/useSettings";
+import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
+import { usePrimaryEnvironmentId } from "../../state/environments";
+import { describeTailscaleBlock, useTailscaleBlock } from "../../state/tailscaleAccess";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
@@ -19,6 +21,8 @@ export function ConnectPhoneSettingsSection() {
   const quickView = resolveQuickConnectView(useViewCodeRelayState());
   const quickSetup = useViewCodeRelaySetupState();
   const updateSettings = useUpdatePrimarySettings();
+  const tailscaleEnabled = usePrimarySettings((settings) => settings.tailscaleEnabled);
+  const tailscaleBlock = useTailscaleBlock(usePrimaryEnvironmentId());
   const quickOn =
     quickView.kind !== "off" && quickView.kind !== "not-set-up" && quickView.kind !== "loading";
   return (
@@ -61,7 +65,23 @@ export function ConnectPhoneSettingsSection() {
           <CloudflareAccountPicker setup={quickSetup} />
         ) : null}
       </SettingsRow>
-      {tailscale.access?.installed ? (
+      <SettingsRow
+        title="Tailscale"
+        description={
+          tailscaleBlock === "environment"
+            ? describeTailscaleBlock(tailscaleBlock)
+            : "Lets ViewCode run the Tailscale app for phone access, Tailscale HTTPS and opening files over Tailscale SSH. Turn it off where security software blocks Tailscale."
+        }
+        control={
+          <Switch
+            checked={tailscaleBlock === null && tailscaleEnabled}
+            disabled={tailscaleBlock === "environment"}
+            onCheckedChange={(checked) => updateSettings({ tailscaleEnabled: checked === true })}
+            aria-label="Tailscale"
+          />
+        }
+      />
+      {tailscale.access?.installed && tailscaleBlock === null ? (
         <SettingsRow
           title="Turn on Tailscale phone access at launch"
           description="Starts Tailscale HTTPS when ViewCode opens so a paired phone can reach this computer over your tailnet. Turning Tailscale HTTPS off also turns this off."
