@@ -1,10 +1,12 @@
 "use client";
 
-import { Volume2Icon, SquareIcon } from "lucide-react";
+import { MicIcon, Volume2Icon, SquareIcon } from "lucide-react";
 import { scopeThread } from "@t3tools/client-runtime/viewcodeThread";
 import { readLatestReplyAloud } from "../lib/readAloudActions";
 import { latestReadableReply } from "../lib/readAloud.logic";
 import { isReadAloudSupported, stopReadAloud, useReadAloudStore } from "../lib/readAloudPlayer";
+import { isDictationSupported } from "../lib/dictationCapture";
+import { useDictationStore } from "../lib/dictationSession";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadDetails } from "../state/threads";
 import { useThreadProjection } from "../state/entities";
@@ -797,6 +799,12 @@ function OpenCommandPaletteDialog(props: {
       ? null
       : scopeThread(speechProjection.environmentId, speechProjection.projection);
   const readingAloud = useReadAloudStore((store) => store.playingKey !== null);
+  const composerHandleRef = useComposerHandleContext();
+  const dictationEnabled = useClientSettings((settings) => settings.dictationEnabled);
+  const dictationListening = useDictationStore((store) => store.state.phase === "listening");
+  const toggleComposerDictation = useStableCallback(() => {
+    composerHandleRef?.current?.toggleDictation();
+  });
   const viewcodeGoalControls = useThreadGoalControls({
     threadKey: goalThreadRef === null ? "" : scopedThreadKey(goalThreadRef),
     environmentId: goalThreadRef?.environmentId ?? null,
@@ -1664,6 +1672,23 @@ function OpenCommandPaletteDialog(props: {
       shortcutCommand: "readAloud.latest",
       run: async () => {
         readLatestReplyAloud(thread);
+      },
+    });
+  }
+  if (
+    dictationEnabled &&
+    isDictationSupported() &&
+    (activeThread !== null || activeDraftThread !== null)
+  ) {
+    actionItems.push({
+      kind: "action",
+      value: "action:dictate",
+      title: dictationListening ? "Insert dictation" : "Dictate into the composer",
+      searchTerms: ["dictate", "dictation", "voice", "speech to text", "microphone", "transcribe"],
+      icon: <MicIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "composer.dictate",
+      run: async () => {
+        toggleComposerDictation();
       },
     });
   }

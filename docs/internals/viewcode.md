@@ -505,6 +505,11 @@ Unarchive stays available through the normal native path.
   Native provider-instance configuration and `provider/viewcode/firstRunProviders.ts`
   preserve existing choices. Project toggles remain subordinate to admin policy;
   CLI presence alone must not override an explicit off choice or launch a disabled provider.
+- The wizard's done flag (`onboardingCompletedAt`) is per browser, so it cannot tell
+  whether a server has a provider on. The chat asks the server instead
+  (`components/onboarding/NoProviderPrompt.tsx`): per environment, it reopens the
+  picker when that server's settings and provider snapshot both show nothing on.
+  Keep the flag client-side; one browser meets many servers.
 - MCP transport capabilities are native protocol capabilities, not a guarantee that tools loaded.
   Droid advertises no HTTP transport and Devin advertises `http: false`; prefer their
   stdio bridge. A session that lacks usable ViewCode tools must report that limitation,
@@ -591,10 +596,19 @@ goal state. Debug guidance must not alter the provider's own permission policy.
   (PATH, then fixed install paths such as the Mac app's bundled CLI, which never
   joins PATH; never a spawn; `knownTailscaleExecutablePaths` in `packages/tailscale`
   is shared with the spawns, which fall back the same way), whose "Turn on"
-  reuses `setTailscaleServeEnabled`. Launch turns Serve on when the CLI is found and
-  `tailscale status` shows a tailnet name (`tailscaleAutoServe`, default on, persisted
-  only as `false`); turning Serve off also sets it false, so ViewCode never turns Serve
-  back on after the user turned it off. Pairing still gates every phone. The dialog
+  reuses `setTailscaleServeEnabled`. Launch turns Serve on only when the user opted in
+  (`tailscaleAutoServe`, default off) and `tailscale status` shows a tailnet name;
+  turning Serve off also sets it false. Pairing still gates every phone.
+- Nothing runs `tailscale` on startup, a config read or a page load: endpoint
+  security on managed Macs kills the process that spawns it
+  ([managed-macos.md](../operations/managed-macos.md)). Only a Tailscale feature the
+  user is using may: Serve, the Connect phone Tailscale tab, or "open in editor"
+  from a remote client, which asks `server.resolveRemoteOpenTargets` when its menu
+  opens (the config only carries the last answer). Server spawns go through
+  `environment/TailscaleAccess.ts` (60s cache), desktop ones through
+  `DesktopTailscaleGate`; both answer "allowed?" with `resolveTailscaleBlock`, where
+  `VIEWCODE_DISABLE_TAILSCALE` outranks the `tailscaleEnabled` setting. Add an admin
+  policy there, not at a call site. The dialog
   does not offer upstream's hosted T3 Connect tunnel:
   Quick connect does that job on the user's own account, and a third choice only
   confused people. Native managed relay infrastructure remains upstream code, but ViewCode hides
@@ -940,6 +954,37 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
 - Utterances stay under 250 characters: Chromium's `speechSynthesis` cuts off
   or stalls long ones, and drops events for utterances it garbage-collects, so
   the queue stays referenced until it ends.
+
+## Dictation (web and desktop)
+
+- Mobile keeps its native recognizers. Web and desktop run Moonshine base
+  (q8, MIT) in `lib/dictationModel.worker.ts` on the same Transformers.js and
+  WASM-only ONNX Runtime as read aloud. Moonshine was chosen over Whisper
+  base.en because its cost follows the clip's length; Whisper pads every clip
+  to 30 s, which makes re-reading a growing utterance several times a second
+  too slow on a laptop CPU.
+- Delivery is read aloud's: `VoiceModelStore` downloads the `dictation` model
+  key from its own `dictation-models-v1` release (release assets are flat, and
+  both models ship a `config.json`), verifies each SHA-256 and serves it through
+  the `voice-model` asset. A dictation download never replaces a voice download.
+  Its state is the optional `dictation` field of `VoiceModelsState`, so older
+  clients ignore it and a missing field means the server can't serve dictation.
+- Capture is an AudioWorklet that downsamples to 16 kHz itself (Firefox refuses
+  to connect a microphone to a context at another rate) and posts 50 ms frames.
+  The worklet is imported with `?worker&url` so it is bundled and served from
+  the app's origin: the desktop renderer's script policy does not allow `blob:`.
+- `DictationSegmenter` cuts frames into utterances on a noise-floor-relative
+  energy threshold. Finished utterances are transcribed once; the open one is
+  re-read every 600 ms of new audio, so words appear while speaking. Utterances
+  split at 12 s, at their quietest recent frame, and `joinTranscript` rejoins
+  the halves. One transcription is in flight at a time
+  (`lib/dictationSession.ts`).
+- Moonshine's pipeline caps output at 6 tokens per second of audio, rounded
+  down, so a clip under a second would get none; the worker passes its own cap
+  with a floor.
+- One dictation runs app-wide; the composer that started it owns it, and
+  changing draft or unmounting cancels it. Levels reach the waveform through
+  `subscribeDictationLevels`, never React state.
 
 ## Multi-surface and product policy
 

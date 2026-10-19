@@ -14,6 +14,7 @@ import { pullRequestEnvironment } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
 
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { BlurSwap } from "../ui/blur-swap";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -148,6 +149,12 @@ export function PullRequestChecksPopover({
     checks?.filter((check) => check.status === "failure" || check.status === "cancelled").length ??
     0;
   const summary = checks === undefined || stale ? null : summarizePullRequestChecks(checks);
+  const countLabel =
+    checks !== undefined && runningCount > 0
+      ? `${runningCount}/${checks.length}`
+      : failedCount > 0
+        ? `${failedCount} failed`
+        : null;
   return (
     <Popover>
       {/* A listing row is itself a button, so the trigger renders as a span: a nested button is
@@ -173,18 +180,29 @@ export function PullRequestChecksPopover({
         }
         onClick={(event) => event.stopPropagation()}
       >
-        <presentation.Icon aria-hidden className={cn("size-3.5", presentation.toneClassName)} />
         {variant === "count" ? (
           <>
-            {checks !== undefined && runningCount > 0 ? (
-              <span className="tabular-nums">
-                {runningCount}/{checks.length}
-              </span>
-            ) : failedCount > 0 ? (
-              <span className="tabular-nums">{failedCount} failed</span>
-            ) : null}
+            <BlurSwap
+              swapKey={checksState}
+              render={
+                <presentation.Icon
+                  aria-hidden
+                  className={cn("size-3.5", presentation.toneClassName)}
+                />
+              }
+            />
+            {countLabel === null ? null : (
+              <BlurSwap
+                swapKey={`${checksState}:${countLabel}`}
+                render={<span className="tabular-nums" />}
+              >
+                {countLabel}
+              </BlurSwap>
+            )}
           </>
-        ) : null}
+        ) : (
+          <presentation.Icon aria-hidden className={cn("size-3.5", presentation.toneClassName)} />
+        )}
       </PopoverTrigger>
       <PopoverPopup align="start" width="md" side="bottom">
         <p className="mb-2 font-medium text-sm">{presentation.label}</p>

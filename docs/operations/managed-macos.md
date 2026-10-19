@@ -3,10 +3,54 @@
 > **First-run provider gate.** A brand-new data folder (no `settings.json` and no
 > provider ever used) writes every provider off, and the welcome screen asks
 > which to turn on; finding CLIs there is a `PATH` lookup, never a run. Existing
-> installs keep their providers. The other managed-only defaults stay lifted:
-> the Same Wi-Fi test runs when Connect phone opens and Tailscale Serve is on
-> when Tailscale is signed in. The report below is kept as a record; the current
-> findings are next.
+> installs keep their providers. The Same Wi-Fi test runs when Connect phone
+> opens; Tailscale runs only when a Tailscale feature is used (see below). The
+> report further down is kept as a record; the current findings are next.
+
+## October 2026 (v2): `tailscale` on every page load
+
+The v2 server was killed on the first page load. Its `spawn-trace.log` showed
+`tailscale status` spawned in the same second, and the same build with
+`tailscale` short-circuited survived several minutes of chats and Settings. v1
+never ran `tailscale`. The cause was upstream's "open in editor over Tailscale
+SSH" (`b037b9a53`): every server config read (each page load) resolved SSH
+routes with `tailscale status` and `tailscale debug prefs`, and the desktop app
+ran `tailscale status` at every launch to turn Tailscale Serve on.
+
+Now nothing runs `tailscale` at startup, on a config read or on page load:
+
+- The server reaches the CLI only through `TailscaleAccess`
+  (`apps/server/src/environment/TailscaleAccess.ts`), which caches each answer
+  for 60 seconds. The config carries the last resolved SSH routes from memory;
+  the web asks for fresh ones (`server.resolveRemoteOpenTargets`) only when the
+  **Open in** menu opens on a remote environment. Tailscale Serve (`--tailscale-serve`,
+  `pair --tailscale`) still runs it because the user asked for Serve.
+- The desktop turns Serve on at launch only after the user turns on **Turn on
+  Tailscale phone access at launch**, and lists Same Wi-Fi tailnet addresses
+  from the network interfaces without the CLI.
+- Off switch: **Settings → Connections → Tailscale** (`tailscaleEnabled` in
+  `settings.json`, default on) or `VIEWCODE_DISABLE_TAILSCALE=1` in the
+  environment, which outranks the setting. Either turns every Tailscale command
+  into a no-op that reports "Tailscale is turned off". The one answer is
+  `resolveTailscaleBlock` in `packages/tailscale` (the server's
+  `TailscaleAccess.blockReason`, the desktop's `DesktopTailscaleGate`); an admin
+  policy adds its reason there. The environment switch is also enforced where
+  `packages/tailscale` spawns, so no caller can bypass it.
+
+On a managed Mac where EDR kills `tailscaled`, set `"tailscaleEnabled": false`
+in `userdata/settings.json` or export `VIEWCODE_DISABLE_TAILSCALE=1` before the
+first launch.
+
+## How to check on a managed Mac
+
+1. Run the new build on a **copy** of real data, on a spare port.
+2. Remove a copied `userdata/server-runtime.json`; v2 refuses to start if it
+   names a live server.
+3. Load the page, open Settings, and send one message.
+4. Read `userdata/logs/spawn-trace.log`. It must show no `tailscale`. Only a
+   Tailscale feature runs it: opening the **Open in** menu from a remote browser
+   runs at most one `tailscale status` (plus `tailscale debug prefs` when no
+   local sshd answers) a minute. With Tailscale turned off, nothing.
 
 ## October 2026: what Cortex XDR actually flags
 
@@ -249,7 +293,7 @@ Each is an IT request. Never circumvent the control.
 | MCP blocked for a reviewer (Cursor policy, Claude `managed-mcp.json`)      | A review finishes but its findings never reach the Review panel    | No IT request: reviewers fall back to `viewcode-review submit`; if it reports `unreachable`, give the review thread full access |
 | macOS application firewall row for the packaged app                        | Incoming-connection prompt or blocked listener for the app         | Ask IT to allow the app, or use the already-allowed `t3`/`node` path                                                            |
 | Cloudflare tunnels blocked by a TLS-inspecting firewall plus always-on VPN | Tunnel never connects                                              | Ask IT for an exception for the tunnel host                                                                                     |
-| EDR terminating `tailscaled`                                               | Tailscale sharing stops with the daemon                            | Ask IT for an exception for the Tailscale daemon                                                                                |
+| EDR terminating `tailscaled`                                               | Tailscale sharing stops with the daemon                            | Ask IT for an exception for the Tailscale daemon; until then turn Tailscale off in ViewCode (see above)                         |
 
 ## Building the installer on the managed Mac
 

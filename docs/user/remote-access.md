@@ -16,12 +16,11 @@ phone will reach it, and scan the code from the app's **Add environment**.
   [Quick connect](#quick-connect).
 - **Same Wi-Fi.** Choose **Turn on and restart** if asked; ViewCode restarts once
   and reopens on the code. Works only on the same network.
-- **Anywhere · Tailscale.** Shown only when Tailscale is installed on this computer. When
-  Tailscale is signed in, the desktop app turns on Tailscale HTTPS at launch, so the
-  phone only needs to scan the code. If it is not on yet, **Turn on Tailscale** enables
-  it and restarts once. Works wherever your phone is on your tailnet; phones still
-  have to pair. To stop it starting at launch, turn off **Turn on Tailscale phone
-  access at launch** in **Settings → Connections**, or turn Tailscale HTTPS off there.
+- **Anywhere · Tailscale.** Shown only when Tailscale is installed on this computer.
+  **Turn on Tailscale** enables Tailscale HTTPS and restarts once. Works wherever your
+  phone is on your tailnet; phones still have to pair. To have the desktop app turn
+  Tailscale HTTPS on by itself at launch whenever Tailscale is signed in, turn on
+  **Turn on Tailscale phone access at launch** in **Settings → Connections**.
 
 Each code works once for five minutes; choose **New code** for another phone. Keep
 the computer awake and ViewCode running. **Turn off local network access** in the
@@ -197,6 +196,15 @@ tailscale serve --https=443 off
 
 If that port is already in use, choose another with
 `--tailscale-serve-port`. See `viewcode pair --help` for other pairing options.
+
+#### Turning Tailscale off
+
+ViewCode runs the `tailscale` command only when you use a Tailscale feature: Tailscale
+HTTPS, the Connect phone Tailscale option, or opening a file in your editor over
+Tailscale SSH from another machine. Where security software stops apps that run
+Tailscale, turn off **Tailscale** in **Settings → Connections**, or start ViewCode with
+`VIEWCODE_DISABLE_TAILSCALE=1` to turn it off for that computer whatever the setting
+says. Tailscale features then say they are off instead of running it.
 
 ### HTTPS web clients
 

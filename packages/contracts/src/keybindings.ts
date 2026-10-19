@@ -104,6 +104,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "composer.workspace",
   "composer.previousWorktree",
   "composer.branch",
+  // ViewCode: dictate into the composer with the local speech model.
+  "composer.dictate",
   "chat.new",
   "chat.newLocal",
   "chat.newWithoutProject",

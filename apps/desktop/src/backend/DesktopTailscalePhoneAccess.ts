@@ -12,14 +12,17 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopServerExposure from "./DesktopServerExposure.ts";
+import * as DesktopTailscaleGate from "./DesktopTailscaleGate.ts";
 
 /**
  * ViewCode: Tailscale as a Connect phone option.
  *
  * Detection is a filesystem search for the CLI and nothing else. It never
- * spawns a process, so a computer without Tailscale sees no side effect. When
- * the CLI is found and Tailscale is signed in, launch turns Tailscale Serve on
- * unless the user turned that off; phones still have to pair.
+ * spawns a process, so a computer without Tailscale sees no side effect. Only
+ * when the user opted into it does launch run `tailscale status` and turn
+ * Tailscale Serve on once signed in; phones still have to pair. Endpoint
+ * security on managed Macs kills the app that spawns the CLI, so a plain
+ * launch must not.
  */
 
 const { logInfo, logWarning } = makeComponentLogger("desktop-tailscale-phone");
@@ -65,6 +68,7 @@ export class DesktopTailscalePhoneAccess extends Context.Service<
 export const make = Effect.gen(function* () {
   const settings = yield* DesktopAppSettings.DesktopAppSettings;
   const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
+  const tailscaleGate = yield* DesktopTailscaleGate.DesktopTailscaleGate;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -91,6 +95,7 @@ export const make = Effect.gen(function* () {
     const current = yield* settings.get;
     // Cheapest first: the settings, then a file lookup, then one `tailscale status`.
     if (!current.tailscaleAutoServe || current.tailscaleServeEnabled) return;
+    if ((yield* tailscaleGate.blockReason) !== null) return;
     if (!shouldAutoEnableTailscaleServe({ settings: current, installed: yield* detect })) return;
     if (!(yield* signedIn)) return;
     // The backend has not started yet, so the new setting simply applies to it.

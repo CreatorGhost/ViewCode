@@ -75,25 +75,67 @@ export const findTailscaleExecutable = Effect.fnUntraced(function* <R>(input: {
   return null;
 });
 
+/** Set to `1` (or `true`) to stop ViewCode from ever running the `tailscale` CLI. */
+export const TAILSCALE_DISABLE_ENV = "VIEWCODE_DISABLE_TAILSCALE";
+
+/**
+ * Why Tailscale may not run: the machine-wide environment switch or the
+ * user's setting. A future admin policy adds its own reason here.
+ */
+export const TailscaleBlockReason = Schema.Literals(["environment", "setting"]);
+export type TailscaleBlockReason = typeof TailscaleBlockReason.Type;
+
+export function isTailscaleDisabledByEnvironment(env: NodeJS.ProcessEnv): boolean {
+  const value = readEnvironmentValue(env, TAILSCALE_DISABLE_ENV)?.toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
+}
+
+/**
+ * The one answer to "may ViewCode run Tailscale here?". Null means yes. The
+ * environment switch outranks the setting, so the UI can never undo it.
+ */
+export function resolveTailscaleBlock(input: {
+  readonly env: NodeJS.ProcessEnv;
+  readonly settingEnabled: boolean;
+}): TailscaleBlockReason | null {
+  if (isTailscaleDisabledByEnvironment(input.env)) return "environment";
+  if (!input.settingEnabled) return "setting";
+  return null;
+}
+
+export class TailscaleDisabledError extends Schema.TaggedError<TailscaleDisabledError>()(
+  "TailscaleDisabledError",
+  { reason: TailscaleBlockReason },
+) {
+  override get message(): string {
+    return this.reason === "environment"
+      ? `Tailscale is turned off on this computer (${TAILSCALE_DISABLE_ENV}).`
+      : "Tailscale is turned off in ViewCode settings.";
+  }
+}
+
 interface TailscaleCommandTarget {
   readonly executable: string;
   readonly subcommand: "status" | "serve" | "debug";
   readonly argumentCount: number;
 }
 
-
 /**
  * Spawns the CLI by its PATH name and, when PATH has none, tries each known
  * install path in turn. A missing path fails to spawn, so nothing is probed
- * first. When none starts, the PATH failure is the one reported.
+ * first. When none starts, the PATH failure is the one reported. Every
+ * Tailscale command goes through here, so the environment switch stops them all.
  */
 const spawnTailscale = Effect.fnUntraced(function* (
   subcommand: "status" | "serve" | "debug",
   args: ReadonlyArray<string>,
 ) {
+  const env = yield* HostProcess.Environment;
+  if (isTailscaleDisabledByEnvironment(env)) {
+    return yield* new TailscaleDisabledError({ reason: "environment" });
+  }
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const platform = yield* HostProcess.Platform;
-  const env = yield* HostProcess.Environment;
   const spawnAs = (executable: string) => {
     const commandContext: TailscaleCommandTarget = {
       executable,
@@ -126,7 +168,6 @@ const isNotFoundSpawnError = (error: TailscaleCommandSpawnError): boolean => {
   const cause = error.cause as { readonly reason?: { readonly _tag?: unknown } } | undefined;
   return cause?.reason?._tag === "NotFound";
 };
-
 
 const TailscaleCommandContext = {
   executable: Schema.String,
@@ -215,6 +256,7 @@ export class TailscaleCommandTimeoutError extends Schema.TaggedError<TailscaleCo
 }
 
 export type TailscaleCommandError =
+  | TailscaleDisabledError
   | TailscaleCommandSpawnError
   | TailscaleCommandOutputError
   | TailscaleCommandExitError

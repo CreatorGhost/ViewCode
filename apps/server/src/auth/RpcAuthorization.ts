@@ -208,6 +208,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.serverGetProviderWorkspaceSnapshot]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetComputerUseStatus]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetComputerUseActivity]: AuthOrchestrationReadScope,
+  [WS_METHODS.serverResolveRemoteOpenTargets]: AuthOrchestrationReadScope,
   [WS_METHODS.serverDetectProviders]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribeAgentControl]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribeVoiceModels]: AuthOrchestrationReadScope,

@@ -11,8 +11,10 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { describe, expect, it } from "vite-plus/test";
 
 import * as ServerConfig from "../config.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as DirectEndpoints from "./DirectEndpoints.ts";
 import { resolveBoundEndpoints } from "./DirectEndpoints.ts";
+import * as TailscaleAccess from "./TailscaleAccess.ts";
 
 const INTERFACES: ReturnType<typeof NodeOS.networkInterfaces> = {
   lo0: [
@@ -211,13 +213,21 @@ const layerServeConfig = Layer.effect(
   Layer.provide(NodeServices.layer),
 );
 
+const layerTailscaleAccess = (spawner: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>) =>
+  TailscaleAccess.layer.pipe(
+    Layer.provide(Layer.merge(spawner, ServerSettings.ServerSettingsService.layerTest())),
+  );
+
+// Serve setup reads the status once at startup; the config read only uses that answer.
 const resolveWithServe = (probeStatus: number) =>
-  Effect.flatMap(DirectEndpoints.DirectEndpoints, (service) => service.resolve()).pipe(
+  Effect.gen(function* () {
+    yield* Effect.flatMap(TailscaleAccess.TailscaleAccess, (access) => access.status);
+    return yield* Effect.flatMap(DirectEndpoints.DirectEndpoints, (service) => service.resolve());
+  }).pipe(
     Effect.provide(
       DirectEndpoints.layer.pipe(
-        Layer.provide(
-          Layer.mergeAll(layerServeConfig, layerTailscaleUp, layerServeProbe(probeStatus)),
-        ),
+        Layer.provideMerge(layerTailscaleAccess(layerTailscaleUp)),
+        Layer.provide(Layer.mergeAll(layerServeConfig, layerServeProbe(probeStatus))),
       ),
     ),
   );
@@ -235,12 +245,14 @@ describe("DirectEndpoints Tailscale Serve", () => {
       })),
     ).pipe(Layer.provide(layerServeConfig));
     const layerUnexpectedNetwork = Layer.mergeAll(
-      Layer.succeed(
-        ChildProcessSpawner.ChildProcessSpawner,
-        ChildProcessSpawner.make(() => {
-          spawned++;
-          return Effect.die("Socket-only discovery must not run Tailscale.");
-        }),
+      layerTailscaleAccess(
+        Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make(() => {
+            spawned++;
+            return Effect.die("Socket-only discovery must not run Tailscale.");
+          }),
+        ),
       ),
       Layer.succeed(
         HttpClient.HttpClient,
@@ -277,4 +289,28 @@ describe("DirectEndpoints Tailscale Serve", () => {
       expect(yield* resolveWithServe(502)).toEqual([]);
     }),
   );
+
+  effectIt.effect("never runs tailscale itself, even with Serve on", () => {
+    let spawned = 0;
+    const layerRecordingSpawner = Layer.succeed(
+      ChildProcessSpawner.ChildProcessSpawner,
+      ChildProcessSpawner.make(() => {
+        spawned++;
+        return Effect.die("A config read must not run Tailscale.");
+      }),
+    );
+    return Effect.gen(function* () {
+      const endpoints = yield* DirectEndpoints.DirectEndpoints;
+      expect(yield* endpoints.resolve()).toEqual([]);
+      expect(yield* endpoints.resolve()).toEqual([]);
+      expect(spawned).toBe(0);
+    }).pipe(
+      Effect.provide(
+        DirectEndpoints.layer.pipe(
+          Layer.provide(layerTailscaleAccess(layerRecordingSpawner)),
+          Layer.provide(Layer.mergeAll(layerServeConfig, layerServeProbe(200))),
+        ),
+      ),
+    );
+  });
 });

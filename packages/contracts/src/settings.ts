@@ -498,6 +498,8 @@ export const ClientSettingsSchema = Schema.Struct({
   readAloudRate: ReadAloudRate.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_READ_ALOUD_RATE)),
   ),
+  // ViewCode: the composer's microphone, which dictates with a local speech model.
+  dictationEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -1499,6 +1501,12 @@ export const ServerSettings = Schema.Struct({
     enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
     url: Schema.optionalKey(TrimmedNonEmptyString),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  /**
+   * ViewCode: whether this server may run the `tailscale` CLI at all. Off
+   * turns every Tailscale feature into a no-op that says so; the
+   * `VIEWCODE_DISABLE_TAILSCALE` environment switch outranks it.
+   */
+  tailscaleEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 
   usageModelAliases: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -1780,6 +1788,7 @@ export const ServerSettingsPatch = Schema.Struct({
       url: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
     }),
   ),
+  tailscaleEnabled: Schema.optionalKey(Schema.Boolean),
 
   usageModelAliases: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(TrimmedNonEmptyString)),
@@ -1901,5 +1910,6 @@ export const ClientSettingsPatch = Schema.Struct({
   composerGlow: Schema.optionalKey(Schema.Boolean),
   readAloudVoice: Schema.optionalKey(Schema.NullOr(ReadAloudVoice)),
   readAloudRate: Schema.optionalKey(ReadAloudRate),
+  dictationEnabled: Schema.optionalKey(Schema.Boolean),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

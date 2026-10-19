@@ -11,6 +11,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopServerExposure from "./DesktopServerExposure.ts";
+import * as DesktopTailscaleGate from "./DesktopTailscaleGate.ts";
 import {
   DesktopTailscalePhoneAccess,
   detectTailscaleInstalled,
@@ -26,9 +27,11 @@ describe("shouldAutoEnableTailscaleServe", () => {
     tailscaleAutoServe: DEFAULT_DESKTOP_SETTINGS.tailscaleAutoServe,
   };
 
-  it("turns on by default when the CLI is installed", () => {
-    assert.isTrue(shouldAutoEnableTailscaleServe({ settings: defaults, installed: true }));
-    assert.isFalse(shouldAutoEnableTailscaleServe({ settings: defaults, installed: false }));
+  it("stays off until the user opts in", () => {
+    assert.isFalse(shouldAutoEnableTailscaleServe({ settings: defaults, installed: true }));
+    const optedIn = { ...defaults, tailscaleAutoServe: true };
+    assert.isTrue(shouldAutoEnableTailscaleServe({ settings: optedIn, installed: true }));
+    assert.isFalse(shouldAutoEnableTailscaleServe({ settings: optedIn, installed: false }));
   });
 
   it("stays off once the user turned it off", () => {
@@ -80,27 +83,40 @@ describe("detectTailscaleInstalled", () => {
 
 describe("applyAtStartup", () => {
   /** A fake `tailscale status --json` that prints `statusJson`; nothing is executed. */
-  const statusSpawner = (statusJson: string) =>
+  const statusSpawner = (statusJson: string, spawned: { count: number }) =>
     ChildProcessSpawner.make(() =>
-      Effect.succeed(
-        ChildProcessSpawner.makeHandle({
-          pid: ChildProcessSpawner.ProcessId(1),
-          exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
-          isRunning: Effect.succeed(false),
-          kill: () => Effect.void,
-          unref: Effect.succeed(Effect.void),
-          stdin: Sink.drain,
-          stdout: Stream.make(new TextEncoder().encode(statusJson)),
-          stderr: Stream.empty,
-          all: Stream.empty,
-          getInputFd: () => Sink.drain,
-          getOutputFd: () => Stream.empty,
-        }),
+      Effect.sync(() => {
+        spawned.count++;
+      }).pipe(
+        Effect.as(
+          ChildProcessSpawner.makeHandle({
+            pid: ChildProcessSpawner.ProcessId(1),
+            exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+            isRunning: Effect.succeed(false),
+            kill: () => Effect.void,
+            unref: Effect.succeed(Effect.void),
+            stdin: Sink.drain,
+            stdout: Stream.make(new TextEncoder().encode(statusJson)),
+            stderr: Stream.empty,
+            all: Stream.empty,
+            getInputFd: () => Sink.drain,
+            getOutputFd: () => Stream.empty,
+          }),
+        ),
       ),
     );
 
-  /** Runs startup with the CLI on PATH and returns the Serve changes it asked for. */
-  const runStartup = (statusJson: string) =>
+  /**
+   * Runs startup with the CLI on PATH and returns the Serve changes it asked
+   * for and how many `tailscale` commands it ran.
+   */
+  const runStartup = (
+    statusJson: string,
+    options: {
+      readonly settings?: DesktopAppSettings.DesktopSettings;
+      readonly blockReason?: "environment" | "setting" | null;
+    } = {},
+  ) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -109,12 +125,16 @@ describe("applyAtStartup", () => {
       yield* fileSystem.writeFileString(cli, "#!/bin/sh\n");
       yield* fileSystem.chmod(cli, 0o755);
       const requests: Array<{ readonly enabled: boolean; readonly automatic?: boolean }> = [];
+      const spawned = { count: 0 };
       const access = yield* Layer.build(
         tailscalePhoneAccessLayer.pipe(
           Layer.provide(
             Layer.mergeAll(
               Layer.mock(DesktopAppSettings.DesktopAppSettings)({
-                get: Effect.succeed(DEFAULT_DESKTOP_SETTINGS),
+                get: Effect.succeed(options.settings ?? DEFAULT_DESKTOP_SETTINGS),
+              }),
+              Layer.mock(DesktopTailscaleGate.DesktopTailscaleGate)({
+                blockReason: Effect.succeed(options.blockReason ?? null),
               }),
               Layer.mock(DesktopServerExposure.DesktopServerExposure)({
                 setTailscaleServeEnabled: (input) =>
@@ -122,7 +142,10 @@ describe("applyAtStartup", () => {
                     requests.push(input);
                   }).pipe(Effect.as({} as DesktopServerExposure.DesktopServerExposureChange)),
               }),
-              Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, statusSpawner(statusJson)),
+              Layer.succeed(
+                ChildProcessSpawner.ChildProcessSpawner,
+                statusSpawner(statusJson, spawned),
+              ),
             ),
           ),
         ),
@@ -131,26 +154,46 @@ describe("applyAtStartup", () => {
         Effect.provide(access),
         Effect.provideService(HostProcessEnvironment, { PATH: dir }),
       );
-      return requests;
+      return { requests, spawned: spawned.count };
     }).pipe(
       Effect.scoped,
       Effect.provideService(HostProcessPlatform, "freebsd"),
       Effect.provide(NodeServices.layer),
     );
 
-  it.effect("turns Serve on by default when Tailscale is signed in", () =>
+  const SIGNED_IN = '{"Self":{"DNSName":"laptop.tail1234.ts.net.","TailscaleIPs":[]}}';
+  const OPTED_IN = { ...DEFAULT_DESKTOP_SETTINGS, tailscaleAutoServe: true };
+
+  it.effect("runs no tailscale on a default launch", () =>
     Effect.gen(function* () {
-      const requests = yield* runStartup(
-        '{"Self":{"DNSName":"laptop.tail1234.ts.net.","TailscaleIPs":[]}}',
-      );
-      assert.deepStrictEqual(requests, [{ enabled: true, automatic: true }]);
+      const result = yield* runStartup(SIGNED_IN);
+      assert.deepStrictEqual(result, { requests: [], spawned: 0 });
+    }),
+  );
+
+  it.effect("turns Serve on once the user opted in and Tailscale is signed in", () =>
+    Effect.gen(function* () {
+      const result = yield* runStartup(SIGNED_IN, { settings: OPTED_IN });
+      assert.deepStrictEqual(result, {
+        requests: [{ enabled: true, automatic: true }],
+        spawned: 1,
+      });
     }),
   );
 
   it.effect("leaves Serve off while Tailscale is signed out", () =>
     Effect.gen(function* () {
-      const requests = yield* runStartup('{"Self":{"TailscaleIPs":[]}}');
-      assert.deepStrictEqual(requests, []);
+      const result = yield* runStartup('{"Self":{"TailscaleIPs":[]}}', { settings: OPTED_IN });
+      assert.deepStrictEqual(result.requests, []);
+    }),
+  );
+
+  it.effect("runs no tailscale when Tailscale is turned off, even opted in", () =>
+    Effect.gen(function* () {
+      for (const blockReason of ["setting", "environment"] as const) {
+        const result = yield* runStartup(SIGNED_IN, { settings: OPTED_IN, blockReason });
+        assert.deepStrictEqual(result, { requests: [], spawned: 0 });
+      }
     }),
   );
 });

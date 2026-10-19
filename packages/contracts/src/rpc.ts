@@ -176,7 +176,11 @@ import {
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
 } from "./threadSearch.ts";
-import { PullRequestStartReviewInput, PullRequestStartReviewResult, ReviewStartLocalInput } from "./viewcodeReview.ts";
+import {
+  PullRequestStartReviewInput,
+  PullRequestStartReviewResult,
+  ReviewStartLocalInput,
+} from "./viewcodeReview.ts";
 import {
   ProviderUploadFeedbackError,
   ProviderUploadFeedbackInput,
@@ -184,7 +188,12 @@ import {
 } from "./provider.ts";
 import { ProviderInstanceId, ProviderInstanceMutation } from "./providerInstance.ts";
 import { PullRequestReviewGuideResult } from "./pullRequestReviewGuide.ts";
-import { VoiceModelError, VoiceModelTierInput, VoiceModelsState } from "./voiceModels.ts";
+import {
+  VoiceModelError,
+  VoiceModelRemoveInput,
+  VoiceModelTierInput,
+  VoiceModelsState,
+} from "./voiceModels.ts";
 import {
   ProviderAccountAddInput,
   ProviderAccountAddResult,
@@ -338,6 +347,7 @@ import {
   ServerLifecycleStreamEvent,
   ServerRemoveKeybindingInput,
   ServerRemoveKeybindingResult,
+  ServerRemoteOpenTargetsResult,
   ServerProviderUpdatedPayload,
   ServerProviderWorkspaceSnapshot,
   ServerSelfUpdateError,
@@ -544,6 +554,7 @@ export const WS_METHODS = {
   serverGetProviderWorkspaceSnapshot: "server.getProviderWorkspaceSnapshot",
   serverGetComputerUseStatus: "server.getComputerUseStatus",
   serverGetComputerUseActivity: "server.getComputerUseActivity",
+  serverResolveRemoteOpenTargets: "server.resolveRemoteOpenTargets",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
   serverUpdateServerWithProgress: "server.updateServerWithProgress",
@@ -646,7 +657,7 @@ export const WS_METHODS = {
   usageResumeCancel: "usageResume.cancel",
   usageResumeNow: "usageResume.now",
 
-  // ViewCode read aloud: the natural voice's model, downloaded by the environment
+  // ViewCode read aloud and dictation: their models, downloaded by the environment
   voiceModelsDownload: "voiceModels.download",
   voiceModelsCancel: "voiceModels.cancel",
   voiceModelsRemove: "voiceModels.remove",
@@ -739,6 +750,17 @@ const WsServerGetComputerUseStatusRpc = Rpc.make(WS_METHODS.serverGetComputerUse
 const WsServerGetComputerUseActivityRpc = Rpc.make(WS_METHODS.serverGetComputerUseActivity, {
   payload: Schema.Struct({}),
   success: ComputerUseActivity,
+  error: EnvironmentAuthorizationError,
+});
+
+/**
+ * Looks for an SSH route to this server for "open in editor" now, reading
+ * Tailscale status when it is allowed. Clients call it when that feature is
+ * used, never on load.
+ */
+const WsServerResolveRemoteOpenTargetsRpc = Rpc.make(WS_METHODS.serverResolveRemoteOpenTargets, {
+  payload: Schema.Struct({}),
+  success: ServerRemoteOpenTargetsResult,
   error: EnvironmentAuthorizationError,
 });
 
@@ -1430,9 +1452,9 @@ const WsVoiceModelsCancelRpc = Rpc.make(WS_METHODS.voiceModelsCancel, {
   error: VoiceModelRpcError,
 });
 
-/** Removes every downloaded tier. */
+/** Removes every downloaded read-aloud tier, or the dictation model. */
 const WsVoiceModelsRemoveRpc = Rpc.make(WS_METHODS.voiceModelsRemove, {
-  payload: Schema.Struct({}),
+  payload: VoiceModelRemoveInput,
   success: VoiceModelsState,
   error: VoiceModelRpcError,
 });
@@ -2198,6 +2220,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetProviderWorkspaceSnapshotRpc,
   WsServerGetComputerUseStatusRpc,
   WsServerGetComputerUseActivityRpc,
+  WsServerResolveRemoteOpenTargetsRpc,
   WsServerUpdateProviderRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,
