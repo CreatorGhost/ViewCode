@@ -151,6 +151,12 @@ make your first commit before pushing.
 Use a thread's Git actions to commit, push, and create a pull request. ViewCode can generate commit
 messages, review titles, and descriptions from your changes.
 
+The thread's pull request then shows as a card at the end of the chat and at the top of the Review
+panel: whether it conflicts with its base, whether checks are still running, and whether it is
+ready to merge. **Resolve conflicts** asks the thread's agent to merge the base in, fix the
+conflicts, and push. **Merge** merges it on the host. Drafts and pull requests with failing checks
+do not offer Merge.
+
 An existing fork PR can appear beside the branch even if you pushed without setting an upstream.
 If its badge is missing because several remotes hold that branch, set the branch's upstream to
 the intended remote with `git branch --set-upstream-to=<remote>/<branch>`.
