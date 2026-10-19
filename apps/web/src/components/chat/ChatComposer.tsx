@@ -387,6 +387,7 @@ import {
   suppressActiveComposerScrollGesture,
 } from "./composerScrollGesture";
 import { prepareVideoFirstFrame } from "../../lib/videoFirstFrame";
+import { observeChipGlide } from "~/lib/chipGlide";
 import { observeResize } from "~/lib/observeResize";
 
 function ComposerVideoThumbnail({ file }: { file: File }) {
@@ -1066,6 +1067,7 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
     document.body,
   );
 }
+import { BlurSwap } from "../ui/blur-swap";
 import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -1230,6 +1232,7 @@ function useRestingComposerControlsLayout(host: HTMLDivElement | null, useContro
   }, [host, controls, useControlsAsHost, measure]);
 
   return {
+    controls,
     controlsRef,
     attachControls,
     hiddenBlockCount: layout.hiddenCount,
@@ -1299,9 +1302,12 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
               opticalSize={size === "xs" ? "default" : "large"}
             />
           )}
-          <span data-composer-control-label className="sr-only sm:not-sr-only">
+          <BlurSwap
+            swapKey={props.interactionMode}
+            render={<span data-composer-control-label className="sr-only sm:not-sr-only" />}
+          >
             {props.interactionMode === "plan" ? "Plan" : "Build"}
-          </span>
+          </BlurSwap>
         </TooltipTrigger>
         <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
       </Tooltip>
@@ -1331,7 +1337,14 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
             }
           >
             <ComposerControlIcon icon={RuntimeModeIcon} size={size} />
-            <SelectValue data-composer-control-label>{runtimeModeOption.label}</SelectValue>
+            <SelectValue data-composer-control-label>
+              <BlurSwap
+                swapKey={runtimeModeOption.mode}
+                render={<span className="block truncate" />}
+              >
+                {runtimeModeOption.label}
+              </BlurSwap>
+            </SelectValue>
           </TooltipTrigger>
           <SelectPopup alignItemWithTrigger={false} {...composerFloatingLayerProps}>
             {props.runtimeModeOptions.map((option) => {
@@ -2998,10 +3011,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     controlsVisible: restingControlsVisible,
   } = useRestingComposerControlsLayout(restingControlsHost ?? inlineRestingControlsHost);
   const {
+    controls: expandedComposerControls,
     attachControls: attachExpandedComposerControls,
     hiddenBlockCount: expandedControlsHiddenBlockCount,
     iconOnlyBlockCount: expandedControlsIconOnlyBlockCount,
   } = useRestingComposerControlsLayout(null, true);
+  // When a chip's label changes width (runtime mode, Plan/Build), the chips after it glide.
+  useLayoutEffect(() => observeChipGlide(expandedComposerControls), [expandedComposerControls]);
   const pendingPrimaryAction = activePendingProgress
     ? {
         questionIndex: activePendingProgress.questionIndex,

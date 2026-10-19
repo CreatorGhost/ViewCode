@@ -207,7 +207,7 @@ export function PrBranchMap({ flow }: { flow: PrFlow }) {
         {conflictShown && flow.conflicts ? (
           <span
             key="conflicts"
-            className="pr-flow-swap absolute -top-1 right-[2%] rounded-full border border-warning/40 bg-warning-surface px-2 text-2xs text-warning-foreground"
+            className="blur-swap absolute -top-1 right-[2%] rounded-full border border-warning/40 bg-warning-surface px-2 text-2xs text-warning-foreground"
           >
             {prFlowConflictCount(flow) === 0
               ? "Conflicts"
@@ -217,7 +217,7 @@ export function PrBranchMap({ flow }: { flow: PrFlow }) {
         {merged ? (
           <span
             key="merged"
-            className="pr-flow-swap absolute -top-1 right-[2%] rounded-full border border-branch/30 bg-branch/10 px-2 text-2xs text-branch"
+            className="blur-swap absolute -top-1 right-[2%] rounded-full border border-branch/30 bg-branch/10 px-2 text-2xs text-branch"
           >
             Merged
           </span>
