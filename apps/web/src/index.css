@@ -744,20 +744,37 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   will-change: var(--visible-animation-will-change, auto);
 }
 
+/* The active step's focus band (ActivityShimmerOverlay, WorktreeSetupCard) on live-tool-shine's
+   beat: two ~600ms linear sweeps, then a ~600ms rest with the band parked past the label. The
+   counter moves the text back by the same amount, so only the mask travels. */
 @keyframes live-activity-focus {
-  from {
+  0% {
     transform: translateX(0);
   }
-  to {
+  33% {
+    transform: translateX(100%);
+  }
+  33.01% {
+    transform: translateX(0);
+  }
+  66%,
+  100% {
     transform: translateX(100%);
   }
 }
 
 @keyframes live-activity-focus-counter {
-  from {
+  0% {
     transform: translateX(0);
   }
-  to {
+  33% {
+    transform: translateX(-100%);
+  }
+  33.01% {
+    transform: translateX(0);
+  }
+  66%,
+  100% {
     transform: translateX(-100%);
   }
 }
@@ -792,7 +809,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     transparent 100%
   );
   mask-repeat: no-repeat;
-  animation: live-activity-focus 2.2s steps(30) infinite;
+  animation: live-activity-focus 1.8s steps(18) infinite;
   animation-play-state: var(--visible-animation-state, paused);
   will-change: var(--visible-animation-will-change, auto);
 
@@ -805,7 +822,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
 @utility live-activity-focus-counter {
   width: 100%;
-  animation: live-activity-focus-counter 2.2s steps(30) infinite;
+  animation: live-activity-focus-counter 1.8s steps(18) infinite;
   animation-play-state: var(--visible-animation-state, paused);
   will-change: var(--visible-animation-will-change, auto);
 
