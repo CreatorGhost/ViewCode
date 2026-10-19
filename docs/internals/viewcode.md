@@ -1026,6 +1026,12 @@ adopt the same model.
   above the live step) set their ends with `WorkLogRail`. `isRowUnchanged`
   compares both flags, or a cached row keeps a stale rail end when a neighbour
   arrives.
+- Steps, not tool calls, are rows: `workLogStepRuns` merges consecutive calls
+  of one kind and gives each failure its own row, and only the call running
+  now is the live row. Finished calls never hide inside it.
+- The turn that just finished stays open (`keepLatestTurnOpen`). Closing it is
+  recorded in `collapsedRunIds`, not by removing it from `expandedRunIds`,
+  because find and citations also add to that set and must never close a turn.
 - The rail stops short of each marker rather than hiding behind a filled
   backdrop: the timeline's background differs per theme and surface.
 - There is no FLIP push for new steps. The timeline already follows the end
