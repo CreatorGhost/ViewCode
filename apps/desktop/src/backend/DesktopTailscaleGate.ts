@@ -1,5 +1,6 @@
 import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 import { resolveTailscaleBlock, type TailscaleBlockReason } from "@t3tools/tailscale";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -17,9 +18,10 @@ const decodeTailscaleSettingJson = Schema.decodeUnknownOption(TailscaleSettingJs
 
 /**
  * ViewCode: whether the desktop may run the `tailscale` CLI. It honours the
- * same switches as the server it launches: `VIEWCODE_DISABLE_TAILSCALE` and the
- * server's `tailscaleEnabled` setting, read from its settings file each time so
- * a change in Settings applies without a restart.
+ * same switches as the server it launches: IT's admin policy (read once, at
+ * startup), `VIEWCODE_DISABLE_TAILSCALE`, and the server's `tailscaleEnabled`
+ * setting, read from its settings file each time so a change in Settings
+ * applies without a restart.
  */
 export class DesktopTailscaleGate extends Context.Service<
   DesktopTailscaleGate,
@@ -33,6 +35,7 @@ const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const env = yield* HostProcessEnvironment;
+  const policyBlocked = (yield* AdminPolicyRef).tailscaleBlocked;
 
   const blockReason = fileSystem.readFileString(environment.serverSettingsPath).pipe(
     Effect.option,
@@ -42,7 +45,7 @@ const make = Effect.gen(function* () {
         Option.getOrElse(() => true),
       ),
     ),
-    Effect.map((settingEnabled) => resolveTailscaleBlock({ env, settingEnabled })),
+    Effect.map((settingEnabled) => resolveTailscaleBlock({ policyBlocked, env, settingEnabled })),
   );
 
   return DesktopTailscaleGate.of({ blockReason });

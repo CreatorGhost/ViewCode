@@ -1691,6 +1691,7 @@ const layerWsRpc = (
             yield* serverSettings.getSettings,
           );
           const adminPolicy = yield* AdminPolicyRef;
+          const tailscaleBlock = yield* tailscaleAccess.blockReason;
           const environment = yield* serverEnvironment.getDescriptor;
           const auth = yield* serverAuth.getDescriptor();
           const scratchWorkspaceRoot = yield* managedFolders.scratchRoot;
@@ -1715,8 +1716,8 @@ const layerWsRpc = (
               onNone: () => ({}),
               onSome: (targets) => ({ remoteOpenTargets: targets }),
             }),
-            ...((yield* tailscaleAccess.blockReason) === "environment"
-              ? { tailscaleBlockedBy: "environment" as const }
+            ...(tailscaleBlock === "policy" || tailscaleBlock === "environment"
+              ? { tailscaleBlockedBy: tailscaleBlock }
               : {}),
             directEndpoints: yield* resolveAvailableEditorsForConfig(directEndpoints.resolve()),
             observability: {

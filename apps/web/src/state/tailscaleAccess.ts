@@ -4,8 +4,8 @@ import { Atom } from "effect/reactivity";
 
 import { serverEnvironment } from "~/state/server";
 
-/** Why a server will not run Tailscale: its environment switch or its setting. */
-type TailscaleBlock = "environment" | "setting";
+/** Why a server will not run Tailscale: IT's policy, its environment switch or its setting. */
+type TailscaleBlock = "policy" | "environment" | "setting";
 
 function tailscaleBlockOf(
   config: Pick<ServerConfig, "tailscaleBlockedBy" | "settings"> | null,
@@ -16,9 +16,14 @@ function tailscaleBlockOf(
 }
 
 export function describeTailscaleBlock(block: TailscaleBlock): string {
-  return block === "environment"
-    ? "Tailscale is turned off on this computer (VIEWCODE_DISABLE_TAILSCALE)."
-    : "Tailscale is turned off in Settings → Connections.";
+  switch (block) {
+    case "policy":
+      return "Tailscale is blocked by your organization.";
+    case "environment":
+      return "Tailscale is turned off on this computer (VIEWCODE_DISABLE_TAILSCALE).";
+    case "setting":
+      return "Tailscale is turned off in Settings → Connections.";
+  }
 }
 
 // Derived so a config push re-renders only when the answer changes.

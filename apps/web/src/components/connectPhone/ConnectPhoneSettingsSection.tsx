@@ -23,6 +23,8 @@ export function ConnectPhoneSettingsSection() {
   const updateSettings = useUpdatePrimarySettings();
   const tailscaleEnabled = usePrimarySettings((settings) => settings.tailscaleEnabled);
   const tailscaleBlock = useTailscaleBlock(usePrimaryEnvironmentId());
+  // Only the setting is the user's to change; IT's policy and the environment switch are not.
+  const tailscaleLocked = tailscaleBlock !== null && tailscaleBlock !== "setting";
   const quickOn =
     quickView.kind !== "off" && quickView.kind !== "not-set-up" && quickView.kind !== "loading";
   return (
@@ -68,14 +70,14 @@ export function ConnectPhoneSettingsSection() {
       <SettingsRow
         title="Tailscale"
         description={
-          tailscaleBlock === "environment"
+          tailscaleLocked
             ? describeTailscaleBlock(tailscaleBlock)
             : "Lets ViewCode run the Tailscale app for phone access, Tailscale HTTPS and opening files over Tailscale SSH. Turn it off where security software blocks Tailscale."
         }
         control={
           <Switch
             checked={tailscaleBlock === null && tailscaleEnabled}
-            disabled={tailscaleBlock === "environment"}
+            disabled={tailscaleLocked}
             onCheckedChange={(checked) => updateSettings({ tailscaleEnabled: checked === true })}
             aria-label="Tailscale"
           />

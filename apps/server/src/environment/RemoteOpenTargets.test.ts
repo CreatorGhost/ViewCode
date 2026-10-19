@@ -2,6 +2,7 @@ import { it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { ensureTailscaleServe } from "@t3tools/tailscale";
 import * as NetService from "@t3tools/shared/Net";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -70,6 +71,7 @@ const layerRemoteOpenTargets = (input: {
   readonly spawned?: Array<string>;
   readonly tailscaleEnabled?: boolean;
   readonly env?: NodeJS.ProcessEnv;
+  readonly policyBlocksTailscale?: boolean;
 }) =>
   RemoteOpenTargets.layer.pipe(
     Layer.provideMerge(TailscaleAccess.layer),
@@ -81,6 +83,11 @@ const layerRemoteOpenTargets = (input: {
           tailscaleEnabled: input.tailscaleEnabled ?? true,
         }),
         Layer.succeed(HostProcess.Environment, input.env ?? {}),
+        Layer.succeed(AdminPolicyRef, {
+          blockedDrivers: [],
+          tailscaleBlocked: input.policyBlocksTailscale ?? false,
+          problem: null,
+        }),
       ),
     ),
   );
@@ -272,6 +279,34 @@ describe("RemoteOpenTargets", () => {
             tailscale: TAILSCALE_SSH,
             spawned,
             env: { VIEWCODE_DISABLE_TAILSCALE: "1" },
+          }),
+        ),
+      );
+    });
+
+    it.effect("runs nothing when the admin policy blocks Tailscale, whatever the setting", () => {
+      const spawned: Array<string> = [];
+      return Effect.gen(function* () {
+        const service = yield* RemoteOpenTargets.RemoteOpenTargets;
+        const access = yield* TailscaleAccess.TailscaleAccess;
+        expect(yield* service.resolveTargets()).toEqual([{ kind: "mdns", host: "bb-1.local" }]);
+        expect(yield* access.blockReason).toBe("policy");
+        const error = yield* access
+          .run(ensureTailscaleServe({ localPort: 3773 }))
+          .pipe(Effect.flip);
+        expect(error.message).toBe("Tailscale is blocked by your organization.");
+        // Even a caller that skips TailscaleAccess cannot run the CLI.
+        yield* ensureTailscaleServe({ localPort: 3773 }).pipe(Effect.flip);
+        expect(spawned).toEqual([]);
+      }).pipe(
+        Effect.provideService(HostProcess.Hostname, "bb-1"),
+        Effect.provide(
+          layerRemoteOpenTargets({
+            sshd: SSHD_UP,
+            tailscale: TAILSCALE_SSH,
+            spawned,
+            tailscaleEnabled: true,
+            policyBlocksTailscale: true,
           }),
         ),
       );
