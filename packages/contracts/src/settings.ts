@@ -498,6 +498,8 @@ export const ClientSettingsSchema = Schema.Struct({
   readAloudRate: ReadAloudRate.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_READ_ALOUD_RATE)),
   ),
+  // ViewCode: the composer's microphone, which dictates with a local speech model.
+  dictationEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -1901,5 +1903,6 @@ export const ClientSettingsPatch = Schema.Struct({
   composerGlow: Schema.optionalKey(Schema.Boolean),
   readAloudVoice: Schema.optionalKey(Schema.NullOr(ReadAloudVoice)),
   readAloudRate: Schema.optionalKey(ReadAloudRate),
+  dictationEnabled: Schema.optionalKey(Schema.Boolean),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

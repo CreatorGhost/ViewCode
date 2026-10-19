@@ -21,7 +21,7 @@ export const DEFAULT_VOICE_MODEL_TIER: VoiceModelTier = "small";
  */
 export const VoiceModelKey = Schema.Literals(["small", "medium", "large", "dictation"]);
 export type VoiceModelKey = typeof VoiceModelKey.Type;
-export const DICTATION_MODEL_KEY = "dictation" satisfies VoiceModelKey;
+export const DICTATION_MODEL_KEY = "dictation" as const satisfies VoiceModelKey;
 
 /** One model's download. */
 export const VoiceModelDownloadState = Schema.Struct({

@@ -176,6 +176,7 @@ import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 import { ChatAppearanceSettings } from "./ChatAppearanceSettings";
 import { ProjectColorSettings } from "./ProjectColorSettings";
 import { ReadAloudSettings } from "./ReadAloudSettings";
+import { DictationSettings } from "./DictationSettings";
 import { WindowTransparencySetting } from "./WindowTransparencySetting";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
@@ -1394,6 +1395,7 @@ export function AppearanceSettingsPanel() {
       <ProjectColorSettings />
       <ChatAppearanceSettings showChatWidth={false} />
       <ReadAloudSettings />
+      <DictationSettings />
 
       <SettingsSection id="motion" title="Motion">
         <SettingsRow
