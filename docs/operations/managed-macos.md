@@ -46,11 +46,13 @@ first launch.
 1. Run the new build on a **copy** of real data, on a spare port.
 2. Remove a copied `userdata/server-runtime.json`; v2 refuses to start if it
    names a live server.
-3. Load the page, open Settings, and send one message.
-4. Read `userdata/logs/spawn-trace.log`. It must show no `tailscale`. Only a
-   Tailscale feature runs it: opening the **Open in** menu from a remote browser
-   runs at most one `tailscale status` (plus `tailscale debug prefs` when no
-   local sshd answers) a minute. With Tailscale turned off, nothing.
+3. Load the page, open Settings, and send one Cursor message.
+4. Read `userdata/logs/spawn-trace.log`. It must show no `tailscale`, no
+   `codex`, and no `rg` or `cursorsandbox` (see the Cursor section below). Only
+   a Tailscale feature runs `tailscale`: opening the **Open in** menu from a
+   remote browser runs at most one `tailscale status` (plus
+   `tailscale debug prefs` when no local sshd answers) a minute. With
+   Tailscale turned off, nothing.
 
 ## October 2026: what Cortex XDR actually flags
 
