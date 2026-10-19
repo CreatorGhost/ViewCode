@@ -12,6 +12,7 @@ import {
   prFlowStatus,
 } from "~/components/chat/prFlow/prFlowModel";
 import { Button } from "~/components/ui/button";
+import { observeChipGlide } from "~/lib/chipGlide";
 
 /** Development preview of the PR flow card, played through every state. Not in production builds. */
 export const Route = createFileRoute("/dev/pr-flow")({
@@ -180,7 +181,7 @@ function PrFlowPreview() {
       </div>
       <div className="px-6 pb-5">
         <div className="mx-auto flex w-full max-w-170 flex-col gap-2">
-          <div className="flex justify-end gap-1.5">
+          <div ref={observeChipGlide} className="relative flex justify-end gap-1.5">
             <span className="flex h-6.5 items-center gap-1.5 rounded-full border bg-card px-2.5 font-mono text-xs">
               4 files <span className="text-diff-addition-foreground">+128</span>
               <span className="text-diff-deletion-foreground">−36</span>

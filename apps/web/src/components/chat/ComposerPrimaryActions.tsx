@@ -146,7 +146,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         <button
           type="button"
           className={cn(
-            "flex shrink-0 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 transition-colors duration-150 hover:bg-destructive active:shadow-none [&_svg]:pointer-events-none",
+            "flex shrink-0 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 transition-[scale,background-color,box-shadow] duration-130 ease-out-soft hover:bg-destructive active:scale-93 active:shadow-none motion-reduce:transition-none [&_svg]:pointer-events-none",
             insidePendingAction ? "size-8 sm:size-7" : "size-8 sm:h-8 sm:w-8",
           )}
           {...pointerFocusProps}
@@ -316,7 +316,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     <button
       type={showResume ? "button" : "submit"}
       className={cn(
-        "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer hover:scale-105 active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 [&_svg]:pointer-events-none",
+        "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-[scale,background-color,box-shadow,opacity,filter] duration-130 ease-out-soft enabled:cursor-pointer hover:scale-105 active:scale-93 active:shadow-none motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 [&_svg]:pointer-events-none",
         stageBackdropVariant
           ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
           : "bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover",

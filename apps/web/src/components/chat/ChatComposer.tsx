@@ -378,6 +378,7 @@ import {
   suppressActiveComposerScrollGesture,
 } from "./composerScrollGesture";
 import { prepareVideoFirstFrame } from "../../lib/videoFirstFrame";
+import { observeChipGlide } from "~/lib/chipGlide";
 import { observeResize } from "~/lib/observeResize";
 
 function ComposerVideoThumbnail({ file }: { file: File }) {
@@ -1222,6 +1223,7 @@ function useRestingComposerControlsLayout(host: HTMLDivElement | null, useContro
   }, [host, controls, useControlsAsHost, measure]);
 
   return {
+    controls,
     controlsRef,
     attachControls,
     hiddenBlockCount: layout.hiddenCount,
@@ -2994,10 +2996,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     controlsVisible: restingControlsVisible,
   } = useRestingComposerControlsLayout(restingControlsHost ?? inlineRestingControlsHost);
   const {
+    controls: expandedComposerControls,
     attachControls: attachExpandedComposerControls,
     hiddenBlockCount: expandedControlsHiddenBlockCount,
     iconOnlyBlockCount: expandedControlsIconOnlyBlockCount,
   } = useRestingComposerControlsLayout(null, true);
+  // When a chip's label changes width (runtime mode, Plan/Build), the chips after it glide.
+  useLayoutEffect(() => observeChipGlide(expandedComposerControls), [expandedComposerControls]);
   const pendingPrimaryAction = activePendingProgress
     ? {
         questionIndex: activePendingProgress.questionIndex,
