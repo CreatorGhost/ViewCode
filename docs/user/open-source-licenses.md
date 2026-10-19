@@ -10,6 +10,6 @@ notices:
 
 The page lists the version when available, license identifier, and the parts of ViewCode that include
 or use the item. This also covers optional device tools that ViewCode installs on demand instead of
-bundling, and the Kokoro-82M voice model (Apache-2.0) that read aloud downloads for its natural
-voice. Select a row to read the complete notice text. Use the search field to find a package,
-version, license, or app component.
+bundling, the Kokoro-82M voice model (Apache-2.0) that read aloud downloads for its natural voice,
+and the Moonshine base speech model (MIT) that dictation downloads. Select a row to read the
+complete notice text. Use the search field to find a package, version, license, or app component.
