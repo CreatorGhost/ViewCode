@@ -89,4 +89,31 @@ describe("first-run filesystem discovery", () => {
       Effect.provideService(HostProcess.Environment, { PATH: "/original" }),
     ),
   );
+
+  it.effect("looks up cursor-agent only for Cursor's CLI runtime", () =>
+    Effect.gen(function* () {
+      const cursor = ProviderDriverKind.make("cursor");
+      const entry = (config: Record<string, unknown>) => ({ driver: cursor, config });
+      // Automatic on macOS picks the CLI when it is installed.
+      assert.equal(
+        yield* resolveInstanceExecutable(cursor, entry({})),
+        "/usr/local/bin/cursor-agent",
+      );
+      assert.isUndefined(yield* resolveInstanceExecutable(cursor, entry({ runtime: "sdk" })));
+      assert.isNull(
+        yield* resolveInstanceExecutable(
+          cursor,
+          entry({ runtime: "cursor-agent", binaryPath: "/gone/cursor-agent" }),
+        ),
+      );
+    }).pipe(
+      Effect.provideService(SpawnExecutableResolution, (command) =>
+        command === "cursor-agent" ? "/usr/local/bin/cursor-agent" : undefined,
+      ),
+      Effect.provideService(HostProcess.Platform, "darwin"),
+      Effect.provideService(HostProcess.Architecture, "arm64"),
+      Effect.provideService(HostProcess.HomeDirectory, "/test-home"),
+      Effect.provideService(HostProcess.Environment, { PATH: "/original" }),
+    ),
+  );
 });

@@ -34,6 +34,7 @@ excluded from ViewCode are gated, not deleted.
 | GitHub automatic account routing                  | Upstream GitHub API providers wrapped by `packages/source-control-github/src/server/GitHubAccountRouting.ts` and routed providers; SSH alias resolver                          |
 | Review CLI and browser CLI                        | `reviewCli/`, `browserCli/`, sibling executable entries and scoped MCP-session credentials                                                                                     |
 | Command Code, Droid and Devin                     | Native provider drivers in `provider/viewcode/`; Droid/Devin use upstream ACP capabilities                                                                                     |
+| Cursor `cursor-agent` runtime                     | `provider/viewcode/cursorDriver.ts` wraps upstream's SDK `CursorDriver`; the CLI runtime is an ACP flavor (`cursorAgent*.ts`), chosen in `cursorRuntime.ts`                    |
 | Pi and Muse                                       | Upstream native provider packages, with ViewCode policy and environment hooks                                                                                                  |
 | First-run choice and admin policy                 | `provider/viewcode/firstRunProviders.ts`, launch gates and policy drivers; project toggles remain subordinate                                                                  |
 | Provider/account usage and automatic resume       | `resourceTelemetry/`, provider usage readers, `agents/UsageResume.ts` and native lifecycle bridge                                                                              |
@@ -279,8 +280,9 @@ Unarchive stays available through the normal native path.
   `viewcode-computer` and have it approved. The instructions and `viewcode-computer help`
   (`VIEWCODE_COMPUTER_CLI`) give the agent that path, quoted the way the lexer accepts
   (`shellCommandWord`); the bare name still runs but the provider asks. Native Codex, Claude and supported ACP shell approvals use this recognizer.
-  Cursor's local SDK has no shell-environment injection hook; do not claim the CLI
-  shortcut works there merely because its native MCP tools do. OpenCode does
+  Cursor's SDK runtime has no shell-environment injection hook; do not claim the CLI
+  shortcut works there merely because its native MCP tools do (the `cursor-agent`
+  runtime gets the env like other ACP agents). OpenCode does
   not automatically approve ambiguous patterns: its request carries only per-command patterns with redirections dropped, so it cannot be
   proven plain. Claude under a managed policy that narrows Full access is the exception: the
   thread (and so the gate) is still full access, which would wave the action through unasked,
@@ -479,6 +481,19 @@ Unarchive stays available through the normal native path.
   MCP attachment and runtime instructions. They refuse unsupported steering;
   ACP agents differ on what a second prompt means. Providers with their own
   extensions keep their native upstream adapters.
+- Cursor has two runtimes per instance (`runtime` in its settings). The SDK runs
+  `@cursor/sdk` in the server, which then spawns `rg`/`cursorsandbox` itself; Cortex
+  XDR kills the server for that on managed Macs ([managed-macos.md](../operations/managed-macos.md#cursor-runs-as-cursor-agent-again-october-2026)).
+  The `cursor-agent` runtime is v1's CLI on native ACP, so the server's only Cursor
+  child is the signed CLI. Unset means macOS → `cursor-agent` when a PATH lookup finds
+  it, else the SDK (upstream's default, and what existing v2 installs ran), with
+  `cursor-agent` as the fallback where the SDK ships no native package. Detection and
+  the launch gate use the same resolver and never run the binary. Both runtimes share
+  one continuation key; a thread whose saved session belongs to the other runtime
+  fails resume and gets native resume fallback with a full handoff. Running the SDK in
+  a child `node` process was rejected: the tools' parent would still be a generic
+  `node`, which is what the EDR objects to, and it needs a new packaged entry and an
+  IPC protocol for the SDK runner's callbacks.
 - Droid keeps its own login, so `authMethodId` is optional in `AcpSessionRuntime`: Droid sends `factory-api-key` only when `FACTORY_API_KEY` is set (as Grok does with its key) and otherwise relies on the login `droid` stored. Device pairing needs a terminal, so ViewCode never starts it. Reacting to an auth-required answer instead does not work: a real agent's JSON-RPC error response reaches the runtime as a defect with only its message (effect-acp decodes plain error responses as dies, and the mock agent, which effect-acp also serves, hides that), so the code -32000 is gone. In ACP mode Droid ignores `-m`/`--auto`; model and autonomy are its `model` and `autonomy_level` config options, set per turn and capped at the org's maximum.
 - Devin needs no `authenticate` at all: its ACP server uses the login `devin auth login` stored or `WINDSURF_API_KEY`, and only offers a browser method. Without either, `session/new` still succeeds and prompts fail, so the health check (`devin models list`, which needs a login) is where a missing sign-in shows. `--model` takes fuzzy family names at launch; mid-session changes pick the matching `model` config value (`matchDevinModelValue`). Devin can replay loaded history after `session/load`; the upstream ACP runtime owns
   replay/turn correlation. Do not restore the v1 `loadReplayQuiet` timer as an
@@ -541,7 +556,7 @@ accounts with a repository inaccessible to the default account.
 Posting findings requires the active user-authorized path; scheduled runs,
 agent-origin messages and review agents cannot silently post external comments.
 CLI and MCP use the same service validation. Review/browser/computer shims get
-scoped per-session credentials and must not log them. Cursor's local SDK does
+scoped per-session credentials and must not log them. Cursor's SDK runtime does
 not expose a process-environment hook: use its MCP review tools where a CLI
 shim cannot be injected safely.
 

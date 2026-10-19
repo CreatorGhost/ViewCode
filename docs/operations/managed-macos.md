@@ -46,11 +46,13 @@ first launch.
 1. Run the new build on a **copy** of real data, on a spare port.
 2. Remove a copied `userdata/server-runtime.json`; v2 refuses to start if it
    names a live server.
-3. Load the page, open Settings, and send one message.
-4. Read `userdata/logs/spawn-trace.log`. It must show no `tailscale`. Only a
-   Tailscale feature runs it: opening the **Open in** menu from a remote browser
-   runs at most one `tailscale status` (plus `tailscale debug prefs` when no
-   local sshd answers) a minute. With Tailscale turned off, nothing.
+3. Load the page, open Settings, and send one Cursor message.
+4. Read `userdata/logs/spawn-trace.log`. It must show no `tailscale`, no
+   `codex`, and no `rg` or `cursorsandbox` (see the Cursor section below). Only
+   a Tailscale feature runs `tailscale`: opening the **Open in** menu from a
+   remote browser runs at most one `tailscale status` (plus
+   `tailscale debug prefs` when no local sshd answers) a minute. With
+   Tailscale turned off, nothing.
 
 ## October 2026: what Cortex XDR actually flags
 
@@ -87,6 +89,40 @@ mkdir -p /tmp/rm/darwin-arm64 && cp native/resource-monitor/target/aarch64-apple
 node scripts/build-cli-archive.ts --platform mac --arch arm64 --version "$(node -p 'require("./apps/server/package.json").version')" --resource-monitor-dir /tmp/rm --output-dir release-cli
 pnpm dist:desktop:dmg:arm64 --mac-server-runtime release-cli/t3-*-darwin-arm64.tar.gz
 ```
+
+## Cursor runs as `cursor-agent` again (October 2026)
+
+Measured on 19 October 2026 with the v2 server on a copy of real data: Cursor
+sign-in through the SDK worked, and on the first message the **server process
+itself** spawned the SDK's bundled `@cursor/sdk-darwin-arm64/bin/rg` twice in
+parallel; the server was killed right after. That `rg` is properly signed
+(Developer ID: Anysphere) and identical to the one inside `cursor-agent`, so
+this is not a signature problem. The difference is the parent: v1 ran
+Cursor's own signed `cursor-agent`, which runs `rg` and `cursorsandbox`
+itself, and that runs clean daily; v2 ran Cursor in-process through
+`@cursor/sdk`, so the generic `node` server ran them. Not proven at the rule
+level (only IT's console names the rule), but timing and the v1/v2 difference
+match.
+
+Cursor now has a **Runtime** setting (Settings → Providers → Cursor):
+
+- **Cursor CLI (`cursor-agent`)**: the server spawns `cursor-agent … acp` and
+  nothing else for Cursor. It uses the CLI's own login (`cursor-agent login`).
+- **Cursor SDK**: the in-process SDK, as before.
+- **Automatic** (default): on macOS the CLI when `cursor-agent` is found on
+  `PATH` (a lookup, never a run), otherwise the SDK.
+
+So a managed Mac with `cursor-agent` installed needs no change; set the runtime
+to the CLI explicitly to be sure, and set **Binary path** if `cursor-agent`
+is not on the server's `PATH`. In `settings.json` that is
+`"runtime": "cursor-agent"` in the Cursor instance's `config`.
+
+**Check:** load the page, send one Cursor message, then read
+`userdata/logs/spawn-trace.log`. Every Cursor line must name `cursor-agent`
+with `provider=cursor` (an `about` health check, then the ACP sessions), and
+there must be no `rg` and no `cursorsandbox` line: those now run under
+`cursor-agent`, and the trace only records the server's own children. An `rg` or `cursorsandbox`
+line means the instance is still on the SDK runtime.
 
 Field report from a locked-down company laptop, checked against ViewCode's
 source. Specifics that identify the machine, user or tenant (names, prevention
