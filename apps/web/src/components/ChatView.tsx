@@ -1711,14 +1711,14 @@ export default function ChatView(props: ChatViewProps) {
   const canReuseTerminal = activeThreadKnownSessionsRaw !== null;
   const previewPanelOpen = activeRightPanelKind === "preview" && browserAvailable;
   const rightPanelOpen = rightPanelState.isOpen;
-  const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
+  const { active: panelAnimationsActive, durationMs: panelAnimationMs } =
     usePanelAnimationSettings();
   const activeTerminalDrawerPresence = usePanelPresence(
     Boolean(activeThreadKey && terminalUiState.terminalOpen),
     true,
     panelAnimationsActive,
     activeThreadKey,
-    panelAnimationDurationMs,
+    panelAnimationMs,
   );
   const rightPanelPresenceValue = {
     activeSurface: activeRightPanelSurface,
@@ -1729,7 +1729,7 @@ export default function ChatView(props: ChatViewProps) {
     rightPanelPresenceValue,
     panelAnimationsActive,
     activeThreadKey,
-    panelAnimationDurationMs,
+    panelAnimationMs,
   );
   const rightPanelPresent = rightPanelPresence.present;
   const rightPanelControlsInPanel =
@@ -2936,7 +2936,7 @@ export default function ChatView(props: ChatViewProps) {
   } = useDraftHeroLayoutTransition(
     isDraftHeroState,
     panelAnimationsActive,
-    panelAnimationDurationMs,
+    panelAnimationMs,
   );
   const turnDiffSummaries = useThreadCheckpointSummaries(routeThreadDetailRef);
 
@@ -6574,7 +6574,7 @@ export default function ChatView(props: ChatViewProps) {
         },
         {
           active: panelAnimationsActive,
-          durationMs: panelAnimationDurationMs,
+          durationMs: panelAnimationMs,
         },
       );
       void dockTransition.catch(() => resolveDockStarted?.());
@@ -8734,7 +8734,7 @@ export default function ChatView(props: ChatViewProps) {
       ) : null}
       {rightPanelPresent && shouldUsePlanSidebarSheet && activeThreadRef ? (
         <RightPanelSheet
-          animationDurationMs={panelAnimationsActive ? panelAnimationDurationMs : 0}
+          animationDurationMs={panelAnimationsActive ? panelAnimationMs : 0}
           open={rightPanelOpen}
           onClose={closePreviewPanelStable}
         >
