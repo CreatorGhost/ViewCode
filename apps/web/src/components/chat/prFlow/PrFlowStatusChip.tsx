@@ -1,12 +1,11 @@
-import { LoaderCircleIcon } from "lucide-react";
-
 import { cn } from "~/lib/utils";
+import { PullRequestGlyph } from "../../pullRequest/pullRequestIcons";
+import { Spinner } from "../../ui/spinner";
 import { type PrFlow, prFlowReached, prFlowStatus } from "./prFlowModel";
 
 const TONE_DOT = {
   warning: "bg-warning",
   success: "bg-success",
-  merged: "bg-branch",
 } as const;
 
 const TONE_TEXT = {
@@ -17,7 +16,7 @@ const TONE_TEXT = {
 } as const;
 
 /**
- * The pull request's state above the composer; it follows the card in the thread. The fill and
+ * The pull request's state above the composer; it reads the same flow as the card. The fill and
  * border are a separate surface so a row watched by observeChipGlide can tween the chip's width.
  */
 export function PrFlowStatusChip({ flow }: { flow: PrFlow }) {
@@ -40,7 +39,9 @@ export function PrFlowStatusChip({ flow }: { flow: PrFlow }) {
       />
       <span key={status.short} className="blur-swap relative flex items-center gap-1.5">
         {status.tone === "busy" ? (
-          <LoaderCircleIcon aria-hidden className="size-3 animate-spin" />
+          <Spinner size="xs" />
+        ) : status.tone === "merged" ? (
+          <PullRequestGlyph.merged aria-hidden className="size-3 text-branch" />
         ) : (
           <span aria-hidden className={cn("size-1.5 rounded-full", TONE_DOT[status.tone])} />
         )}

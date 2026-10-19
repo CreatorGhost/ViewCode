@@ -573,6 +573,26 @@ unsafe scope with Undo disabled and preserves authoritative native refusal detai
 Do not reroute PR Fix to a different branch or fake conversation-only Undo to make
 this restriction disappear.
 
+## Pull request card
+
+The chat's PR card (`apps/web/src/components/chat/prFlow/`) combines the thread's PR link
+snapshot (the host's state), the host's checks, the agent's running command, and
+`GitWorkflowService.pullRequestGraph`, which reads commits and conflicts from the thread's
+checkout. That read must never write to the worktree, so conflicts come from
+`git merge-tree --write-tree`. It needs Git 2.38 or later. Older Git exits with a usage error, the
+graph returns `conflicts: null`, and the card only says "Conflicts with <base>", from the host.
+The read never fetches. `<remote>/<base>` is only as fresh as the git status poll's background
+fetch (`refreshStatusUpstreamIfStale`). Do not add a fetch per read; the card refetches after
+every git command the agent runs.
+
+The branch's fork point is the parent of its oldest first-parent commit, not `git merge-base`.
+After the agent merges the base in, `merge-base` would move to the base tip and the base commits
+that conflicted would disappear from the card.
+
+"Resolving" survives reloads and other devices without stored state. The thread's latest user
+message being the Resolve prompt, while its run is active, means the agent is resolving.
+`prFlowResolvePrompt` and `prFlowResolvePromptNumber` must keep matching each other.
+
 ## Goals and debug mode
 
 ViewCode goals/debug guidance are provider-neutral thread metadata, available

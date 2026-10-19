@@ -276,6 +276,16 @@ export function createPullRequestEnvironmentAtoms<R, E>(
       refreshTrigger: ({ environmentId }) => refreshes({ environmentId, input: {} }),
     }),
     activity,
+    /**
+     * The pull request's commits and conflicts from the thread's own checkout. Live only: a
+     * remembered graph would show conflicts that are already fixed.
+     */
+    graph: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:pull-requests:graph",
+      tag: WS_METHODS.gitPullRequestGraph,
+      staleTimeMs: 5_000,
+      refreshTrigger: ({ environmentId }) => refreshes({ environmentId, input: {} }),
+    }),
     threadComments: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:pull-requests:thread-comments",
       tag: WS_METHODS.pullRequestsThreadComments,
