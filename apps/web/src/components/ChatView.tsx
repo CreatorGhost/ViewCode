@@ -451,6 +451,7 @@ import {
   ProviderStatusBanner,
   shouldShowProviderStatusBanner,
 } from "./chat/ProviderStatusBanner";
+import { NoProviderPrompt, useProviderPickerPrompt } from "./onboarding/NoProviderPrompt";
 import {
   dismissThreadErrorBannerForSession,
   getThreadErrorBannerKey,
@@ -3045,7 +3046,12 @@ export default function ChatView(props: ChatViewProps) {
   )
     ? activeProviderStatus
     : null;
-  const hasTimelineTopBanner = Boolean(timelineThreadError) || visibleProviderStatus !== null;
+  const providerPickerPrompt = useProviderPickerPrompt(environmentId);
+  const hasTimelineTopBanner =
+    Boolean(timelineThreadError) ||
+    visibleProviderStatus !== null ||
+    providerPickerPrompt === "inline" ||
+    providerPickerPrompt === "inline-read-only";
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
@@ -8056,6 +8062,7 @@ export default function ChatView(props: ChatViewProps) {
               </div>
             ) : null}
             <div className="chat-banner-lane pointer-events-none absolute top-0 z-20 flex flex-col">
+              <NoProviderPrompt environmentId={environmentId} prompt={providerPickerPrompt} />
               <ProviderStatusBanner
                 status={visibleProviderStatus}
                 onDismiss={() => setDismissedProviderStatusBannerKey(providerStatusBannerKey)}
