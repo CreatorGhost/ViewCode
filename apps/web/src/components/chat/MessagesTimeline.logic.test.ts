@@ -3482,6 +3482,126 @@ describe("deriveMessagesTimelineRows", () => {
   );
 });
 
+describe("thinking log rail and chips", () => {
+  const runId = RunId.make("rail-run");
+  const read = (id: string, path: string, at: string) => ({
+    id,
+    kind: "work" as const,
+    createdAt: at,
+    entry: {
+      id,
+      runId,
+      createdAt: at,
+      label: "Read file",
+      tone: "tool" as const,
+      requestKind: "file-read" as const,
+      changedFiles: [path],
+    },
+  });
+  const reply = (id: string, at: string) => ({
+    id,
+    kind: "message" as const,
+    createdAt: at,
+    message: {
+      id: MessageId.make(id),
+      role: "assistant" as const,
+      text: "Looking further.",
+      runId,
+      streaming: false,
+      createdAt: at,
+      updatedAt: at,
+    },
+  });
+  const derive = (timelineEntries: ReadonlyArray<TimelineEntry>) =>
+    deriveMessagesTimelineRows({
+      timelineEntries,
+      isWorking: false,
+      collapseFinishedTurns: false,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+
+  it("lists the files a group read as chips", () => {
+    const rows = derive([
+      read("r1", "src/router.ts", "2026-01-01T00:00:01Z"),
+      read("r2", "src/auth.ts", "2026-01-01T00:00:02Z"),
+      reply("m1", "2026-01-01T00:00:03Z"),
+      read("r3", "src/session.ts", "2026-01-01T00:00:04Z"),
+      reply("m2", "2026-01-01T00:00:05Z"),
+    ]);
+    const group = rows.find((row) => row.id === "work-toggle:r1");
+    expect(group).toMatchObject({
+      kind: "work-toggle",
+      summary: "Read 2 files",
+      chips: {
+        chips: [
+          { kind: "file", path: "src/router.ts", name: "router.ts" },
+          { kind: "file", path: "src/auth.ts", name: "auth.ts" },
+        ],
+        moreCount: 0,
+      },
+    });
+  });
+
+  it("joins the rail across adjacent work rows and breaks it at assistant text", () => {
+    const split = derive([
+      read("r1", "src/a.ts", "2026-01-01T00:00:01Z"),
+      reply("m1", "2026-01-01T00:00:02Z"),
+      read("r2", "src/b.ts", "2026-01-01T00:00:03Z"),
+    ]);
+    expect(split.map((row) => [row.kind, row.continuesWorkLog, row.followsWorkLog])).toEqual([
+      ["work", undefined, undefined],
+      ["message", undefined, undefined],
+      ["work", undefined, undefined],
+      ["assistant-meta", undefined, undefined],
+    ]);
+
+    const expanded = deriveMessagesTimelineRows({
+      timelineEntries: [
+        read("r1", "src/a.ts", "2026-01-01T00:00:01Z"),
+        read("r2", "src/b.ts", "2026-01-01T00:00:02Z"),
+      ],
+      isWorking: false,
+      collapseFinishedTurns: false,
+      expandedWorkGroupIds: new Set(["work-group:r1"]),
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+    expect(
+      expanded.map(({ kind, continuesWorkLog, followsWorkLog }) => ({
+        kind,
+        continuesWorkLog,
+        followsWorkLog,
+      })),
+    ).toEqual([
+      { kind: "work-toggle", continuesWorkLog: true, followsWorkLog: undefined },
+      { kind: "work", continuesWorkLog: undefined, followsWorkLog: true },
+    ]);
+  });
+
+  it("re-renders a cached row when only its rail neighbours change", () => {
+    const row: MessagesTimelineRow = {
+      kind: "working",
+      id: "working-indicator-row",
+      createdAt: null,
+    };
+    const work: MessagesTimelineRow = {
+      kind: "work",
+      id: "w",
+      createdAt: "2026-01-01T00:00:00Z",
+      groupedEntries: [],
+      isExpandedToolGroup: false,
+    };
+    const initial = computeStableMessagesTimelineRows([row, work], {
+      byId: new Map(),
+      result: [],
+    });
+    const continued = { ...work, continuesWorkLog: true };
+    const updated = computeStableMessagesTimelineRows([row, continued], initial);
+    expect(updated.result[1]).toBe(continued);
+  });
+});
+
 describe("computeStableMessagesTimelineRows", () => {
   it("replaces a cached work toggle when its icon presentation changes", () => {
     const initialRow: MessagesTimelineRow = {
@@ -3493,6 +3613,7 @@ describe("computeStableMessagesTimelineRows", () => {
       expanded: false,
       summary: "Used Browser",
       summaryKind: "other",
+      chips: { chips: [], moreCount: 0 },
       toolSurface: "browser",
       hasFailure: false,
     };

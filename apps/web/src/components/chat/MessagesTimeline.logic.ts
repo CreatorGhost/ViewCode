@@ -24,6 +24,13 @@ import {
   contextCompactionTokenCounts,
   type ToolGroupSummaryKind,
 } from "@t3tools/client-runtime/work-log/presentation";
+import {
+  EMPTY_WORK_LOG_CHIPS,
+  workLogChipSetsEqual,
+  workLogChips,
+  workLogHeaderLabel,
+  type WorkLogChipSet,
+} from "@t3tools/client-runtime/work-log/thinking-log";
 export {
   normalizeCompactToolLabel,
   toolGroupAction,
@@ -481,7 +488,10 @@ export type TimelineLatestRun = Pick<
 const LIVE_ACTIVITY_ROW_ID = "live-activity-row";
 
 export type MessagesTimelineRow = MessagesTimelineRowContent & {
+  /** The next row is also work log, so this row's rail runs on below it. */
   readonly continuesWorkLog?: boolean;
+  /** The previous row is also work log, so this row's rail comes in from above. */
+  readonly followsWorkLog?: boolean;
 };
 
 type MessagesTimelineRowContent =
@@ -533,6 +543,7 @@ type MessagesTimelineRowContent =
       expanded: boolean;
       summary: string;
       summaryKind: ToolGroupSummaryKind;
+      chips: WorkLogChipSet;
       toolSurface?: WorkLogEntry["toolSurface"];
       toolIcon?: WorkLogEntry["toolIcon"];
       summaryToolIcon?: "browser" | "device" | "t3-code" | "pull-request";
@@ -544,6 +555,8 @@ type MessagesTimelineRowContent =
       createdAt: string;
       runId: RunId;
       label: string;
+      /** The user stopped the turn, so it ends on a dead end instead of the finish check. */
+      stopped: boolean;
       expanded: boolean;
     }
   | {
@@ -711,6 +724,7 @@ interface TurnFold {
   createdAt: string;
   hiddenEntryIds: ReadonlySet<string>;
   label: string;
+  stopped: boolean;
 }
 
 interface SupersededAttemptFold {
@@ -1130,13 +1144,10 @@ function deriveTurnFolds(input: {
               lastEntryEnd,
           );
     const duration = elapsedMs !== null ? formatDuration(elapsedMs) : null;
-    const label = isLatestInterruptedTurn
-      ? duration
-        ? `You stopped after ${duration}`
-        : "You stopped this response"
-      : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+    const label = workLogHeaderLabel({
+      state: isLatestInterruptedTurn ? "stopped" : "worked",
+      duration,
+    });
 
     foldsByAnchorEntryId.set(group.anchorEntryId, {
       runId,
@@ -1144,6 +1155,7 @@ function deriveTurnFolds(input: {
       createdAt: group.startBoundary ?? firstEntry.createdAt,
       hiddenEntryIds,
       label,
+      stopped: isLatestInterruptedTurn,
     });
   }
   return foldsByAnchorEntryId;
@@ -1545,6 +1557,7 @@ export function deriveMessagesTimelineRows(input: {
         createdAt: turnFold.createdAt,
         runId: turnFold.runId,
         label: turnFold.label,
+        stopped: turnFold.stopped,
         expanded: input.expandedRunIds?.has(turnFold.runId) ?? false,
       });
     }
@@ -1724,6 +1737,12 @@ export function deriveMessagesTimelineRows(input: {
                 ? singleEntry.label
                 : summarizeToolGroup(visibleGroupedEntries).summary,
             summaryKind,
+            // A lone read or edit already names its file in the label.
+            chips:
+              singleEntry !== null &&
+              (toolGroupAction(singleEntry) === "read" || toolGroupAction(singleEntry) === "edit")
+                ? EMPTY_WORK_LOG_CHIPS
+                : workLogChips(visibleGroupedEntries),
             ...(groupToolSurface ? { toolSurface: groupToolSurface } : {}),
             ...(groupToolIcon ? { toolIcon: groupToolIcon } : {}),
             ...(summaryToolIcon ? { summaryToolIcon } : {}),
@@ -1927,11 +1946,18 @@ export function deriveMessagesTimelineRows(input: {
   const result = attachTrailingToolGroupsToAssistant(
     attachCreatedThreadSummaries(nextRows, timelineEntries),
   );
-  return result.map((row, index) =>
-    timelineRowIsWorkLog(row) && timelineRowIsWorkLog(result[index + 1])
-      ? { ...row, continuesWorkLog: true }
-      : row,
-  );
+  return result.map((row, index) => {
+    if (!timelineRowIsWorkLog(row)) return row;
+    const continuesWorkLog = timelineRowIsWorkLog(result[index + 1]);
+    const followsWorkLog = timelineRowIsWorkLog(result[index - 1]);
+    return continuesWorkLog || followsWorkLog
+      ? {
+          ...row,
+          ...(continuesWorkLog ? { continuesWorkLog } : {}),
+          ...(followsWorkLog ? { followsWorkLog } : {}),
+        }
+      : row;
+  });
 }
 
 function timelineRowIsWorkLog(row: MessagesTimelineRow | undefined): boolean {
@@ -2155,6 +2181,10 @@ export function computeStableMessagesTimelineRows(
 
 function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean {
   if (a.kind !== b.kind || a.id !== b.id) return false;
+  // The rail's ends follow the neighbours, so a row whose neighbours changed must re-render.
+  if (a.continuesWorkLog !== b.continuesWorkLog || a.followsWorkLog !== b.followsWorkLog) {
+    return false;
+  }
 
   switch (a.kind) {
     case "working":
@@ -2179,7 +2209,12 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "turn-fold": {
       const bf = b as typeof a;
-      return a.createdAt === bf.createdAt && a.label === bf.label && a.expanded === bf.expanded;
+      return (
+        a.createdAt === bf.createdAt &&
+        a.label === bf.label &&
+        a.stopped === bf.stopped &&
+        a.expanded === bf.expanded
+      );
     }
 
     case "attempt-fold": {
@@ -2249,6 +2284,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.expanded === bw.expanded &&
         a.summary === bw.summary &&
         a.summaryKind === bw.summaryKind &&
+        workLogChipSetsEqual(a.chips, bw.chips) &&
         a.toolSurface === bw.toolSurface &&
         Equal.equals(a.toolIcon, bw.toolIcon) &&
         a.hasFailure === bw.hasFailure
