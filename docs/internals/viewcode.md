@@ -490,6 +490,11 @@ Unarchive stays available through the normal native path.
   Native provider-instance configuration and `provider/viewcode/firstRunProviders.ts`
   preserve existing choices. Project toggles remain subordinate to admin policy;
   CLI presence alone must not override an explicit off choice or launch a disabled provider.
+- The wizard's done flag (`onboardingCompletedAt`) is per browser, so it cannot tell
+  whether a server has a provider on. The chat asks the server instead
+  (`components/onboarding/NoProviderPrompt.tsx`): per environment, it reopens the
+  picker when that server's settings and provider snapshot both show nothing on.
+  Keep the flag client-side; one browser meets many servers.
 - MCP transport capabilities are native protocol capabilities, not a guarantee that tools loaded.
   Droid advertises no HTTP transport and Devin advertises `http: false`; prefer their
   stdio bridge. A session that lacks usable ViewCode tools must report that limitation,
