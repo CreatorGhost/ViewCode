@@ -233,6 +233,7 @@ import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
+import * as TailscaleAccess from "./environment/TailscaleAccess.ts";
 import * as DefectReporter from "./observability/DefectReporter.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
@@ -1258,6 +1259,7 @@ const layerWsRpc = (
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
+      const tailscaleAccess = yield* TailscaleAccess.TailscaleAccess;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
@@ -1707,9 +1709,15 @@ const layerWsRpc = (
             providers,
             adminBlockedProviderDrivers: adminPolicy.blockedDrivers.filter(isProviderDriverKind),
             ...editorConfig,
-            remoteOpenTargets: yield* resolveAvailableEditorsForConfig(
-              remoteOpenTargets.resolveTargets(),
-            ),
+            // Cached only: "open in editor" asks for fresh routes itself, so
+            // loading the app never runs `tailscale`.
+            ...Option.match(yield* remoteOpenTargets.cachedTargets, {
+              onNone: () => ({}),
+              onSome: (targets) => ({ remoteOpenTargets: targets }),
+            }),
+            ...((yield* tailscaleAccess.blockReason) === "environment"
+              ? { tailscaleBlockedBy: "environment" as const }
+              : {}),
             directEndpoints: yield* resolveAvailableEditorsForConfig(directEndpoints.resolve()),
             observability: {
               logsDirectoryPath: config.logsDir,
@@ -1844,6 +1852,8 @@ const layerWsRpc = (
         [WS_METHODS.subscribeVoiceModels]: () =>
           Stream.concat(Stream.fromEffect(voiceModels.state), voiceModels.changes),
         ...viewcodeProviderHandlers,
+        [WS_METHODS.serverResolveRemoteOpenTargets]: () =>
+          remoteOpenTargets.resolveTargets().pipe(Effect.map((targets) => ({ targets }))),
         [WS_METHODS.serverGetProviderWorkspaceSnapshot]: (input) =>
           providerRegistry
             .refreshWorkspaceSnapshot(input)

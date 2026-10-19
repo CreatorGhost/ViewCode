@@ -1499,6 +1499,12 @@ export const ServerSettings = Schema.Struct({
     enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
     url: Schema.optionalKey(TrimmedNonEmptyString),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  /**
+   * ViewCode: whether this server may run the `tailscale` CLI at all. Off
+   * turns every Tailscale feature into a no-op that says so; the
+   * `VIEWCODE_DISABLE_TAILSCALE` environment switch outranks it.
+   */
+  tailscaleEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 
   usageModelAliases: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -1780,6 +1786,7 @@ export const ServerSettingsPatch = Schema.Struct({
       url: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
     }),
   ),
+  tailscaleEnabled: Schema.optionalKey(Schema.Boolean),
 
   usageModelAliases: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(TrimmedNonEmptyString)),
