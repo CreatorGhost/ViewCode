@@ -30,7 +30,7 @@ export function PrFlowCard({
   return (
     <div
       className={cn(
-        "pr-flow-swap flex flex-col rounded-xl border bg-card text-sm",
+        "blur-swap flex flex-col rounded-xl border bg-card text-sm",
         compact ? "gap-1.5 p-2.5" : "gap-2.5 p-3",
       )}
     >
@@ -46,7 +46,7 @@ export function PrFlowCard({
           <div className="flex items-baseline gap-1.5">
             <span className="truncate font-medium">{flow.title}</span>
             {flow.number !== null && opened ? (
-              <span className="pr-flow-swap text-muted-foreground">#{flow.number}</span>
+              <span className="blur-swap text-muted-foreground">#{flow.number}</span>
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2 font-mono text-2xs text-muted-foreground">
@@ -58,7 +58,7 @@ export function PrFlowCard({
               </>
             )}
             {flow.commitCount === null ? null : (
-              <span key={flow.commitCount} className="pr-flow-swap font-sans">
+              <span key={flow.commitCount} className="blur-swap font-sans">
                 {flow.commitCount} commit{flow.commitCount === 1 ? "" : "s"}
               </span>
             )}
@@ -73,7 +73,7 @@ export function PrFlowCard({
         {opened ? (
           <span
             key={merged ? "merged" : "open"}
-            className={cn("pr-flow-swap flex items-center gap-1 text-xs", state.toneClassName)}
+            className={cn("blur-swap flex items-center gap-1 text-xs", state.toneClassName)}
           >
             <StateIcon aria-hidden className="size-3.5" />
             {state.label}
@@ -137,7 +137,7 @@ function PrFlowStateRow({
     <div className="pr-flow-open">
       <div>
         <div className="flex items-start gap-2.5 px-0.5 pt-1">
-          <div key={`state-${variant}`} className="pr-flow-swap flex min-w-0 flex-1 gap-2.5">
+          <div key={`state-${variant}`} className="blur-swap flex min-w-0 flex-1 gap-2.5">
             <PrFlowStateIcon variant={variant} />
             <div className="flex min-w-0 flex-col gap-0.5">
               <span>{title}</span>
@@ -154,7 +154,7 @@ function PrFlowStateRow({
               ) : null}
             </div>
           </div>
-          <span key={`action-${flow.phase}`} className="pr-flow-swap shrink-0">
+          <span key={`action-${flow.phase}`} className="blur-swap shrink-0">
             <PrFlowAction flow={flow} onResolveConflicts={onResolveConflicts} onMerge={onMerge} />
           </span>
         </div>
@@ -165,13 +165,13 @@ function PrFlowStateRow({
               return (
                 <span
                   key={file.path}
-                  className="pr-flow-swap flex h-6 items-center gap-1.5 rounded-full border px-2 text-xs"
+                  className="blur-swap flex h-6 items-center gap-1.5 rounded-full border px-2 text-xs"
                   style={{ animationDelay: `${120 + index * 100}ms` }}
                 >
                   <span className="font-mono text-3xs font-semibold text-info-foreground">TS</span>
                   {file.path}
                   {fixed ? (
-                    <CheckIcon aria-label="resolved" className="pr-flow-swap size-3 text-success" />
+                    <CheckIcon aria-label="resolved" className="blur-swap size-3 text-success" />
                   ) : (
                     <span className="font-mono text-warning-foreground">{file.count}</span>
                   )}

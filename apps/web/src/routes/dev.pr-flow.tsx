@@ -12,6 +12,7 @@ import {
   prFlowStatus,
 } from "~/components/chat/prFlow/prFlowModel";
 import { Button } from "~/components/ui/button";
+import { observeChipGlide } from "~/lib/chipGlide";
 
 /** Development preview of the PR flow card, played through every state. Not in production builds. */
 export const Route = createFileRoute("/dev/pr-flow")({
@@ -143,7 +144,7 @@ function PrFlowPreview() {
           </p>
           {flow ? (
             <>
-              <div className="pr-flow-swap self-end rounded-xl border bg-muted/60 px-3 py-1.5">
+              <div className="blur-swap self-end rounded-xl border bg-muted/60 px-3 py-1.5">
                 Create PR
               </div>
               <ActivityLine
@@ -159,19 +160,19 @@ function PrFlowPreview() {
             </>
           ) : null}
           {reached("conflicts") ? (
-            <p className="pr-flow-swap leading-relaxed text-secondary-label">
+            <p className="blur-swap leading-relaxed text-secondary-label">
               PR #128 is open, but main moved on while we worked: Mira's provider-limits change
               touched the same lines in handoff.ts and limits.ts. I can merge main in and resolve
               them.
             </p>
           ) : null}
           {reached("resolving") ? (
-            <div className="pr-flow-swap self-end rounded-xl border bg-muted/60 px-3 py-1.5">
+            <div className="blur-swap self-end rounded-xl border bg-muted/60 px-3 py-1.5">
               Resolve conflicts
             </div>
           ) : null}
           {reached("ready") ? (
-            <p className="pr-flow-swap leading-relaxed text-secondary-label">
+            <p className="blur-swap leading-relaxed text-secondary-label">
               Done. I kept Mira's limits change and moved the retry after it, so a retried turn
               reads the new limits. All 42 tests pass, and #128 is ready to merge.
             </p>
@@ -180,7 +181,7 @@ function PrFlowPreview() {
       </div>
       <div className="px-6 pb-5">
         <div className="mx-auto flex w-full max-w-170 flex-col gap-2">
-          <div className="flex justify-end gap-1.5">
+          <div ref={observeChipGlide} className="relative flex justify-end gap-1.5">
             <span className="flex h-6.5 items-center gap-1.5 rounded-full border bg-card px-2.5 font-mono text-xs">
               4 files <span className="text-diff-addition-foreground">+128</span>
               <span className="text-diff-deletion-foreground">−36</span>
@@ -198,7 +199,7 @@ function PrFlowPreview() {
 
 function ActivityLine({ label, live = false }: { label: string; live?: boolean }) {
   return (
-    <div className="pr-flow-swap flex items-center gap-1.5 text-row text-muted-foreground">
+    <div className="blur-swap flex items-center gap-1.5 text-row text-muted-foreground">
       <ChevronRightIcon aria-hidden className="size-3.5" />
       <span className={live ? "live-tool-shine" : undefined}>{label}</span>
     </div>

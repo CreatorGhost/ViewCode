@@ -16,18 +16,29 @@ const TONE_TEXT = {
   merged: "text-branch",
 } as const;
 
-/** The pull request's state above the composer; it follows the card in the thread. */
+/**
+ * The pull request's state above the composer; it follows the card in the thread. The fill and
+ * border are a separate surface so a row watched by observeChipGlide can tween the chip's width.
+ */
 export function PrFlowStatusChip({ flow }: { flow: PrFlow }) {
   const status = prFlowStatus(flow);
   const creating = !prFlowReached(flow.phase, "conflicts");
   return (
     <span
       className={cn(
-        "flex h-6.5 items-center gap-1.5 rounded-full border px-2.5 text-xs whitespace-nowrap",
-        creating ? "border-transparent bg-foreground text-background" : "bg-card",
+        "relative flex h-6.5 items-center px-2.5 text-xs whitespace-nowrap",
+        creating && "text-background",
       )}
     >
-      <span key={status.short} className="pr-flow-swap flex items-center gap-1.5">
+      <span
+        aria-hidden
+        data-chip-surface
+        className={cn(
+          "absolute inset-0 origin-left rounded-full border",
+          creating ? "border-transparent bg-foreground" : "bg-card",
+        )}
+      />
+      <span key={status.short} className="blur-swap relative flex items-center gap-1.5">
         {status.tone === "busy" ? (
           <LoaderCircleIcon aria-hidden className="size-3 animate-spin" />
         ) : (
