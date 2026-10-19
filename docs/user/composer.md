@@ -191,6 +191,25 @@ Stashes containing uploaded files must be restored in their original environment
 Those files are retained for 24 hours. After an upload expires, restore the prompt
 and use **Attach again** or remove the missing file before sending.
 
+## Dictation on web and desktop
+
+Select the microphone in the composer, press `Cmd+Shift+Space` on macOS or
+`Ctrl+Shift+Space` on Windows and Linux, or use **Dictate into the composer** in
+the command palette. Words appear in grey while you speak. Select the check
+mark, or press the shortcut again, to insert the text where your cursor is, then
+review it before sending. Select the cross or press `Esc` to discard it.
+Dictation stops after five minutes and inserts what it heard.
+
+The first time, the speech model (about 65 MB) downloads from ViewCode's GitHub
+release to the computer running ViewCode, and the composer shows its progress.
+After that, dictation works offline. Speech is transcribed on the device you
+dictate on, in English; your audio is never sent anywhere.
+
+If the browser or macOS asks, allow the microphone. Once it's blocked, allow it
+again in the browser's site settings or, on the desktop app, in **System
+Settings → Privacy & Security → Microphone**. Turn dictation off, or remove the
+downloaded model, in **Settings → Appearance → Dictation**.
+
 ## Voice input on iPhone
 
 On supported iPhones with iOS 26 or later, use the composer's microphone to record,

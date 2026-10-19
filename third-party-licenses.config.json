@@ -122,6 +122,21 @@
       ]
     },
     {
+      "bundles": ["desktop", "server", "web"],
+      "license": "MIT",
+      "name": "Moonshine base",
+      "sourceUrl": "https://github.com/usefulsensors/moonshine",
+      "generatedNotices": [
+        {
+          "licenseId": "MIT",
+          "copyrights": ["Copyright (c) 2024 Useful Sensors"],
+          "preamble": [
+            "Moonshine base by Useful Sensors, in the ONNX export from https://huggingface.co/onnx-community/moonshine-base-ONNX, is the speech-to-text model that dictation runs. ViewCode downloads it on demand instead of bundling it."
+          ]
+        }
+      ]
+    },
+    {
       "bundles": ["ios", "mobile"],
       "license": "MIT",
       "name": "GhosttyKit",

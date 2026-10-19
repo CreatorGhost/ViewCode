@@ -18,7 +18,9 @@ import {
 } from "./VoiceModelStore.ts";
 
 const RELEASE = "https://github.test/releases/download/voice-models-v1";
+const DICTATION_RELEASE = "https://github.test/releases/download/dictation-models-v1";
 const REVISION = "a".repeat(40);
+const DICTATION_REVISION = "b".repeat(40);
 const HF = `https://huggingface.co/onnx-community/Kokoro/resolve/${REVISION}`;
 
 const contents: Record<string, string> = {
@@ -50,6 +52,25 @@ const smallBytes = [...shared, "onnx/model_quantized.onnx"].reduce(
   0,
 );
 
+// Dictation's model has files named like the voice's; its own release keeps them apart.
+const dictationContents: Record<string, string> = {
+  "config.json": '{"model_type":"moonshine"}',
+  "onnx/encoder_model_quantized.onnx": "encoder bytes",
+  "onnx/decoder_model_merged_quantized.onnx": "decoder bytes",
+};
+const dictationManifest = JSON.stringify({
+  version: 1,
+  source: { repo: "onnx-community/moonshine-base-ONNX", revision: DICTATION_REVISION },
+  license: "MIT",
+  tiers: {
+    dictation: Object.keys(dictationContents).map((path) => ({
+      path,
+      size: Buffer.byteLength(dictationContents[path]!),
+      sha256: NodeCrypto.createHash("sha256").update(dictationContents[path]!).digest("hex"),
+    })),
+  },
+});
+
 /** Serves the manifest and every file from both mirrors unless `routes` says otherwise. */
 const makeHarness = Effect.fn("test.makeVoiceModelStore")(function* (
   options: {
@@ -64,14 +85,24 @@ const makeHarness = Effect.fn("test.makeVoiceModelStore")(function* (
   const requests: string[] = [];
   const defaultRoute = (url: string) => {
     if (url === `${RELEASE}/manifest.json`) return { status: 200, body: manifest };
+    if (url === `${DICTATION_RELEASE}/manifest.json`) {
+      return { status: 200, body: dictationManifest };
+    }
     for (const [file, body] of Object.entries(contents)) {
       if (url === `${RELEASE}/${path.basename(file)}` || url === `${HF}/${file}`) {
         return { status: 200, body };
       }
     }
+    for (const [file, body] of Object.entries(dictationContents)) {
+      if (url === `${DICTATION_RELEASE}/${path.basename(file)}`) return { status: 200, body };
+    }
     return { status: 404, body: "" };
   };
-  const store = yield* makeVoiceModelStore({ stateDir, releaseUrl: RELEASE }).pipe(
+  const store = yield* makeVoiceModelStore({
+    stateDir,
+    releaseUrl: RELEASE,
+    dictationReleaseUrl: DICTATION_RELEASE,
+  }).pipe(
     Effect.provideService(
       HttpClient.HttpClient,
       HttpClient.make((request) =>
@@ -96,6 +127,14 @@ const makeHarness = Effect.fn("test.makeVoiceModelStore")(function* (
 
 const tierOf = (store: VoiceModelStore["Service"], tier: VoiceModelTier) =>
   store.state.pipe(Effect.map((state) => state.tiers.find((each) => each.tier === tier)!));
+
+const dictationSettled = (store: VoiceModelStore["Service"]) =>
+  store.changes.pipe(
+    Stream.map((state) => state.dictation!),
+    Stream.filter((state) => state.phase !== "downloading"),
+    Stream.runHead,
+    Effect.map(Option.getOrThrow),
+  );
 
 const settled = (store: VoiceModelStore["Service"], tier: VoiceModelTier) =>
   store.changes.pipe(
@@ -231,9 +270,61 @@ it.layer(NodeServices.layer)("VoiceModelStore", (it) => {
         phase: "ready",
         totalBytes: expect.any(Number),
       });
-      const removed = yield* store.remove;
+      const removed = yield* store.remove("read-aloud");
       expect(removed.tiers.every((each) => each.phase === "absent")).toBe(true);
       expect(yield* fs.exists(root)).toBe(false);
+    }),
+  );
+
+  it.effect("downloads the dictation model from its own release beside a voice download", () =>
+    Effect.gen(function* () {
+      const requested = yield* Deferred.make<void>();
+      const { store, fs, path, stateDir, requests } = yield* makeHarness({
+        requested,
+        routes: (url) => (url === `${RELEASE}/model_quantized.onnx` ? "hang" : undefined),
+      });
+      yield* store.download("small");
+      yield* Deferred.await(requested);
+      yield* store.download("dictation");
+      const ready = yield* dictationSettled(store);
+      expect(ready).toMatchObject({ phase: "ready", message: null });
+      // The voice's download kept running: kinds don't replace each other.
+      expect((yield* tierOf(store, "small")).phase).toBe("downloading");
+      const directory = path.join(stateDir, "models", "dictation", "moonshine-base");
+      expect(yield* fs.readFileString(path.join(directory, "config.json"))).toBe(
+        dictationContents["config.json"],
+      );
+      expect(requests).toContain(`${DICTATION_RELEASE}/encoder_model_quantized.onnx`);
+    }),
+  );
+
+  it.effect("finds the dictation model downloaded earlier and removes it alone", () =>
+    Effect.gen(function* () {
+      const first = yield* makeHarness();
+      yield* first.store.download("small");
+      yield* first.store.download("dictation");
+      expect((yield* settled(first.store, "small")).phase).toBe("ready");
+      expect((yield* dictationSettled(first.store)).phase).toBe("ready");
+
+      const { store, fs, path, root } = yield* makeHarness({ stateDir: first.stateDir });
+      expect((yield* store.state).dictation?.phase).toBe("ready");
+      const removed = yield* store.remove("dictation");
+      expect(removed.dictation?.phase).toBe("absent");
+      expect(removed.tiers.find((each) => each.tier === "small")?.phase).toBe("ready");
+      expect(yield* fs.exists(path.join(root, "small"))).toBe(true);
+    }),
+  );
+
+  it.effect("says the dictation model is not published when its release has no manifest", () =>
+    Effect.gen(function* () {
+      const { store } = yield* makeHarness({
+        routes: (url) =>
+          url === `${DICTATION_RELEASE}/manifest.json` ? { status: 404, body: "" } : undefined,
+      });
+      yield* store.download("dictation");
+      const failed = yield* dictationSettled(store);
+      expect(failed.phase).toBe("failed");
+      expect(failed.message).toContain("dictation model hasn't been published");
     }),
   );
 });

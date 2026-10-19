@@ -1848,7 +1848,7 @@ const layerWsRpc = (
           ),
         [WS_METHODS.voiceModelsDownload]: (input) => voiceModels.download(input.tier),
         [WS_METHODS.voiceModelsCancel]: (input) => voiceModels.cancel(input.tier),
-        [WS_METHODS.voiceModelsRemove]: () => voiceModels.remove,
+        [WS_METHODS.voiceModelsRemove]: (input) => voiceModels.remove(input.kind ?? "read-aloud"),
         [WS_METHODS.subscribeVoiceModels]: () =>
           Stream.concat(Stream.fromEffect(voiceModels.state), voiceModels.changes),
         ...viewcodeProviderHandlers,
