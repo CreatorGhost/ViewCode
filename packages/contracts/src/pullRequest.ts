@@ -111,6 +111,9 @@ export const PullRequestCheck = Schema.Struct({
   description: Schema.NullOr(Schema.String),
   url: Schema.NullOr(Schema.String),
   required: Schema.optional(Schema.Boolean),
+  /** When the run started and finished, where the host reports it (GitHub check runs). */
+  startedAt: Schema.optional(IsoDateTime),
+  completedAt: Schema.optional(IsoDateTime),
 });
 export type PullRequestCheck = typeof PullRequestCheck.Type;
 
