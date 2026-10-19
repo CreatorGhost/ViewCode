@@ -1,7 +1,7 @@
 import { type CSSProperties, useId } from "react";
 
 import { cn } from "~/lib/utils";
-import { type PrFlow, prFlowReached } from "./prFlowModel";
+import { type PrFlow, prFlowConflictCount, prFlowReached } from "./prFlowModel";
 
 const delay = (ms: number, duration?: number) =>
   ({
@@ -194,7 +194,7 @@ export function PrBranchMap({ flow }: { flow: PrFlow }) {
           </g>
         </svg>
         <span className="absolute top-[6%] left-[3%] rounded bg-muted/80 px-1 font-mono text-2xs text-muted-foreground">
-          {flow.base}
+          {flow.base ?? "base"}
         </span>
         <span
           className={cn(
@@ -209,7 +209,9 @@ export function PrBranchMap({ flow }: { flow: PrFlow }) {
             key="conflicts"
             className="pr-flow-swap absolute -top-1 right-[2%] rounded-full border border-warning/40 bg-warning-surface px-2 text-2xs text-warning-foreground"
           >
-            {flow.conflicts.files.reduce((total, file) => total + file.count, 0)} conflicts
+            {prFlowConflictCount(flow) === 0
+              ? "Conflicts"
+              : `${prFlowConflictCount(flow)} conflicts`}
           </span>
         ) : null}
         {merged ? (

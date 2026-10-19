@@ -539,6 +539,7 @@ import {
 } from "../lib/attachmentUploadQueue";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
+import { ThreadPrFlowCard } from "./chat/prFlow/ThreadPrFlowCard";
 import { previewEnvironment } from "../state/preview";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -8112,17 +8113,26 @@ export default function ChatView(props: ChatViewProps) {
                 {...(onOpenWorktreeSetupTerminal ? { onOpenWorktreeSetupTerminal } : {})}
                 isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
                 footer={
-                  paintOnlyDisplayedTimeline ? null : pendingHandoff === null ? (
+                  paintOnlyDisplayedTimeline ? null : pendingHandoff === null &&
+                    !(isServerThread && activeThreadRef) ? (
                     threadStatusLine
                   ) : (
                     <>
-                      <div className="chat-content-lane">
-                        <HandoffRow
-                          endpoints={pendingHandoff}
-                          providers={providerStatuses}
-                          pending
-                        />
-                      </div>
+                      {pendingHandoff === null ? null : (
+                        <div className="chat-content-lane">
+                          <HandoffRow
+                            endpoints={pendingHandoff}
+                            providers={providerStatuses}
+                            pending
+                          />
+                        </div>
+                      )}
+                      {isServerThread && activeThreadRef ? (
+                        // The thread's pull request, at the end of the conversation it came from.
+                        <div className="chat-content-lane pt-3 empty:hidden">
+                          <ThreadPrFlowCard threadRef={activeThreadRef} />
+                        </div>
+                      ) : null}
                       {threadStatusLine}
                     </>
                   )

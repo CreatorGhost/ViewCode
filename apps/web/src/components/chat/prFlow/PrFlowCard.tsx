@@ -4,18 +4,21 @@ import { cn } from "~/lib/utils";
 import { PULL_REQUEST_STATE_PRESENTATION } from "../../pullRequest/pullRequestIcons";
 import { Button } from "../../ui/button";
 import { PrBranchMap } from "./PrBranchMap";
-import { type PrFlow, prFlowReached, prFlowStatus } from "./prFlowModel";
+import { type PrFlow, prFlowConflictCount, prFlowReached, prFlowStatus } from "./prFlowModel";
 
 /**
  * A pull request in the chat, from the first commit to merged: what it is, a branch map of
  * where it stands against its base, and one row with the current state and the next action.
+ * `compact` leaves out the branch map, for the Review panel.
  */
 export function PrFlowCard({
   flow,
+  compact = false,
   onResolveConflicts,
   onMerge,
 }: {
   flow: PrFlow;
+  compact?: boolean;
   onResolveConflicts?: (() => void) | undefined;
   onMerge?: (() => void) | undefined;
 }) {
@@ -25,7 +28,12 @@ export function PrFlowCard({
   const StateIcon = state.Icon;
 
   return (
-    <div className="pr-flow-swap flex flex-col gap-2.5 rounded-xl border bg-card p-3 text-sm">
+    <div
+      className={cn(
+        "pr-flow-swap flex flex-col rounded-xl border bg-card text-sm",
+        compact ? "gap-1.5 p-2.5" : "gap-2.5 p-3",
+      )}
+    >
       <div className="flex items-start gap-2.5 px-0.5">
         <StateIcon
           aria-hidden
@@ -42,16 +50,24 @@ export function PrFlowCard({
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2 font-mono text-2xs text-muted-foreground">
-            <span className="rounded bg-muted px-1.5">{flow.head}</span>
-            <span aria-hidden>→</span>
-            <span className="rounded bg-muted px-1.5">{flow.base}</span>
-            <span key={flow.commitCount} className="pr-flow-swap font-sans">
-              {flow.commitCount} commit{flow.commitCount === 1 ? "" : "s"}
-            </span>
-            <span>
-              <span className="text-diff-addition-foreground">+{flow.additions}</span>{" "}
-              <span className="text-diff-deletion-foreground">−{flow.deletions}</span>
-            </span>
+            <span className="max-w-full truncate rounded bg-muted px-1.5">{flow.head}</span>
+            {flow.base === null ? null : (
+              <>
+                <span aria-hidden>→</span>
+                <span className="rounded bg-muted px-1.5">{flow.base}</span>
+              </>
+            )}
+            {flow.commitCount === null ? null : (
+              <span key={flow.commitCount} className="pr-flow-swap font-sans">
+                {flow.commitCount} commit{flow.commitCount === 1 ? "" : "s"}
+              </span>
+            )}
+            {flow.additions === null || flow.deletions === null ? null : (
+              <span>
+                <span className="text-diff-addition-foreground">+{flow.additions}</span>{" "}
+                <span className="text-diff-deletion-foreground">−{flow.deletions}</span>
+              </span>
+            )}
           </div>
         </div>
         {opened ? (
@@ -64,7 +80,7 @@ export function PrFlowCard({
           </span>
         ) : null}
       </div>
-      <PrBranchMap flow={flow} />
+      {compact ? null : <PrBranchMap flow={flow} />}
       {prFlowReached(flow.phase, "conflicts") ? (
         <PrFlowStateRow flow={flow} onResolveConflicts={onResolveConflicts} onMerge={onMerge} />
       ) : null}
@@ -83,27 +99,39 @@ function PrFlowStateRow({
 }) {
   const status = prFlowStatus(flow);
   const conflictPhase = flow.phase === "conflicts" || flow.phase === "resolving";
+  const base = flow.base ?? "the base";
+  const conflictCount = prFlowConflictCount(flow);
   const variant = conflictPhase
     ? "conflicts"
     : flow.phase === "testing"
       ? "testing"
       : flow.phase === "merged"
         ? "merged"
-        : "ready";
+        : flow.checksFailed
+          ? "failed"
+          : "ready";
   const title =
     variant === "conflicts"
-      ? `${flow.conflicts?.files.reduce((total, file) => total + file.count, 0) ?? 0} conflicts with ${flow.base}`
+      ? `${conflictCount === 0 ? "Conflicts" : `${conflictCount} conflicts`} with ${base}`
       : status.label;
   const detail =
     variant === "conflicts"
       ? flow.phase === "resolving"
         ? status.label
-        : `${flow.conflicts?.author ?? "Someone"} changed the same lines in ${flow.base}`
+        : flow.conflicts?.author
+          ? `${flow.conflicts.author} changed the same lines in ${base}`
+          : `${base} changed the same lines since this branch left it`
       : variant === "testing"
-        ? `Merged ${flow.base} into ${flow.head}`
-        : variant === "ready"
-          ? `${flow.tests?.total ?? 0} tests passed · lint · types`
-          : `${flow.head} was deleted · just now`;
+        ? flow.tests === null
+          ? `Waiting for the checks on ${flow.head}`
+          : `Merged ${base} into ${flow.head}`
+        : variant === "failed"
+          ? "Open the pull request to see which checks failed"
+          : variant === "ready"
+            ? flow.tests === null
+              ? `No conflicts with ${base}`
+              : `${flow.tests.total} tests passed · lint · types`
+            : null;
 
   return (
     <div className="pr-flow-open">
@@ -113,11 +141,9 @@ function PrFlowStateRow({
             <PrFlowStateIcon variant={variant} />
             <div className="flex min-w-0 flex-col gap-0.5">
               <span>{title}</span>
-              <span
-                className={cn("text-xs text-muted-foreground", variant === "merged" && "font-mono")}
-              >
-                {detail}
-              </span>
+              {detail === null ? null : (
+                <span className="text-xs text-muted-foreground">{detail}</span>
+              )}
               {variant === "testing" && flow.tests ? (
                 <span className="mt-1.5 block h-0.5 w-56 overflow-hidden rounded-full bg-muted">
                   <span
@@ -159,8 +185,12 @@ function PrFlowStateRow({
   );
 }
 
-function PrFlowStateIcon({ variant }: { variant: "conflicts" | "testing" | "ready" | "merged" }) {
-  if (variant === "conflicts") {
+function PrFlowStateIcon({
+  variant,
+}: {
+  variant: "conflicts" | "testing" | "ready" | "failed" | "merged";
+}) {
+  if (variant === "conflicts" || variant === "failed") {
     return <TriangleAlertIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />;
   }
   if (variant === "testing") {
@@ -212,12 +242,15 @@ function PrFlowAction({
 }) {
   switch (flow.phase) {
     case "conflicts":
+      if (onResolveConflicts === undefined) return null;
       return (
         <Button key="resolve" size="xs" onClick={onResolveConflicts}>
           Resolve conflicts
         </Button>
       );
     case "ready":
+      // A draft or a pull request with failing checks waits on the reader, not on Merge.
+      if (flow.draft || flow.checksFailed || onMerge === undefined) return null;
       return (
         <Button key="merge" size="xs" onClick={onMerge}>
           Merge

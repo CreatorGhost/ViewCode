@@ -34,6 +34,7 @@ import {
   EmptyTitle,
 } from "../ui/empty";
 import { announceReviewStarted } from "../pullRequest/PullRequestAgentReviewDialog";
+import { ThreadPrFlowCard } from "./prFlow/ThreadPrFlowCard";
 import { ReviewChangeView } from "./ReviewChangeView";
 import { ReviewFindingsView, type ReviewFixInChat } from "./ReviewFindingsView";
 import { ReviewStatusBar } from "./ReviewProgress";
@@ -289,40 +290,47 @@ export function ReviewPanel({
         };
   })();
   return (
-    <ReviewSurface
-      environmentId={environmentId}
-      threadRef={threadRef}
-      source={source}
-      posted={posted}
-      ratings={ratings}
-      review={review}
-      projectId={projectId}
-      cwd={cwd}
-      change={change}
-      startReview={startReview}
-      onFixInChat={undefined}
-      empty={
-        <Empty size="compact">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <ListChecksIcon />
-            </EmptyMedia>
-            <EmptyTitle>No review findings yet</EmptyTitle>
-            <EmptyDescription>
-              {startReview?.request.kind === "pull-request"
-                ? `Have an agent review PR #${startReview.request.reference.number}. Findings appear here as it finds them.`
-                : startReview?.request.kind === "local"
-                  ? "Have an agent review this chat's changes. Findings appear here as it finds them."
-                  : "Link a pull request to this chat to have an agent review it here."}
-            </EmptyDescription>
-          </EmptyHeader>
-          {startReview !== null ? (
-            <EmptyContent>
-              <ReviewStartForm target={startReview} />
-            </EmptyContent>
-          ) : null}
-        </Empty>
-      }
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 px-3 pt-3 empty:hidden">
+        <ThreadPrFlowCard threadRef={threadRef} compact />
+      </div>
+      <div className="min-h-0 flex-1">
+        <ReviewSurface
+          environmentId={environmentId}
+          threadRef={threadRef}
+          source={source}
+          posted={posted}
+          ratings={ratings}
+          review={review}
+          projectId={projectId}
+          cwd={cwd}
+          change={change}
+          startReview={startReview}
+          onFixInChat={undefined}
+          empty={
+            <Empty size="compact">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <ListChecksIcon />
+                </EmptyMedia>
+                <EmptyTitle>No review findings yet</EmptyTitle>
+                <EmptyDescription>
+                  {startReview?.request.kind === "pull-request"
+                    ? `Have an agent review PR #${startReview.request.reference.number}. Findings appear here as it finds them.`
+                    : startReview?.request.kind === "local"
+                      ? "Have an agent review this chat's changes. Findings appear here as it finds them."
+                      : "Link a pull request to this chat to have an agent review it here."}
+                </EmptyDescription>
+              </EmptyHeader>
+              {startReview !== null ? (
+                <EmptyContent>
+                  <ReviewStartForm target={startReview} />
+                </EmptyContent>
+              ) : null}
+            </Empty>
+          }
+        />
+      </div>
+    </div>
   );
 }

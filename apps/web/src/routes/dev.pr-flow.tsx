@@ -151,7 +151,11 @@ function PrFlowPreview() {
                 label={reached("conflicts") ? "Worked for 5s" : prFlowStatus(flow).label}
                 live={!reached("conflicts")}
               />
-              <PrFlowCard flow={flow} />
+              <PrFlowCard
+                flow={flow}
+                onResolveConflicts={() => jump("resolving")}
+                onMerge={() => jump("merging")}
+              />
             </>
           ) : null}
           {reached("conflicts") ? (
