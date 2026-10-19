@@ -255,7 +255,7 @@ describe("MessagesTimeline work rows", () => {
     expect(text().match(/Which repository\?/g)?.length).toBe(before + 1);
   });
 
-  it("collapses settled tool runs behind a generated summary and names a failure", async () => {
+  it("collapses settled runs of one kind and keeps a failed call as its own dead end", async () => {
     await renderTimeline([
       work("work-1", {
         label: "Ran command",
@@ -265,6 +265,13 @@ describe("MessagesTimeline work rows", () => {
         toolLifecycleStatus: "completed",
       }),
       work("work-2", {
+        label: "Ran command",
+        command: "vp fmt",
+        tone: "tool",
+        itemType: "command_execution",
+        toolLifecycleStatus: "completed",
+      }),
+      work("work-3", {
         label: "Run lint",
         command: "vp test run",
         tone: "tool",
@@ -272,14 +279,16 @@ describe("MessagesTimeline work rows", () => {
         toolLifecycleStatus: "failed",
       }),
     ]);
-    const summary = button(/^Ran 2 commands/);
-    expect(summary.getAttribute("aria-label")).toContain("tool call failed");
+    const summary = button("Ran 2 commands");
     expect(text()).not.toContain("vp lint");
+    expect(buttons(/tool call failed$/).map((row) => row.textContent)).toEqual([
+      expect.stringContaining("vp test run"),
+    ]);
     await click(summary);
     await vi.waitFor(() => expect(text()).toContain("vp lint"));
   });
 
-  it("keeps mixed work logs neutral after a later tool call succeeds", async () => {
+  it("keeps a step neutral when only an earlier call failed", async () => {
     await renderTimeline([
       work("work-failed", {
         label: "Run search",
@@ -295,7 +304,7 @@ describe("MessagesTimeline work rows", () => {
         toolLifecycleStatus: "completed",
       }),
     ]);
-    expect(button("Ran 2 commands and received 1 update")).toBeDefined();
+    expect(button("Received 1 update and ran 1 command")).toBeDefined();
   });
 
   it("marks a failed tool inside an expanded work log", async () => {
@@ -1046,7 +1055,9 @@ describe("MessagesTimeline subagents", () => {
       const fold = buttons(/^Worked for/)[0];
       if (fold) await click(fold);
       if (count > 1) {
-        expect(children()).toHaveLength(0);
+        // Collapsed, each agent is a branch row that opens its thread, without its preview.
+        expect(children()).toHaveLength(count);
+        expect(text()).not.toContain(preview);
         await click(button(`${count} subagents`));
       } else {
         expect(buttons(`${count} subagents`)).toHaveLength(0);
@@ -1060,7 +1071,8 @@ describe("MessagesTimeline subagents", () => {
       expect(onOpenThread).toHaveBeenCalledWith("thread-subagent-1");
       if (count > 1) {
         await click(button(`${count} subagents`));
-        await vi.waitFor(() => expect(children()).toHaveLength(0));
+        await vi.waitFor(() => expect(text()).not.toContain(preview));
+        expect(children()).toHaveLength(count);
       }
     },
   );

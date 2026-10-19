@@ -1013,6 +1013,34 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   changing draft or unmounting cancels it. Levels reach the waveform through
   `subscribeDictationLevels`, never React state.
 
+## Thinking log
+
+The web work log draws its steps on one rail with markers and file chips
+(`components/chat/WorkLog.tsx`). Which marker and chips a step gets is shared
+client logic in `@t3tools/client-runtime/work-log/thinking-log`, so mobile can
+adopt the same model.
+
+- Work log rows are separate LegendList items, so no element can span the
+  rail. Each row draws its own stretch from the row's `followsWorkLog` and
+  `continuesWorkLog`; rows that share one item (an expanded group, a thought
+  above the live step) set their ends with `WorkLogRail`. `isRowUnchanged`
+  compares both flags, or a cached row keeps a stale rail end when a neighbour
+  arrives.
+- Steps, not tool calls, are rows: `workLogStepRuns` merges consecutive calls
+  of one kind and gives each failure its own row, and only the call running
+  now is the live row. Finished calls never hide inside it.
+- The turn that just finished stays open (`keepLatestTurnOpen`). Closing it is
+  recorded in `collapsedRunIds`, not by removing it from `expandedRunIds`,
+  because find and citations also add to that set and must never close a turn.
+- The rail stops short of each marker rather than hiding behind a filled
+  backdrop: the timeline's background differs per theme and surface.
+- There is no FLIP push for new steps. The timeline already follows the end
+  with `maintainScrollAtEnd` (smooth while working); a transform push on the
+  rows would fight it.
+- Motion keys on liveness, not mounting: rows, chips and the finish mark
+  animate only for work that is live (or a turn that ended in the last 3 s),
+  because virtualization remounts history as it scrolls back into view.
+
 ## Multi-surface and product policy
 
 All clients share protocol 2. Web and desktop use the same native client state;

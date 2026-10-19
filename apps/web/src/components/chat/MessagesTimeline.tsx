@@ -12,7 +12,26 @@ import {
 } from "@t3tools/shared/markdownPipeline";
 import { MarkdownFindContext, findRevealRef } from "./markdownFindContext";
 import { useChatCanvas } from "./ChatCanvasContext";
-import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } from "./WorkLog";
+import {
+  WorkLogBlock,
+  WorkLogChips,
+  WorkLogDetails,
+  WorkLogList,
+  WorkLogMarker,
+  WorkLogRail,
+  WorkLogRailThrough,
+  WorkLogRow,
+  useWorkLogRailEnds,
+} from "./WorkLog";
+import {
+  EMPTY_WORK_LOG_CHIPS,
+  workLogChips,
+  workLogEntryMarker,
+  workLogMarker,
+  workLogMarkerLane,
+  type WorkLogMarkerKind,
+} from "@t3tools/client-runtime/work-log/thinking-log";
+import { BlurSwap } from "../ui/blur-swap";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
@@ -64,6 +83,7 @@ import {
 } from "@t3tools/client-runtime/work-log/item-detail";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
 import {
+  formatSubagentDisplayTitle,
   subagentGroupSummary,
   summarizeSubagentStatuses,
 } from "@t3tools/client-runtime/state/subagent-display";
@@ -296,10 +316,9 @@ import {
 } from "../../timestampFormat";
 import { FetchedToolOutput, V2ItemInspector } from "./V2ItemInspector";
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
-import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "../ui/collapsible";
+import { Collapsible, CollapsiblePanel } from "../ui/collapsible";
 import {
   isV2LifecycleItem,
-  EnvironmentSubagentAvatar,
   SubagentElapsed,
   SubagentNotificationLink,
   V2LifecycleRow,
@@ -351,7 +370,7 @@ interface TimelineRowSharedState {
     readonly checkpointId: string;
     readonly scopeId: string;
   }) => void;
-  onToggleTurnFold: (runId: RunId) => void;
+  onToggleTurnFold: (runId: RunId, expanded: boolean) => void;
   onToggleAttemptFold: (attemptId: RunAttemptId) => void;
   onFileOpen: (attachment: ChatFileAttachment) => void;
   onFileDownload: (attachment: ChatFileAttachment) => void;
@@ -374,6 +393,8 @@ interface TimelineRowActivityState {
   awaitingUser: boolean;
   isPreparingWorktree: boolean;
   latestRunId: RunId | null;
+  /** When the latest run finished, so its finish mark plays only as the turn ends. */
+  latestRunCompletedAt: string | null;
   backgroundWorktreeSetup: WorktreeSetupSnapshot | null;
 }
 
@@ -632,6 +653,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const [expandedRunIds, setExpandedRunIds] = useState<ReadonlySet<RunId>>(
     () => listState.rememberedPosition?.disclosures?.runs ?? new Set(),
   );
+  const [collapsedRunIds, setCollapsedRunIds] = useState<ReadonlySet<RunId>>(() => new Set());
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(
     () => listState.rememberedPosition?.disclosures?.workGroups ?? new Set(),
   );
@@ -659,6 +681,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     paintedExpandedWorkGroupIds = rememberedPosition?.disclosures?.workGroups ?? new Set();
     paintedExpandedAttemptIds = rememberedPosition?.disclosures?.attempts ?? new Set();
     setExpandedRunIds(paintedExpandedRunIds);
+    setCollapsedRunIds(new Set());
     setExpandedWorkGroupIds(paintedExpandedWorkGroupIds);
     setExpandedAttemptIds(paintedExpandedAttemptIds);
   }
@@ -749,17 +772,17 @@ const ConversationTimeline = memo(function ConversationTimeline({
     return disclosureAnchorKey === null || row.id === disclosureAnchorKey;
   };
 
-  const onToggleTurnFold = (runId: RunId) => {
+  const onToggleTurnFold = (runId: RunId, expanded: boolean) => {
     suspendEndScrollMaintenanceForDisclosure(`turn-fold:${runId}`);
-    setExpandedRunIds((existing) => {
+    const toggle = (add: boolean) => (existing: ReadonlySet<RunId>) => {
+      if (existing.has(runId) === add) return existing;
       const next = new Set(existing);
-      if (next.has(runId)) {
-        next.delete(runId);
-      } else {
-        next.add(runId);
-      }
+      if (add) next.add(runId);
+      else next.delete(runId);
       return next;
-    });
+    };
+    setExpandedRunIds(toggle(!expanded));
+    setCollapsedRunIds(toggle(expanded));
   };
   const onToggleWorkGroup = (groupId: string, anchorKey: string) => {
     suspendEndScrollMaintenanceForDisclosure(anchorKey, expandedWorkGroupIds.has(groupId));
@@ -864,6 +887,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
     latestRun,
     runningRunId,
     expandedRunIds: visibleExpandedRunIds,
+    keepLatestTurnOpen: true,
+    collapsedRunIds,
     collapseFinishedTurns,
     expandedAttemptIds: visibleExpandedAttemptIds,
     expandedWorkGroupIds,
@@ -1288,6 +1313,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     awaitingUser,
     isPreparingWorktree,
     latestRunId: latestRun?.runId ?? null,
+    latestRunCompletedAt: latestRun?.completedAt ?? null,
   };
   const listHeaderLeadingContent =
     parentThreadLink === null ? (
@@ -1916,7 +1942,20 @@ function TimelineMinimapNavigationButton({
 type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"][number];
 type TimelineRow = MessagesTimelineRow;
 
+/** The run a settled work row belongs to, so it can tell whether it arrived while that run works. */
+function workRowRunId(row: TimelineRow): RunId | null {
+  if (row.kind === "work") return row.groupedEntries[0]?.runId ?? null;
+  if (row.kind === "work-toggle") return row.runId ?? null;
+  return null;
+}
+
 const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {
+  const { isWorking, latestRunId } = use(TimelineRowActivityCtx);
+  // A step that settles while its turn runs softens in as the live row moves on; history that
+  // mounts settled (loading, scrolling back) stays still.
+  const [arrivesLive] = useState(
+    () => isWorking && latestRunId !== null && workRowRunId(row) === latestRunId,
+  );
   const isExpandedToolGroup = row.kind === "work" && row.isExpandedToolGroup;
   const isSubagentGroup = row.kind === "event" && row.projectedItem.item.type === "subagent";
   const isWorkLogRow =
@@ -1934,7 +1973,9 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         isWorkLogRow || isSubagentGroup
           ? undefined
           : row.kind === "turn-fold" || row.kind === "working"
-            ? "pb-1.5"
+            ? row.continuesWorkLog
+              ? undefined
+              : "pb-1.5"
             : (row.kind === "message" &&
                   row.message.role === "assistant" &&
                   !row.showAssistantMeta) ||
@@ -1959,7 +2000,9 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
     >
       {isWorkLogRow ? (
         <WorkLogBlock
+          arrive={arrivesLive}
           continues={row.continuesWorkLog}
+          follows={row.followsWorkLog}
           layout={
             isExpandedToolGroup
               ? "group-content"
@@ -2644,27 +2687,54 @@ function TimelineRowTimestamp({
   );
 }
 
+const FINISH_MOTION_WINDOW_MS = 3_000;
+
+function finishedJustNow(completedAt: string | null): boolean {
+  if (completedAt === null) return false;
+  const elapsed = Date.now() - Date.parse(completedAt);
+  return elapsed >= 0 && elapsed < FINISH_MOTION_WINDOW_MS;
+}
+
 function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-fold" }> }) {
   const ctx = use(TimelineRowCtx);
+  const { latestRunId, latestRunCompletedAt } = use(TimelineRowActivityCtx);
+  const latest = row.runId === latestRunId;
+  // Only the turn that just ended plays its finish; history mounts settled.
+  const [fresh] = useState(() => latest && finishedJustNow(latestRunCompletedAt));
+  const toggle = () => ctx.onToggleTurnFold(row.runId, row.expanded);
 
   return (
-    <div className="group/timeline-row relative flex items-center gap-1 border-b border-border/60 pb-2 pe-0.5 pt-1">
-      <button
-        type="button"
+    <WorkLogRail ends={{ above: false, below: row.continuesWorkLog === true }}>
+      <WorkLogRow
+        role="button"
+        tabIndex={0}
         aria-expanded={row.expanded}
         data-scroll-anchor-ignore
-        onClick={() => ctx.onToggleTurnFold(row.runId)}
-        className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-sm leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
-      >
-        <span>{row.label}</span>
-        <MorphIcon className="size-3.5" icon={row.expanded ? ChevronDown : ChevronRight} />
-      </button>
-      <TimelineRowTimestamp
-        createdAt={row.createdAt}
-        timestampFormat={ctx.timestampFormat}
-        className="ms-auto"
+        onClick={toggle}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggle();
+          }
+        }}
+        marker={row.stopped ? "dead-end" : "finish"}
+        icon={
+          <WorkLogMarker kind={row.stopped ? "dead-end" : "finish"} accent={latest} fresh={fresh} />
+        }
+        label={
+          <span className="flex items-center gap-1 tabular-nums hover:text-foreground">
+            <BlurSwap swapKey={row.label} appear={fresh}>
+              {row.label}
+            </BlurSwap>
+            <MorphIcon className="size-3.5" icon={row.expanded ? ChevronDown : ChevronRight} />
+          </span>
+        }
+        trailing={
+          <TimelineRowTimestamp createdAt={row.createdAt} timestampFormat={ctx.timestampFormat} />
+        }
       />
-    </div>
+    </WorkLogRail>
   );
 }
 
@@ -3301,72 +3371,108 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
     else ctx.workGroupViewState.expandedEntries.delete(groupId);
     setExpanded(open);
   };
+  const branches = agents.slice(0, MAX_SUBAGENT_BRANCHES);
+  const hiddenBranches = agents.length - branches.length;
+  const marker: WorkLogMarkerKind = summary.active
+    ? "live"
+    : summary.failed
+      ? "dead-end"
+      : "merged";
   return (
-    <WorkLogBlock continues={row.continuesWorkLog}>
+    <WorkLogBlock continues={row.continuesWorkLog} follows={row.followsWorkLog}>
       <Collapsible open={expanded} onOpenChange={toggleExpanded} data-subagent-group>
-        <CollapsibleTrigger
-          aria-label={label}
-          aria-description={statusSummary}
-          className={cn(
-            "flex w-full min-w-0 items-center gap-3 py-2 text-left transition-opacity hover:opacity-100",
-            expanded || summary.active
-              ? "text-foreground opacity-100"
-              : "text-muted-foreground opacity-55",
-          )}
-        >
-          <span className="flex shrink-0 items-center -space-x-1.5" aria-hidden>
-            {agents.slice(0, 3).map(({ item, status }) => (
-              <EnvironmentSubagentAvatar
+        <SubagentGroupRail expanded={expanded}>
+          <WorkLogRow
+            ref={summary.active ? observeVisibleAnimation : undefined}
+            role="button"
+            tabIndex={0}
+            aria-label={label}
+            aria-description={statusSummary}
+            aria-expanded={expanded}
+            onClick={() => toggleExpanded(!expanded)}
+            onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                toggleExpanded(!expanded);
+              }
+            }}
+            marker={marker}
+            label={
+              <span className="flex min-w-0 items-baseline gap-2">
+                <span className="truncate">{summary.label}</span>
+                <span
+                  className={cn(
+                    "truncate text-xs text-muted-foreground",
+                    summary.failed && !summary.active && "text-destructive",
+                  )}
+                >
+                  {statusSummary}
+                </span>
+              </span>
+            }
+            trailing={
+              <>
+                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                  <SubagentElapsed agent={subagentGroupTiming(agents)} />
+                </span>
+                <ChevronDownIcon
+                  aria-hidden
+                  className={cn(
+                    "size-3.5 shrink-0 text-muted-foreground transition-transform",
+                    expanded && "rotate-180",
+                  )}
+                />
+              </>
+            }
+          />
+        </SubagentGroupRail>
+        {expanded ? null : (
+          <>
+            {branches.map(({ item, status }, index) => (
+              <SubagentBranchRow
                 key={item.id}
-                environmentId={ctx.activeThreadEnvironmentId}
-                providerInstanceId={item.providerInstanceId}
-                driver={item.driver}
-                status={agents.length === 1 ? status : undefined}
+                title={formatSubagentDisplayTitle(item.title ?? "Subagent")}
+                status={status}
+                first={index === 0}
+                last={index === branches.length - 1 && hiddenBranches === 0}
+                onOpen={
+                  item.childThreadId === null
+                    ? undefined
+                    : () => {
+                        if (item.childThreadId !== null) ctx.onOpenThread(item.childThreadId);
+                      }
+                }
               />
             ))}
-            {agents.length > 3 ? (
-              <span className="inline-flex size-6 items-center justify-center rounded-full bg-muted text-3xs font-medium text-muted-foreground ring-2 ring-background">
-                +{agents.length - 3}
-              </span>
+            {hiddenBranches > 0 ? (
+              <SubagentBranchRow
+                title={`+${hiddenBranches} more`}
+                first={false}
+                last
+                onOpen={() => toggleExpanded(true)}
+              />
             ) : null}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-xs font-semibold">{label}</span>
-            <span
-              className={cn(
-                "block truncate text-3xs text-muted-foreground",
-                summary.active ? "text-info" : summary.failed && "text-destructive",
-              )}
-            >
-              {statusSummary}
-            </span>
-          </span>
-          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-            <SubagentElapsed agent={subagentGroupTiming(agents)} />
-          </span>
-          <ChevronDownIcon
-            aria-hidden
-            className={cn(
-              "size-3.5 shrink-0 text-muted-foreground transition-transform",
-              expanded && "rotate-180",
-            )}
-          />
-        </CollapsibleTrigger>
+          </>
+        )}
         {/* Virtualized rows must settle before disclosure scroll anchoring resumes. */}
         <CollapsiblePanel animate={false}>
           {expanded ? (
-            <div className="mt-1 mb-1 rounded-lg border border-border/60 bg-card/30 p-1">
-              {members.map((item) => (
-                <V2LifecycleRow
-                  environmentId={ctx.activeThreadEnvironmentId}
-                  key={item.id}
-                  item={item}
-                  createdAt={row.createdAt}
-                  timestampFormat={ctx.timestampFormat}
-                  runs={ctx.runs}
-                  onOpenThread={ctx.onOpenThread}
-                />
-              ))}
+            <div className="relative">
+              <WorkLogRailThrough />
+              <div className="ms-9 mt-1 mb-1 rounded-lg border border-border/60 bg-card/30 p-1">
+                {members.map((item) => (
+                  <V2LifecycleRow
+                    environmentId={ctx.activeThreadEnvironmentId}
+                    key={item.id}
+                    item={item}
+                    createdAt={row.createdAt}
+                    timestampFormat={ctx.timestampFormat}
+                    runs={ctx.runs}
+                    onOpenThread={ctx.onOpenThread}
+                  />
+                ))}
+              </div>
             </div>
           ) : null}
         </CollapsiblePanel>
@@ -3374,6 +3480,76 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
     </WorkLogBlock>
   );
 });
+
+/** The group's header always runs its rail down into its branches or its expanded cards. */
+function SubagentGroupRail({ expanded, children }: { expanded: boolean; children: ReactNode }) {
+  const ends = useWorkLogRailEnds();
+  return (
+    <WorkLogRail ends={{ above: ends.above, below: !expanded || ends.below }}>
+      {children}
+    </WorkLogRail>
+  );
+}
+
+const MAX_SUBAGENT_BRANCHES = 4;
+
+const SUBAGENT_BRANCH_STATUS: Record<OrchestrationV2TurnItem["status"], string> = {
+  pending: "queued",
+  running: "working",
+  waiting: "waiting",
+  idle: "idle",
+  completed: "done",
+  failed: "failed",
+  cancelled: "stopped",
+  interrupted: "stopped",
+};
+
+/** One subagent on the branch lane: its name, then how it is doing. */
+function SubagentBranchRow({
+  title,
+  status,
+  first,
+  last,
+  onOpen,
+}: {
+  title: string;
+  status?: OrchestrationV2TurnItem["status"] | undefined;
+  first: boolean;
+  last: boolean;
+  onOpen: (() => void) | undefined;
+}) {
+  const ends = useWorkLogRailEnds();
+  return (
+    <WorkLogRail ends={{ above: true, below: !last || ends.below }}>
+      <WorkLogRow
+        {...(onOpen
+          ? {
+              role: "button" as const,
+              tabIndex: 0,
+              "aria-label": status === undefined ? title : `Open ${title}`,
+              onClick: onOpen,
+              onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onOpen();
+                }
+              },
+            }
+          : {})}
+        marker={status === "failed" ? "dead-end" : "dot"}
+        lane={first ? "branch-start" : "branch"}
+        label={
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="truncate">{title}</span>
+            {status === undefined ? null : (
+              <span className="shrink-0 text-xs">{SUBAGENT_BRANCH_STATUS[status]}</span>
+            )}
+          </span>
+        }
+      />
+    </WorkLogRail>
+  );
+}
 
 const WorkGroupSection = memo(function WorkGroupSection({
   anchorKey,
@@ -3415,18 +3591,37 @@ const WorkGroupSection = memo(function WorkGroupSection({
 
   return (
     <section aria-label="Activity">
-      {nonEmptyEntries.map((workEntry) => (
-        <SimpleWorkEntryRow
-          key={workEntry.id}
-          workEntry={workEntry}
-          workspaceRoot={workspaceRoot}
-          displayLabel={displayLabel}
-          onToggleEntry={onToggleStandaloneEntry}
-        />
+      {nonEmptyEntries.map((workEntry, index) => (
+        <StackedWorkLogRail key={workEntry.id} index={index} count={nonEmptyEntries.length}>
+          <SimpleWorkEntryRow
+            workEntry={workEntry}
+            workspaceRoot={workspaceRoot}
+            displayLabel={displayLabel}
+            onToggleEntry={onToggleStandaloneEntry}
+          />
+        </StackedWorkLogRail>
       ))}
     </section>
   );
 });
+
+/** Rows stacked in one timeline item keep the rail running between them. */
+function StackedWorkLogRail({
+  index,
+  count,
+  children,
+}: {
+  index: number;
+  count: number;
+  children: ReactNode;
+}) {
+  const ends = useWorkLogRailEnds();
+  return (
+    <WorkLogRail ends={{ above: index > 0 || ends.above, below: index < count - 1 || ends.below }}>
+      {children}
+    </WorkLogRail>
+  );
+}
 
 function formatWorkingTimer(startIso: string, endIso: string): string | null {
   const startedAtMs = Date.parse(startIso);
@@ -3559,8 +3754,10 @@ function ExpandedWorkGroupEntries({
     return observeResize(content ? [element, content] : element, updateScrollFades);
   }, [updateScrollFades]);
 
-  const renderEntry = ({ item }: { item: TimelineWorkEntry }) => (
-    <SimpleWorkEntryRow key={item.id} workEntry={item} workspaceRoot={workspaceRoot} />
+  const renderEntry = ({ item, index }: { item: TimelineWorkEntry; index: number }) => (
+    <StackedWorkLogRail key={item.id} index={index} count={entries.length}>
+      <SimpleWorkEntryRow workEntry={item} workspaceRoot={workspaceRoot} />
+    </StackedWorkLogRail>
   );
 
   const updateExpandedContentHeight = () => {
@@ -3622,42 +3819,72 @@ function ExpandedWorkGroupEntries({
 
 const workEntryKey = (entry: TimelineWorkEntry) => entry.id;
 
-const failedToolIconClassName = "text-tool-error-icon/40";
+function workspaceRelativeFilePath(path: string, workspaceRoot: string | undefined): string {
+  const normalized = path.replaceAll("\\", "/");
+  const root = workspaceRoot?.replaceAll("\\", "/").replace(/\/+$/, "");
+  if (root && normalized.startsWith(`${root}/`)) return normalized.slice(root.length + 1);
+  return normalized.replace(/^\.\//, "");
+}
 
-function toolIconAcceptsTint(toolIcon: ToolActivityIcon | undefined): boolean {
-  return toolIcon === undefined;
+/** Chips open their file in the side panel, as file links in messages do. */
+function useWorkLogFileOpener() {
+  const { threadRef, workspaceRoot } = use(TimelineRowCtx);
+  if (!threadRef) return undefined;
+  return (path: string) =>
+    useRightPanelStore
+      .getState()
+      .openFile(threadRef, workspaceRelativeFilePath(path, workspaceRoot));
 }
 
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
   const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup } =
     use(TimelineRowActivityCtx);
-  const shimmer = isPreparingWorktree || isCompacting;
-  const label = isPreparingWorktree ? (
+  const status = isPreparingWorktree ? (
     "Setting up worktree…"
   ) : isCompacting ? (
     <CompactingLabel />
-  ) : row.createdAt ? (
-    <>
-      Working for <WorkingTimer createdAt={row.createdAt} />
-    </>
-  ) : (
-    "Working..."
-  );
+  ) : null;
+  // The log's header: the verb shimmers while the agent works and the counter stays muted. The
+  // rail hangs from it down through the turn's steps.
   return (
-    <div className="border-b border-border/60 pb-2 pt-1">
-      <div className="flex h-6 min-w-0 items-baseline gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums">
-        <span
-          ref={shimmer ? observeVisibleAnimation : undefined}
-          className="relative shrink-0 overflow-hidden whitespace-nowrap"
-        >
-          {label}
-          {shimmer ? <ActivityShimmerOverlay>{label}</ActivityShimmerOverlay> : null}
-        </span>
-        {backgroundWorktreeSetup ? (
-          <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
-        ) : null}
-      </div>
-    </div>
+    <WorkLogRail ends={{ above: false, below: row.continuesWorkLog === true }}>
+      <WorkLogRow
+        marker="header"
+        label={
+          status !== null ? (
+            <span
+              ref={observeVisibleAnimation}
+              className="relative block w-fit overflow-hidden whitespace-nowrap text-muted-foreground"
+            >
+              {status}
+              <ActivityShimmerOverlay>{status}</ActivityShimmerOverlay>
+            </span>
+          ) : (
+            <span className="flex min-w-0 items-baseline gap-1.5 tabular-nums">
+              <span
+                ref={observeVisibleAnimation}
+                className="relative overflow-hidden whitespace-nowrap text-foreground"
+              >
+                {row.createdAt ? "Working for " : "Working"}
+                <ActivityShimmerOverlay className={LIVE_SHIMMER_BAND}>
+                  {row.createdAt ? "Working for " : "Working"}
+                </ActivityShimmerOverlay>
+              </span>
+              {row.createdAt ? (
+                <span className="text-muted-foreground">
+                  <WorkingTimer createdAt={row.createdAt} />
+                </span>
+              ) : null}
+            </span>
+          )
+        }
+        trailing={
+          backgroundWorktreeSetup ? (
+            <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
+          ) : null
+        }
+      />
+    </WorkLogRail>
   );
 }
 
@@ -3708,7 +3935,7 @@ function ThinkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "think
   const ctx = use(TimelineRowCtx);
   const { isCompacting, isPreparingWorktree } = use(TimelineRowActivityCtx);
   if (isPreparingWorktree || isCompacting) return <WorkLogRow label="" />;
-  const activity = <LiveActivityRow label="Thinking" iconName="brain" active shimmer />;
+  const activity = <LiveActivityRow label="Thinking" marker="live" active />;
   const { groupId } = row;
   if (groupId === undefined) return activity;
   return (
@@ -3723,108 +3950,52 @@ function ThinkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "think
   );
 }
 
+/** The live label reads darkest; its shimmer band lifts it toward the background. */
+const LIVE_SHIMMER_BAND = "text-muted-foreground";
+
+/** The step running now: a spinner on the rail and a shimmer across its label. */
 function LiveActivityRow({
   label,
-  iconName,
-  toolIcon,
+  marker,
+  toolGlyph,
+  swapKey,
   failed = false,
   active = false,
-  shimmer = false,
 }: {
   label: ReactNode;
-  iconName?: WorkEntryIconName;
-  toolIcon?: ToolActivityIcon | undefined;
+  marker: WorkLogMarkerKind;
+  /** An integration's own icon, shown in place of the marker once the step settles. */
+  toolGlyph?: ReactNode;
+  /** The live step's identity: a new step cuts the label and softens the next one in. */
+  swapKey?: string;
   failed?: boolean;
   active?: boolean;
-  shimmer?: boolean;
 }) {
   const animated = active && !failed;
-  const showShimmer = animated && shimmer;
+  const rowMarker = failed ? "dead-end" : animated ? "live" : marker;
   return (
     <div
       ref={animated ? observeVisibleAnimation : undefined}
-      className="relative min-h-6 w-fit max-w-full min-w-0 overflow-hidden rounded-md text-sm leading-relaxed"
+      className="relative min-h-6 w-full max-w-full min-w-0 text-sm leading-relaxed"
     >
-      <LiveActivityContent
-        label={label}
-        iconName={iconName}
-        toolIcon={toolIcon}
-        failed={failed}
-        announceFailure={failed}
-        active={animated && !shimmer}
-      />
-      {showShimmer ? (
-        <ActivityShimmerOverlay>
-          <LiveActivityContent label={label} iconName={iconName} toolIcon={toolIcon} highlighted />
-        </ActivityShimmerOverlay>
-      ) : null}
-    </div>
-  );
-}
-
-function LiveActivityContent({
-  label,
-  iconName,
-  toolIcon,
-  failed = false,
-  announceFailure = false,
-  active = false,
-  highlighted = false,
-}: {
-  label: ReactNode;
-  iconName: WorkEntryIconName | undefined;
-  toolIcon?: ToolActivityIcon | undefined;
-  failed?: boolean;
-  announceFailure?: boolean;
-  active?: boolean;
-  highlighted?: boolean;
-}) {
-  const showTrailingFailureMark =
-    failed && iconName !== undefined && !toolIconAcceptsTint(toolIcon);
-
-  return (
-    <WorkLogRow
-      live={active}
-      icon={
-        iconName ? (
-          <span
-            className={cn(
-              "flex size-4 items-center justify-center",
-              failed
-                ? failedToolIconClassName
-                : highlighted
-                  ? "text-foreground"
-                  : "text-icon-muted",
-            )}
-            role={announceFailure ? "img" : undefined}
-            aria-label={announceFailure ? "Tool call failed" : undefined}
+      <WorkLogRow
+        live={animated}
+        marker={rowMarker}
+        icon={animated ? undefined : toolGlyph}
+        lane={rowMarker === "dead-end" ? "branch-start" : "main"}
+        label={
+          <BlurSwap
+            swapKey={swapKey}
+            render={<span className="relative block w-fit max-w-full overflow-hidden truncate" />}
           >
-            <ToolActivityIconView
-              icon={toolIcon}
-              fallbackName={iconName}
-              className="block size-4 shrink-0 stroke-2"
-              muted={!highlighted}
-            />
-          </span>
-        ) : null
-      }
-      label={
-        <span
-          className={cn(
-            "block truncate",
-            highlighted && "text-foreground",
-            active && "live-tool-shine",
-          )}
-        >
-          {label}
-        </span>
-      }
-      trailing={
-        showTrailingFailureMark ? (
-          <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
-        ) : null
-      }
-    />
+            {label}
+            {animated ? (
+              <ActivityShimmerOverlay className={LIVE_SHIMMER_BAND}>{label}</ActivityShimmerOverlay>
+            ) : null}
+          </BlurSwap>
+        }
+      />
+    </div>
   );
 }
 
@@ -3883,79 +4054,112 @@ function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "
   const failed = workEntryDisplayIndicatesToolFailure(row.entry);
   const thoughtLine = row.thought && !row.expanded ? liveThoughtLine(row.thought.detail ?? "") : "";
   const thoughtIsStatus = thoughtLine !== "" && row.entry === row.thought;
+  const ends = useWorkLogRailEnds();
+  const openFile = useWorkLogFileOpener();
+  const toolIcon = row.entry.toolIcon ?? row.entry.toolSource?.icon;
 
   return (
-    <button
-      type="button"
-      className={cn(
-        "group/live-work flex w-full max-w-full cursor-pointer rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
-        thoughtLine ? "flex-col items-start" : "min-h-6 items-center",
-      )}
-      aria-label={
-        failed
-          ? `${thoughtLine ? `${thoughtLine} ` : ""}${threadLabel?.text ?? label}, tool call failed`
-          : undefined
-      }
-      aria-expanded={row.expanded}
-      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
-    >
-      {thoughtLine ? (
-        <WorkLogRow
-          icon={
-            <span className="flex size-4 items-center justify-center text-icon-muted">
-              <ToolActivityIconView
-                icon={undefined}
-                fallbackName="brain"
-                className="block size-4 shrink-0 stroke-2"
-                muted
-              />
-            </span>
-          }
-          label={<span className="line-clamp-4">{thoughtLine}</span>}
-          wrapLabel
-        />
-      ) : null}
-      <LiveActivityRow
-        label={
-          thoughtIsStatus ? (
-            row.active ? (
-              "Thinking"
-            ) : (
-              "Thought"
-            )
-          ) : row.entry.questionAnswer && hasQuestionAnswer(row.entry.questionAnswer) ? (
-            <span className="flex min-w-0 gap-1.5">
-              <span className="min-w-0 truncate">{label}</span>
-              <span className="min-w-0 truncate text-foreground">
-                {getQuestionAnswerPreview(row.entry.questionAnswer)}
-              </span>
-            </span>
-          ) : row.entry.itemType === "reasoning" ? (
-            <ReactMarkdown
-              remarkPlugins={[
-                remarkGfm,
-                remarkKeepWindowsPaths,
-                [remarkThoughtPreview, row.active ? "Thinking" : "Thought"],
-              ]}
-            >
-              {row.entry.detail ?? label}
-            </ReactMarkdown>
-          ) : threadLabel ? (
-            <ThreadReadLabel
-              label={threadLabel}
-              environmentId={ctx.activeThreadEnvironmentId}
-              linked={false}
-            />
-          ) : (
-            label
-          )
+    <>
+      <button
+        type="button"
+        className={cn(
+          "group/live-work flex w-full max-w-full cursor-pointer rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
+          thoughtLine ? "flex-col items-start" : "min-h-6 items-center",
+        )}
+        aria-label={
+          failed
+            ? `${thoughtLine ? `${thoughtLine} ` : ""}${threadLabel?.text ?? label}, tool call failed`
+            : undefined
         }
-        iconName={workEntryIconName(row.entry)}
-        toolIcon={row.entry.toolIcon ?? row.entry.toolSource?.icon}
-        failed={failed}
-        active={row.active}
+        aria-expanded={row.expanded}
+        onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+      >
+        {thoughtLine ? (
+          <WorkLogRail ends={{ above: ends.above, below: true }}>
+            <WorkLogRow
+              marker="dot"
+              label={<span className="line-clamp-4">{thoughtLine}</span>}
+              wrapLabel
+            />
+          </WorkLogRail>
+        ) : null}
+        <WorkLogRail ends={{ above: ends.above || thoughtLine !== "", below: ends.below }}>
+          <LiveActivityRow
+            label={
+              thoughtIsStatus ? (
+                row.active ? (
+                  "Thinking"
+                ) : (
+                  "Thought"
+                )
+              ) : row.entry.questionAnswer && hasQuestionAnswer(row.entry.questionAnswer) ? (
+                <span className="flex min-w-0 gap-1.5">
+                  <span className="min-w-0 truncate">{label}</span>
+                  <span className="min-w-0 truncate text-foreground">
+                    {getQuestionAnswerPreview(row.entry.questionAnswer)}
+                  </span>
+                </span>
+              ) : row.entry.itemType === "reasoning" ? (
+                <ReactMarkdown
+                  remarkPlugins={[
+                    remarkGfm,
+                    remarkKeepWindowsPaths,
+                    [remarkThoughtPreview, row.active ? "Thinking" : "Thought"],
+                  ]}
+                >
+                  {row.entry.detail ?? label}
+                </ReactMarkdown>
+              ) : threadLabel ? (
+                <ThreadReadLabel
+                  label={threadLabel}
+                  environmentId={ctx.activeThreadEnvironmentId}
+                  linked={false}
+                />
+              ) : (
+                label
+              )
+            }
+            marker={workLogEntryMarker(row.entry)}
+            toolGlyph={
+              toolIcon ? (
+                <WorkLogToolGlyph icon={toolIcon} fallbackName={workEntryIconName(row.entry)} />
+              ) : undefined
+            }
+            swapKey={row.entry.id}
+            failed={failed}
+            active={row.active}
+          />
+        </WorkLogRail>
+      </button>
+      {/* Chips sit outside the toggle so each one is its own control. */}
+      <WorkLogChips
+        chips={workLogChips(row.groupedEntries)}
+        live={row.active}
+        standalone
+        theme={ctx.resolvedTheme}
+        onOpenFile={openFile}
       />
-    </button>
+    </>
+  );
+}
+
+/** An integration's own icon (a site favicon, an app logo) on the rail in place of a dot. */
+function WorkLogToolGlyph({
+  icon,
+  fallbackName,
+}: {
+  icon: ToolActivityIcon;
+  fallbackName: WorkEntryIconName;
+}) {
+  return (
+    <span className="flex size-4 items-center justify-center">
+      <ToolActivityIconView
+        icon={icon}
+        fallbackName={fallbackName}
+        className="block size-3.5 shrink-0 stroke-2"
+        muted
+      />
+    </span>
   );
 }
 
@@ -4008,55 +4212,42 @@ function WorkGroupToggleTimelineRow({
   row: Extract<TimelineRow, { kind: "work-toggle" }>;
 }) {
   const ctx = use(TimelineRowCtx);
+  const openFile = useWorkLogFileOpener();
+  const marker = workLogMarker({ failed: row.hasFailure, kind: row.summaryKind });
+  const toggle = () => ctx.onToggleWorkGroup(row.groupId, row.id);
   return (
-    <WorkGroupHeader
-      label={row.summary}
-      iconName={row.summaryToolIcon ?? row.toolSurface ?? toolGroupSummaryIconName(row.summaryKind)}
-      toolIcon={row.toolIcon}
-      failed={row.hasFailure}
-      expanded={row.expanded}
-      createdAt={row.createdAt}
-      timestampFormat={ctx.timestampFormat}
-      onToggle={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
-    />
-  );
-}
-
-function WorkGroupHeader(props: {
-  label: string;
-  iconName: WorkEntryIconName;
-  toolIcon?: ToolActivityIcon | undefined;
-  failed?: boolean | undefined;
-  active?: boolean | undefined;
-  expanded: boolean;
-  createdAt: string;
-  timestampFormat: TimestampFormat;
-  onToggle: () => void;
-}) {
-  return (
-    <WorkLogButton
-      live={props.active && !props.failed}
-      ref={props.active && !props.failed ? observeVisibleAnimation : undefined}
-      aria-label={props.failed ? `${props.label}, tool call failed` : props.label}
-      aria-expanded={props.expanded}
-      onClick={props.onToggle}
+    <WorkLogRow
+      role="button"
+      tabIndex={0}
+      aria-label={row.hasFailure ? `${row.summary}, tool call failed` : row.summary}
+      aria-expanded={row.expanded}
+      onClick={toggle}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          toggle();
+        }
+      }}
+      marker={marker}
+      lane={workLogMarkerLane(marker) === "branch" ? "branch-start" : "main"}
       icon={
-        <ToolActivityIconView
-          icon={props.toolIcon}
-          fallbackName={props.iconName}
-          className="size-4 shrink-0 stroke-2 text-icon-muted"
-          muted
-        />
+        row.toolIcon && marker !== "dead-end" ? (
+          <WorkLogToolGlyph
+            icon={row.toolIcon}
+            fallbackName={
+              row.summaryToolIcon ?? row.toolSurface ?? toolGroupSummaryIconName(row.summaryKind)
+            }
+          />
+        ) : undefined
       }
-      label={
-        <span className={cn("block truncate", props.active && !props.failed && "live-tool-shine")}>
-          {props.label}
-        </span>
-      }
+      label={<span className="block truncate">{row.summary}</span>}
       trailing={
-        <TimelineRowTimestamp createdAt={props.createdAt} timestampFormat={props.timestampFormat} />
+        <TimelineRowTimestamp createdAt={row.createdAt} timestampFormat={ctx.timestampFormat} />
       }
-    />
+    >
+      <WorkLogChips chips={row.chips} theme={ctx.resolvedTheme} onOpenFile={openFile} />
+    </WorkLogRow>
   );
 }
 
@@ -5370,6 +5561,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
 function NativeWorkEntryLogRow(props: WorkEntryRowProps) {
   const { workEntry, workspaceRoot, displayLabel } = props;
   const ctx = use(TimelineRowCtx);
+  const openFile = useWorkLogFileOpener();
   const { threadRef, onImageExpand, timestampFormat } = ctx;
   const { retryableWorkspacePreparationRunIds, onRetryWorkspacePreparation } = ctx;
   const threadTarget = useThreadReadTarget(workEntry, ctx.activeThreadEnvironmentId);
@@ -5436,12 +5628,12 @@ function NativeWorkEntryLogRow(props: WorkEntryRowProps) {
         }
       >
         {!warning ? (
-          <p className="ms-7 whitespace-pre-wrap break-words py-1 text-sm leading-relaxed text-foreground/80">
+          <p className="ms-8.5 whitespace-pre-wrap break-words py-1 text-sm leading-relaxed text-foreground/80">
             {failureItem.failure.message}
           </p>
         ) : null}
         {retryRunId !== null && onRetryWorkspacePreparation ? (
-          <div className="ms-7 pb-1">
+          <div className="ms-8.5 pb-1">
             <Button
               type="button"
               size="xs"
@@ -5456,7 +5648,6 @@ function NativeWorkEntryLogRow(props: WorkEntryRowProps) {
       </WorkLogRow>
     );
   }
-  const iconConfig = workToneIcon(workEntry.tone);
   const showWarningIndicator = workEntry.sourceActivityKind === "runtime.warning";
   const showFailedIndicator =
     !showWarningIndicator && workEntryDisplayIndicatesToolFailure(workEntry);
@@ -5540,24 +5731,44 @@ function NativeWorkEntryLogRow(props: WorkEntryRowProps) {
               workEntry.questionAnswer ||
               turnItemHasDetail(workEntry.projectedItem.item),
             );
-  const iconWrapperClass = cn(
-    "flex size-4 items-center justify-center",
-    showWarningIndicator
-      ? "text-warning"
-      : showDestructiveRowStyle
-        ? "text-destructive"
-        : showFailedIndicator
-          ? failedToolIconClassName
-          : workEntry.tone === "tool"
-            ? "text-icon-muted"
-            : iconConfig.className,
-  );
+  const alerting = showWarningIndicator || showDestructiveRowStyle;
+  const marker = workLogMarker({
+    failed: showFailedIndicator,
+    kind: toolGroupAction(workEntry),
+  });
+  // Warnings and severe failures keep their alert icon; a plain failed call is a dead end.
+  const icon = alerting ? (
+    <span
+      className={cn(
+        "flex size-4 items-center justify-center",
+        showWarningIndicator ? "text-warning" : "text-destructive",
+      )}
+      role={showFailedIndicator ? "img" : undefined}
+      aria-label={showFailedIndicator ? "Tool call failed" : undefined}
+    >
+      <ToolActivityIconView
+        icon={undefined}
+        fallbackName={entryIconName}
+        className="block size-4 shrink-0 stroke-2"
+        muted
+      />
+    </span>
+  ) : showFailedIndicator ? (
+    <span role="img" aria-label="Tool call failed" className="flex">
+      <WorkLogMarker kind="dead-end" />
+    </span>
+  ) : entryToolIcon ? (
+    <WorkLogToolGlyph icon={entryToolIcon} fallbackName={entryIconName} />
+  ) : undefined;
+  // A lone search lists what it found; inside a group the group's chips already do.
+  const chips =
+    groupView === null && marker === "search" ? workLogChips([workEntry]) : EMPTY_WORK_LOG_CHIPS;
   const headingClass = showWarningIndicator
     ? "font-medium text-warning"
     : showDestructiveRowStyle
       ? "font-medium text-destructive"
       : workLogEntryIsToolLike(workEntry)
-        ? "text-secondary-label"
+        ? undefined
         : "text-foreground/80";
   const threadLabel = isReasoning ? null : threadReadLabel(previewText, threadTarget);
   const accessiblePreview = [threadLabel?.text ?? previewText, answerPreview]
@@ -5587,65 +5798,50 @@ function NativeWorkEntryLogRow(props: WorkEntryRowProps) {
       data-v2-item-type={workEntry.projectedItem?.item.type}
       data-v2-item-visibility={workEntry.projectedItem?.visibility}
       {...rowToggleProps}
-      icon={
-        <span
-          className={iconWrapperClass}
-          role={showFailedIndicator ? "img" : undefined}
-          aria-label={showFailedIndicator ? "Tool call failed" : undefined}
-        >
-          <ToolActivityIconView
-            icon={entryToolIcon}
-            fallbackName={entryIconName}
-            className="block size-4 shrink-0 stroke-2"
-            muted
-          />
-        </span>
-      }
+      marker={marker}
+      lane={!alerting && marker === "dead-end" ? "branch-start" : "main"}
+      icon={icon}
       label={
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <p className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
-            <span
-              className={cn(answerPreview ? "min-w-0" : "min-w-0 flex-1", "truncate", headingClass)}
-            >
-              {isReasoning && !expanded ? (
-                <ReactMarkdown
-                  remarkPlugins={[
-                    remarkGfm,
-                    remarkKeepWindowsPaths,
-                    [
-                      remarkThoughtPreview,
-                      workEntry.toolLifecycleStatus === "inProgress" ? "Thinking" : "Thought",
-                    ],
-                  ]}
-                >
-                  {workEntry.detail ?? previewText}
-                </ReactMarkdown>
-              ) : threadLabel ? (
-                <ThreadReadLabel
-                  label={threadLabel}
-                  environmentId={ctx.activeThreadEnvironmentId}
-                  linked
-                />
-              ) : (
-                previewText
-              )}
-            </span>
-            {answerPreview ? (
-              <span
-                className={cn(
-                  "min-w-0 truncate",
-                  !expanded &&
-                    workEntry.questionAnswer &&
-                    hasQuestionAnswer(workEntry.questionAnswer)
-                    ? "text-foreground"
-                    : "text-muted-foreground",
-                )}
+        <p className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
+          <span
+            className={cn(answerPreview ? "min-w-0" : "min-w-0 flex-1", "truncate", headingClass)}
+          >
+            {isReasoning && !expanded ? (
+              <ReactMarkdown
+                remarkPlugins={[
+                  remarkGfm,
+                  remarkKeepWindowsPaths,
+                  [
+                    remarkThoughtPreview,
+                    workEntry.toolLifecycleStatus === "inProgress" ? "Thinking" : "Thought",
+                  ],
+                ]}
               >
-                {answerPreview}
-              </span>
-            ) : null}
-          </p>
-        </div>
+                {workEntry.detail ?? previewText}
+              </ReactMarkdown>
+            ) : threadLabel ? (
+              <ThreadReadLabel
+                label={threadLabel}
+                environmentId={ctx.activeThreadEnvironmentId}
+                linked
+              />
+            ) : (
+              previewText
+            )}
+          </span>
+          {answerPreview ? (
+            <span
+              className={cn(
+                "min-w-0 truncate",
+                !expanded && workEntry.questionAnswer && hasQuestionAnswer(workEntry.questionAnswer)
+                  ? "text-foreground"
+                  : "text-muted-foreground",
+              )}
+            >
+              {answerPreview}
+            </span>
+          ) : null}
+        </p>
       }
       trailing={
         <>
@@ -5688,11 +5884,6 @@ function NativeWorkEntryLogRow(props: WorkEntryRowProps) {
               Open in panel
             </InlineButton>
           ) : null}
-          {showFailedIndicator &&
-          !showDestructiveRowStyle &&
-          !toolIconAcceptsTint(entryToolIcon) ? (
-            <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
-          ) : null}
           <TimelineRowTimestamp createdAt={workEntry.createdAt} timestampFormat={timestampFormat} />
           <span
             className={cn(
@@ -5711,6 +5902,7 @@ function NativeWorkEntryLogRow(props: WorkEntryRowProps) {
         </>
       }
     >
+      <WorkLogChips chips={chips} theme={ctx.resolvedTheme} onOpenFile={openFile} />
       {expanded && viewedImage && threadRef ? (
         <WorkLogDetails kind="media">
           <ChatMarkdownAssetImage
@@ -5780,7 +5972,7 @@ function QuestionAnswerHistory({
   }));
   const urls = useAssetUrls(activeThreadEnvironmentId, resources);
   return (
-    <div className="ms-7 mt-2 space-y-2" onClick={stopRowToggle}>
+    <div className="ms-8.5 mt-2 space-y-2" onClick={stopRowToggle}>
       {[
         ...new Set([
           ...Object.keys(answer.questionTextById ?? {}),
