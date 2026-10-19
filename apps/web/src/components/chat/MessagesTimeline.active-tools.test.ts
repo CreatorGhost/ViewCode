@@ -30,21 +30,28 @@ describe("long active tool groups", () => {
         activeTurnStartedAt: createdAt,
         turnDiffSummaries: [],
         supportsConversationRollback: false,
-        expandedWorkGroupIds: new Set(expanded ? ["work-group:work-entry-0"] : []),
+        expandedWorkGroupIds: new Set(expanded ? ["work-group:work-entry-998"] : []),
       });
       const live = rows.find((row) => row.kind === "work-live");
       expect(live).toBeDefined();
       expect(live?.entry.id).toBe("work-999");
       expect(live && liveWorkEntryLabel(live.entry, undefined, live.active)).toContain("999");
+      // The live row holds the running call and the thought that led into it; the finished calls
+      // before it are rows of their own, in order.
       expect(live?.thought?.id).toBe("work-998");
-      expect(live?.groupedEntries.map(({ id }) => id)).toEqual(
-        timelineEntries.map(({ entry }) => entry.id),
-      );
-      expect(live?.groupId).toBe("work-group:work-entry-0");
-      const details = rows.filter((row) => row.kind === "work");
-      expect(details).toHaveLength(expanded ? 1 : 0);
+      expect(live?.groupedEntries.map(({ id }) => id)).toEqual(["work-998", "work-999"]);
+      expect(live?.groupId).toBe("work-group:work-entry-998");
+      expect(rows.find((row) => row.kind === "work-toggle")).toMatchObject({
+        summary: "Ran 499 commands",
+        hiddenCount: 998,
+      });
+      expect(rows.indexOf(live!)).toBe(rows.length - (expanded ? 2 : 1));
       if (expanded) {
-        expect(details[0]?.groupedEntries).toEqual(live?.groupedEntries);
+        expect(rows.at(-1)).toMatchObject({
+          kind: "work",
+          isExpandedToolGroup: true,
+          groupedEntries: live?.groupedEntries,
+        });
       }
     },
   );

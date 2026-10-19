@@ -29,6 +29,8 @@ import {
   workLogChipSetsEqual,
   workLogChips,
   workLogHeaderLabel,
+  workLogLiveLabel,
+  workLogStepRuns,
   type WorkLogChipSet,
 } from "@t3tools/client-runtime/work-log/thinking-log";
 export {
@@ -42,7 +44,6 @@ import {
   isStreamingTurnItemTextUpdate,
   timelineEntryIsPersistentResourceCard,
   workEntryDisplayIndicatesToolFailure,
-  workEntryIndicatesToolSuccess,
   workEntryIndicatesToolNeutralStatus,
   workLogEntryIsToolLike,
   type TimelineEntry,
@@ -258,6 +259,8 @@ export function liveWorkEntryLabel(
     toolLifecycleStatus: status,
   });
   if (toolPresentation) return toolPresentation.displayName;
+  const friendly = status === "inProgress" ? workLogLiveLabel(entry) : null;
+  if (friendly) return friendly;
   const command = entry.command?.trim();
   if (command) {
     const verb =
@@ -1341,6 +1344,10 @@ export function deriveMessagesTimelineRows(input: {
   latestRun?: TimelineLatestRun | null;
   runningRunId?: RunId | null;
   expandedRunIds?: ReadonlySet<RunId>;
+  /** Leave the turn that just finished open under its "Worked for" header. */
+  keepLatestTurnOpen?: boolean;
+  /** With `keepLatestTurnOpen`, the latest turn starts open, so closing it is recorded here. */
+  collapsedRunIds?: ReadonlySet<RunId>;
   collapseFinishedTurns?: boolean;
   expandedAttemptIds?: ReadonlySet<RunAttemptId>;
   expandedWorkGroupIds?: ReadonlySet<string>;
@@ -1404,9 +1411,16 @@ export function deriveMessagesTimelineRows(input: {
           liveSubagentEntryIds,
           completeSupersededReplyEntryIds: completeSupersededReplyIds,
         });
+  // The turn that just finished stays open, so its steps read on under the "Worked for" header
+  // until the user closes it or the next turn starts.
+  const turnFoldExpanded = (runId: RunId) =>
+    (input.expandedRunIds?.has(runId) ?? false) ||
+    (input.keepLatestTurnOpen === true &&
+      runId === input.latestRun?.runId &&
+      !(input.collapsedRunIds?.has(runId) ?? false));
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorEntryId.values()) {
-    if (!input.expandedRunIds?.has(fold.runId)) {
+    if (!turnFoldExpanded(fold.runId)) {
       for (const entryId of fold.hiddenEntryIds) {
         collapsedEntryIds.add(entryId);
       }
@@ -1461,50 +1475,54 @@ export function deriveMessagesTimelineRows(input: {
     }
   }
   activeToolEntries.reverse();
-  const visibleActiveToolEntries = activeToolEntries.filter((entry) =>
-    workEntryIsVisibleInGroup(entry.entry, true),
+  // Only the step running now is the live row; the active turn's finished steps stay rows of
+  // their own above it, so the log reads step by step while the agent works.
+  const isVisibleActiveEntry = (entry: (typeof activeToolEntries)[number]) =>
+    workEntryIsVisibleInGroup(entry.entry, true);
+  const lastActiveRun =
+    workLogStepRuns(activeToolEntries, {
+      entry: (entry) => entry.entry,
+      visible: isVisibleActiveEntry,
+    }).at(-1) ?? [];
+  // Finished calls of the same kind ("Ran 2 commands") keep their own row; the live row starts at
+  // the first call still running, with the thought that led into it.
+  const firstRunningIndex = lastActiveRun.findIndex(
+    (entry) => isVisibleActiveEntry(entry) && workEntryIsActiveTurnActivity(entry.entry),
   );
-  const activeWorkAnchor = activeToolEntries[0];
-  const latestVisibleToolEntry = visibleActiveToolEntries.at(-1);
-  const latestRunningToolEntry = visibleActiveToolEntries.findLast((entry) =>
-    workEntryIsActiveTurnActivity(entry.entry),
-  );
-  const latestToolKeepsActivityLive =
-    latestRunningToolEntry !== undefined ||
-    (latestVisibleToolEntry !== undefined &&
-      workEntryIndicatesToolSuccess(latestVisibleToolEntry.entry));
-  const latestToolFailed =
-    latestRunningToolEntry === undefined &&
-    latestVisibleToolEntry !== undefined &&
-    latestVisibleToolEntry.entry.toolLifecycleStatus !== "declined" &&
-    workEntryDisplayIndicatesToolFailure(latestVisibleToolEntry.entry);
-
-  const latestThoughtEntry = visibleActiveToolEntries.findLast(
+  const lastFinishedIndex =
+    firstRunningIndex < 0
+      ? -1
+      : lastActiveRun
+          .slice(0, firstRunningIndex)
+          .findLastIndex(
+            (entry) => isVisibleActiveEntry(entry) && entry.entry.itemType !== "reasoning",
+          );
+  const liveRun = firstRunningIndex < 0 ? [] : lastActiveRun.slice(lastFinishedIndex + 1);
+  const visibleLiveRun = liveRun.filter(isVisibleActiveEntry);
+  const liveEntry = visibleLiveRun.findLast((entry) => workEntryIsActiveTurnActivity(entry.entry));
+  const liveThought = visibleLiveRun.findLast(
     (entry) => entry.entry.itemType === "reasoning" && (entry.entry.detail?.trim() ?? "") !== "",
   );
-  const activeWorkPlacementEntryId = latestVisibleToolEntry?.id;
+  const activeWorkAnchor = liveRun[0];
   const activeWorkRow =
-    activeWorkAnchor && latestVisibleToolEntry && !latestToolFailed
+    activeWorkAnchor && liveEntry
       ? (() => {
           const groupId = workGroupId(activeWorkAnchor.id);
           return {
             kind: "work-live" as const,
-            id: latestToolKeepsActivityLive
-              ? LIVE_ACTIVITY_ROW_ID
-              : `work-live:${activeWorkAnchor.id}`,
+            id: LIVE_ACTIVITY_ROW_ID,
             createdAt: activeWorkAnchor.createdAt,
-            entry: (latestRunningToolEntry ?? latestVisibleToolEntry).entry,
-            groupedEntries: visibleActiveToolEntries.map((entry) => entry.entry),
+            entry: liveEntry.entry,
+            groupedEntries: visibleLiveRun.map((entry) => entry.entry),
             groupId,
             expanded: input.expandedWorkGroupIds?.has(groupId) ?? false,
-            active: latestToolKeepsActivityLive,
-            ...(latestThoughtEntry ? { thought: latestThoughtEntry.entry } : {}),
+            active: true,
+            ...(liveThought ? { thought: liveThought.entry } : {}),
           };
         })()
       : null;
-  const activeWorkEntryIds = new Set(
-    activeWorkRow !== null || latestToolFailed ? activeToolEntries.map((entry) => entry.id) : [],
-  );
+  const activeWorkPlacementEntryId = activeWorkRow ? activeWorkAnchor?.id : undefined;
+  const activeWorkEntryIds = new Set(activeWorkRow ? liveRun.map((entry) => entry.id) : []);
   const appendWorkingRow = () => {
     nextRows.push({
       kind: "working",
@@ -1558,7 +1576,7 @@ export function deriveMessagesTimelineRows(input: {
         runId: turnFold.runId,
         label: turnFold.label,
         stopped: turnFold.stopped,
-        expanded: input.expandedRunIds?.has(turnFold.runId) ?? false,
+        expanded: turnFoldExpanded(turnFold.runId),
       });
     }
 
@@ -1626,7 +1644,7 @@ export function deriveMessagesTimelineRows(input: {
         });
         continue;
       }
-      const groupedEntries = [timelineEntry.entry];
+      const groupedTimelineEntries = [timelineEntry];
       let cursor = index + 1;
       while (cursor < timelineEntries.length) {
         const nextEntry = timelineEntries[cursor];
@@ -1649,13 +1667,18 @@ export function deriveMessagesTimelineRows(input: {
         ) {
           break;
         }
-        groupedEntries.push(nextEntry.entry);
+        groupedTimelineEntries.push(nextEntry);
         cursor += 1;
       }
-      const visibleGroupedEntries = groupedEntries.filter((entry) =>
-        workEntryIsVisibleInGroup(entry, workEntryIsInActiveRun(entry)),
-      );
-      if (visibleGroupedEntries.length > 0) {
+      const isVisibleEntry = (entry: WorkLogEntry) =>
+        workEntryIsVisibleInGroup(entry, workEntryIsInActiveRun(entry));
+      for (const run of workLogStepRuns(groupedTimelineEntries, {
+        entry: (entry) => entry.entry,
+        visible: (entry) => isVisibleEntry(entry.entry),
+      })) {
+        const timelineEntry = run[0]!;
+        const visibleGroupedEntries = run.map((entry) => entry.entry).filter(isVisibleEntry);
+        if (visibleGroupedEntries.length === 0) continue;
         const activeInProgressToolEntries = visibleGroupedEntries.filter(workEntryIsInActiveRun);
         if (activeInProgressToolEntries.length > 0) {
           const groupId = workGroupId(timelineEntry.id);
@@ -1688,8 +1711,10 @@ export function deriveMessagesTimelineRows(input: {
             createdAt: timelineEntry.createdAt,
             groupedEntries: visibleGroupedEntries,
             isExpandedToolGroup: false,
+            // An edit or code search reads better as what it did than as its tool's name.
             displayLabel:
-              toolGroupAction(singleEntry) === "edit"
+              toolGroupAction(singleEntry) === "edit" ||
+              toolGroupAction(singleEntry) === "code-search"
                 ? summarizeToolGroup(visibleGroupedEntries).summary
                 : singleToolCallLabel(singleEntry),
           });
@@ -1908,48 +1933,25 @@ export function deriveMessagesTimelineRows(input: {
   if (input.isWorking && !hasWorkingRow && activeTurnHeaderIndex === timelineEntries.length) {
     appendWorkingRow();
   }
-  if (
-    input.isWorking &&
-    !setupOwnsWorkingSlot &&
-    !hasActiveCompaction &&
-    (!hasActivityRow || latestToolFailed)
-  ) {
-    const failedGroupAnchor = latestToolFailed ? activeWorkAnchor : undefined;
-    if (failedGroupAnchor) {
-      const groupId = workGroupId(failedGroupAnchor.id);
-      const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
-      nextRows.push({
-        kind: "thinking",
-        id: LIVE_ACTIVITY_ROW_ID,
-        createdAt: input.activeTurnStartedAt ?? null,
-        groupId,
-        expanded,
-      });
-      if (expanded) {
-        nextRows.push(
-          expandedWorkGroupRow(
-            groupId,
-            failedGroupAnchor.createdAt,
-            visibleActiveToolEntries.map((entry) => entry.entry),
-          ),
-        );
-      }
-    } else {
-      nextRows.push({
-        kind: "thinking",
-        id: LIVE_ACTIVITY_ROW_ID,
-        createdAt: input.activeTurnStartedAt ?? null,
-      });
-    }
+  // Nothing is running between steps, so the model is thinking about the next one.
+  if (input.isWorking && !setupOwnsWorkingSlot && !hasActiveCompaction && !hasActivityRow) {
+    nextRows.push({
+      kind: "thinking",
+      id: LIVE_ACTIVITY_ROW_ID,
+      createdAt: input.activeTurnStartedAt ?? null,
+    });
   }
 
   const result = attachTrailingToolGroupsToAssistant(
     attachCreatedThreadSummaries(nextRows, timelineEntries),
   );
   return result.map((row, index) => {
-    if (!timelineRowIsWorkLog(row)) return row;
+    const isLog = timelineRowIsWorkLog(row);
+    if (!isLog && !timelineRowHeadsWorkLog(row)) return row;
     const continuesWorkLog = timelineRowIsWorkLog(result[index + 1]);
-    const followsWorkLog = timelineRowIsWorkLog(result[index - 1]);
+    const previous = result[index - 1];
+    const followsWorkLog =
+      isLog && (timelineRowIsWorkLog(previous) || timelineRowHeadsWorkLog(previous));
     return continuesWorkLog || followsWorkLog
       ? {
           ...row,
@@ -1958,6 +1960,11 @@ export function deriveMessagesTimelineRows(input: {
         }
       : row;
   });
+}
+
+/** The turn's header ("Working for", an open "Worked for") starts the rail of the steps below. */
+function timelineRowHeadsWorkLog(row: MessagesTimelineRow | undefined): boolean {
+  return row?.kind === "working" || (row?.kind === "turn-fold" && row.expanded);
 }
 
 function timelineRowIsWorkLog(row: MessagesTimelineRow | undefined): boolean {

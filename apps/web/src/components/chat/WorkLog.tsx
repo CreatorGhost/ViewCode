@@ -4,7 +4,7 @@ import type {
   WorkLogMarkerKind,
 } from "@t3tools/client-runtime/work-log/thinking-log";
 import { workLogLabelTone } from "@t3tools/client-runtime/work-log/thinking-log";
-import { GlobeIcon, SearchIcon, XIcon } from "lucide-react";
+import { ChevronDownIcon, GlobeIcon, SearchIcon, XIcon } from "lucide-react";
 import {
   createContext,
   use,
@@ -48,15 +48,19 @@ export function WorkLogBlock({
   layout = "standalone",
   continues = false,
   follows = false,
+  arrive = false,
   children,
 }: {
   layout?: "standalone" | "group-header" | "group-content";
   continues?: boolean | undefined;
   follows?: boolean | undefined;
+  /** Soften the block in: it settled while its turn is live. */
+  arrive?: boolean | undefined;
   children: ReactNode;
 }) {
   return (
     <div
+      data-work-row-arrive={arrive ? "" : undefined}
       className={
         continues || layout === "group-header"
           ? "pb-0"
@@ -112,10 +116,11 @@ function useLiveMotion(live: boolean) {
 const MARKER_CLEARANCE: Record<WorkLogMarkerKind, number> = {
   dot: 6,
   search: 10,
-  "dead-end": 8,
+  "dead-end": 5,
   live: 10,
   merged: 8,
   finish: 11,
+  header: 10,
 };
 
 function WorkLogRailLines(props: Parameters<typeof workLogRailSegments>[0]) {
@@ -132,7 +137,7 @@ function WorkLogRailLines(props: Parameters<typeof workLogRailSegments>[0]) {
           key={segment.part}
           aria-hidden
           data-work-rail={segment.part}
-          className="pointer-events-none absolute overflow-visible text-border"
+          className="pointer-events-none absolute overflow-visible text-icon-muted/40"
           style={{ ...box, width: BRANCH_OFFSET + 1 }}
           viewBox={`0 0 ${BRANCH_OFFSET + 1} ${height}`}
           fill="none"
@@ -149,7 +154,7 @@ function WorkLogRailLines(props: Parameters<typeof workLogRailSegments>[0]) {
         key={segment.part}
         aria-hidden
         data-work-rail={segment.part}
-        className="pointer-events-none absolute w-px bg-border"
+        className="pointer-events-none absolute w-px bg-icon-muted/40"
         style={box}
       />
     );
@@ -171,10 +176,12 @@ export function WorkLogMarker({
   fresh?: boolean;
 }) {
   switch (kind) {
+    case "header":
+      return <ChevronDownIcon aria-hidden className="size-3.5 text-icon-muted" strokeWidth={2} />;
     case "dot":
-      return <span aria-hidden className="block size-1.5 rounded-full bg-icon-muted/55" />;
+      return <span aria-hidden className="block size-[7px] rounded-full bg-icon-muted/70" />;
     case "search":
-      return <SearchIcon aria-hidden className="size-3.5 text-icon-muted" strokeWidth={2} />;
+      return <SearchIcon aria-hidden className="size-3 text-icon-muted" strokeWidth={2.25} />;
     case "dead-end":
       return <XIcon aria-hidden className="size-3 text-icon-muted/70" strokeWidth={2} />;
     case "merged":
@@ -247,31 +254,31 @@ function WorkLogLine({
         wrapLabel ? "items-start" : "items-center",
       )}
     >
-      <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
+      {/* The marker slot is as tall as the label's first line, so it centres on that line
+          whatever the label holds; baseline alignment broke on labels that clip. */}
+      <div className="flex min-w-0 flex-1 items-start gap-2.5">
         {glyph ? (
-          <span className="relative w-6 shrink-0 leading-0">
+          <span
+            className={cn(
+              "flex size-6 shrink-0 items-center justify-center",
+              // A branch marker sits on its lane, past the slot's right half.
+              branch ? "overflow-visible" : "overflow-hidden",
+            )}
+          >
             <span
               className={cn(
-                "inline-block size-6 align-[calc(0.5cap_-_0.75rem)]",
-                // A branch marker sits on its lane, past the slot's right half.
-                branch ? "overflow-visible" : "overflow-hidden",
+                "flex size-full items-center justify-center",
+                branch && "translate-x-3",
               )}
             >
-              <span
-                className={cn(
-                  "flex size-full items-center justify-center",
-                  branch && "translate-x-3",
-                )}
-              >
-                {glyph}
-              </span>
+              {glyph}
             </span>
           </span>
         ) : null}
         <div
           key={settles}
           className={cn(
-            "min-w-0 flex-1",
+            "min-w-0 flex-1 py-px",
             LABEL_TONE_CLASS[branch && tone === "done" ? "dim" : tone],
             !wrapLabel && "truncate [&_*]:whitespace-nowrap",
           )}
@@ -383,7 +390,17 @@ export function WorkLogChips({
           />
         ))}
         {set.moreCount > 0 ? (
-          <span className="px-1 text-xs text-muted-foreground tabular-nums">
+          <span
+            {...(nextArrivals.fresh.length > 0
+              ? {
+                  "data-work-chip-arrive": "",
+                  style: {
+                    "--work-chip-delay": `${nextArrivals.fresh.length * CHIP_STAGGER_MS}ms`,
+                  } as CSSProperties,
+                }
+              : {})}
+            className="px-1 text-xs text-muted-foreground tabular-nums"
+          >
             +{set.moreCount} more
           </span>
         ) : null}
@@ -399,14 +416,14 @@ export function WorkLogRailThrough() {
     <span
       aria-hidden
       data-work-rail="below"
-      className="pointer-events-none absolute inset-y-0 w-px bg-border"
+      className="pointer-events-none absolute inset-y-0 w-px bg-icon-muted/40"
       style={{ left: RAIL_X }}
     />
   ) : null;
 }
 
 const chipClassName =
-  "inline-flex h-6 max-w-56 min-w-0 shrink-0 items-center gap-1.5 rounded-full bg-accent/55 px-2.5 text-xs text-secondary-label ring-1 ring-border/50 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70";
+  "inline-flex h-6 max-w-56 min-w-0 shrink-0 items-center gap-1.5 rounded-full bg-muted/70 px-2.5 text-xs text-secondary-label ring-1 ring-border/60 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70";
 
 function WorkLogChipView({
   chip,

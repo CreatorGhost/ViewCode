@@ -702,7 +702,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
    offsets move; fills are backwards, so nothing keeps a filter or a layer once it settles. The
    spinner turns only while its row is live and on screen (observeVisibleAnimation). */
 @media (prefers-reduced-motion: no-preference) {
-  [data-work-row-arrive] > [data-work-rail="above"] {
+  [data-work-row-arrive] [data-work-rail="above"] {
     transform-origin: top;
     animation: work-rail-grow 120ms var(--ease-out-soft) 25ms backwards;
   }
@@ -747,6 +747,38 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 @keyframes work-log-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+/* The live step's shimmer: dark text with a lighter band a third of the label wide, so it scales
+   with the label. Two passes, then a rest, on live-tool-shine's stepped 1.8s beat. */
+@keyframes work-log-shine {
+  0% {
+    background-position: 100% 0;
+  }
+  33% {
+    background-position: 0% 0;
+  }
+  33.01% {
+    background-position: 100% 0;
+  }
+  66%,
+  100% {
+    background-position: 0% 0;
+  }
+}
+@utility work-log-shine {
+  @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+    color: transparent;
+    background-image: linear-gradient(
+      90deg,
+      var(--color-foreground) 0 33%,
+      color-mix(in oklab, var(--color-foreground) 45%, var(--color-background)) 50%,
+      var(--color-foreground) 67% 100%
+    );
+    background-size: 300% 100%;
+    background-clip: text;
+    animation: work-log-shine 1.8s steps(18) infinite;
+    animation-play-state: var(--visible-animation-state, paused);
   }
 }
 /* ---- end thinking log ------------------------------------------------------------------------ */

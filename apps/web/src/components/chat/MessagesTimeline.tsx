@@ -369,7 +369,7 @@ interface TimelineRowSharedState {
     readonly checkpointId: string;
     readonly scopeId: string;
   }) => void;
-  onToggleTurnFold: (runId: RunId) => void;
+  onToggleTurnFold: (runId: RunId, expanded: boolean) => void;
   onToggleAttemptFold: (attemptId: RunAttemptId) => void;
   onFileOpen: (attachment: ChatFileAttachment) => void;
   onFileDownload: (attachment: ChatFileAttachment) => void;
@@ -652,6 +652,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const [expandedRunIds, setExpandedRunIds] = useState<ReadonlySet<RunId>>(
     () => listState.rememberedPosition?.disclosures?.runs ?? new Set(),
   );
+  const [collapsedRunIds, setCollapsedRunIds] = useState<ReadonlySet<RunId>>(() => new Set());
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(
     () => listState.rememberedPosition?.disclosures?.workGroups ?? new Set(),
   );
@@ -679,6 +680,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     paintedExpandedWorkGroupIds = rememberedPosition?.disclosures?.workGroups ?? new Set();
     paintedExpandedAttemptIds = rememberedPosition?.disclosures?.attempts ?? new Set();
     setExpandedRunIds(paintedExpandedRunIds);
+    setCollapsedRunIds(new Set());
     setExpandedWorkGroupIds(paintedExpandedWorkGroupIds);
     setExpandedAttemptIds(paintedExpandedAttemptIds);
   }
@@ -769,17 +771,17 @@ const ConversationTimeline = memo(function ConversationTimeline({
     return disclosureAnchorKey === null || row.id === disclosureAnchorKey;
   };
 
-  const onToggleTurnFold = (runId: RunId) => {
+  const onToggleTurnFold = (runId: RunId, expanded: boolean) => {
     suspendEndScrollMaintenanceForDisclosure(`turn-fold:${runId}`);
-    setExpandedRunIds((existing) => {
+    const toggle = (add: boolean) => (existing: ReadonlySet<RunId>) => {
+      if (existing.has(runId) === add) return existing;
       const next = new Set(existing);
-      if (next.has(runId)) {
-        next.delete(runId);
-      } else {
-        next.add(runId);
-      }
+      if (add) next.add(runId);
+      else next.delete(runId);
       return next;
-    });
+    };
+    setExpandedRunIds(toggle(!expanded));
+    setCollapsedRunIds(toggle(expanded));
   };
   const onToggleWorkGroup = (groupId: string, anchorKey: string) => {
     suspendEndScrollMaintenanceForDisclosure(anchorKey, expandedWorkGroupIds.has(groupId));
@@ -884,6 +886,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
     latestRun,
     runningRunId,
     expandedRunIds: visibleExpandedRunIds,
+    keepLatestTurnOpen: true,
+    collapsedRunIds,
     collapseFinishedTurns,
     expandedAttemptIds: visibleExpandedAttemptIds,
     expandedWorkGroupIds,
@@ -1937,7 +1941,20 @@ function TimelineMinimapNavigationButton({
 type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"][number];
 type TimelineRow = MessagesTimelineRow;
 
+/** The run a settled work row belongs to, so it can tell whether it arrived while that run works. */
+function workRowRunId(row: TimelineRow): RunId | null {
+  if (row.kind === "work") return row.groupedEntries[0]?.runId ?? null;
+  if (row.kind === "work-toggle") return row.runId ?? null;
+  return null;
+}
+
 const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {
+  const { isWorking, latestRunId } = use(TimelineRowActivityCtx);
+  // A step that settles while its turn runs softens in as the live row moves on; history that
+  // mounts settled (loading, scrolling back) stays still.
+  const [arrivesLive] = useState(
+    () => isWorking && latestRunId !== null && workRowRunId(row) === latestRunId,
+  );
   const isExpandedToolGroup = row.kind === "work" && row.isExpandedToolGroup;
   const isSubagentGroup = row.kind === "event" && row.projectedItem.item.type === "subagent";
   const isWorkLogRow =
@@ -1955,7 +1972,9 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         isWorkLogRow || isSubagentGroup
           ? undefined
           : row.kind === "turn-fold" || row.kind === "working"
-            ? "pb-1.5"
+            ? row.continuesWorkLog
+              ? undefined
+              : "pb-1.5"
             : (row.kind === "message" &&
                   row.message.role === "assistant" &&
                   !row.showAssistantMeta) ||
@@ -1980,6 +1999,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
     >
       {isWorkLogRow ? (
         <WorkLogBlock
+          arrive={arrivesLive}
           continues={row.continuesWorkLog}
           follows={row.followsWorkLog}
           layout={
@@ -2680,32 +2700,40 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
   const latest = row.runId === latestRunId;
   // Only the turn that just ended plays its finish; history mounts settled.
   const [fresh] = useState(() => latest && finishedJustNow(latestRunCompletedAt));
+  const toggle = () => ctx.onToggleTurnFold(row.runId, row.expanded);
 
   return (
-    <div className="group/timeline-row relative flex items-center gap-1 pe-0.5 pt-1">
-      <button
-        type="button"
+    <WorkLogRail ends={{ above: false, below: row.continuesWorkLog === true }}>
+      <WorkLogRow
+        role="button"
+        tabIndex={0}
         aria-expanded={row.expanded}
         data-scroll-anchor-ignore
-        onClick={() => ctx.onToggleTurnFold(row.runId)}
-        className="flex min-h-6 cursor-pointer select-none items-center gap-2.5 rounded-md ps-0.5 pe-1 text-sm leading-relaxed text-secondary-label tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
-      >
-        <span className="flex size-6 shrink-0 items-center justify-center">
+        onClick={toggle}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggle();
+          }
+        }}
+        marker={row.stopped ? "dead-end" : "finish"}
+        icon={
           <WorkLogMarker kind={row.stopped ? "dead-end" : "finish"} accent={latest} fresh={fresh} />
-        </span>
-        <span className="flex items-center gap-1">
-          <BlurSwap swapKey={row.label} appear={fresh}>
-            {row.label}
-          </BlurSwap>
-          <MorphIcon className="size-3.5" icon={row.expanded ? ChevronDown : ChevronRight} />
-        </span>
-      </button>
-      <TimelineRowTimestamp
-        createdAt={row.createdAt}
-        timestampFormat={ctx.timestampFormat}
-        className="ms-auto"
+        }
+        label={
+          <span className="flex items-center gap-1 tabular-nums hover:text-foreground">
+            <BlurSwap swapKey={row.label} appear={fresh}>
+              {row.label}
+            </BlurSwap>
+            <MorphIcon className="size-3.5" icon={row.expanded ? ChevronDown : ChevronRight} />
+          </span>
+        }
+        trailing={
+          <TimelineRowTimestamp createdAt={row.createdAt} timestampFormat={ctx.timestampFormat} />
+        }
       />
-    </div>
+    </WorkLogRail>
   );
 }
 
@@ -3832,36 +3860,41 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
   ) : isCompacting ? (
     <CompactingLabel />
   ) : null;
-  // The log's header: the verb shimmers while the agent works, the counter stays muted. It sits
-  // on the label column so the steps below hang off it.
+  // The log's header: the verb shimmers while the agent works and the counter stays muted. The
+  // rail hangs from it down through the turn's steps.
   return (
-    <div className="pt-1">
-      <div className="flex h-6 min-w-0 items-baseline gap-2 ps-9 pe-1 text-sm leading-relaxed tabular-nums">
-        {status !== null ? (
-          <span
-            ref={observeVisibleAnimation}
-            className="relative shrink-0 overflow-hidden whitespace-nowrap text-muted-foreground"
-          >
-            {status}
-            <ActivityShimmerOverlay>{status}</ActivityShimmerOverlay>
-          </span>
-        ) : (
-          <span className="flex min-w-0 shrink-0 items-baseline gap-1.5 whitespace-nowrap">
-            <span ref={observeVisibleAnimation} className="live-tool-shine text-foreground">
-              {row.createdAt ? "Working for " : "Working"}
+    <WorkLogRail ends={{ above: false, below: row.continuesWorkLog === true }}>
+      <WorkLogRow
+        marker="header"
+        label={
+          status !== null ? (
+            <span
+              ref={observeVisibleAnimation}
+              className="relative block w-fit overflow-hidden whitespace-nowrap text-muted-foreground"
+            >
+              {status}
+              <ActivityShimmerOverlay>{status}</ActivityShimmerOverlay>
             </span>
-            {row.createdAt ? (
-              <span className="text-muted-foreground">
-                <WorkingTimer createdAt={row.createdAt} />
+          ) : (
+            <span className="flex min-w-0 items-baseline gap-1.5 tabular-nums">
+              <span ref={observeVisibleAnimation} className="work-log-shine text-foreground">
+                {row.createdAt ? "Working for " : "Working"}
               </span>
-            ) : null}
-          </span>
-        )}
-        {backgroundWorktreeSetup ? (
-          <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
-        ) : null}
-      </div>
-    </div>
+              {row.createdAt ? (
+                <span className="text-muted-foreground">
+                  <WorkingTimer createdAt={row.createdAt} />
+                </span>
+              ) : null}
+            </span>
+          )
+        }
+        trailing={
+          backgroundWorktreeSetup ? (
+            <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
+          ) : null
+        }
+      />
+    </WorkLogRail>
   );
 }
 
@@ -3912,7 +3945,7 @@ function ThinkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "think
   const ctx = use(TimelineRowCtx);
   const { isCompacting, isPreparingWorktree } = use(TimelineRowActivityCtx);
   if (isPreparingWorktree || isCompacting) return <WorkLogRow label="" />;
-  const activity = <LiveActivityRow label="Thinking" marker="live" active shimmer />;
+  const activity = <LiveActivityRow label="Thinking" marker="live" active />;
   const { groupId } = row;
   if (groupId === undefined) return activity;
   return (
@@ -3927,6 +3960,7 @@ function ThinkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "think
   );
 }
 
+/** The step running now: a spinner on the rail and a shimmer across its label. */
 function LiveActivityRow({
   label,
   marker,
@@ -3934,7 +3968,6 @@ function LiveActivityRow({
   swapKey,
   failed = false,
   active = false,
-  shimmer = false,
 }: {
   label: ReactNode;
   marker: WorkLogMarkerKind;
@@ -3944,70 +3977,33 @@ function LiveActivityRow({
   swapKey?: string;
   failed?: boolean;
   active?: boolean;
-  shimmer?: boolean;
 }) {
   const animated = active && !failed;
-  const showShimmer = animated && shimmer;
   const rowMarker = failed ? "dead-end" : animated ? "live" : marker;
   return (
     <div
       ref={animated ? observeVisibleAnimation : undefined}
-      className="relative min-h-6 w-fit max-w-full min-w-0 overflow-hidden rounded-md text-sm leading-relaxed"
+      className="relative min-h-6 w-full max-w-full min-w-0 text-sm leading-relaxed"
     >
-      <LiveActivityContent
-        label={label}
+      <WorkLogRow
+        live={animated}
         marker={rowMarker}
-        toolGlyph={animated ? undefined : toolGlyph}
-        swapKey={swapKey}
-        active={animated && !shimmer}
+        icon={animated ? undefined : toolGlyph}
+        lane={rowMarker === "dead-end" ? "branch-start" : "main"}
+        label={
+          <BlurSwap
+            swapKey={swapKey}
+            render={
+              <span
+                className={cn("block w-fit max-w-full truncate", animated && "work-log-shine")}
+              />
+            }
+          >
+            {label}
+          </BlurSwap>
+        }
       />
-      {showShimmer ? (
-        <ActivityShimmerOverlay>
-          <LiveActivityContent label={label} marker={rowMarker} swapKey={swapKey} highlighted />
-        </ActivityShimmerOverlay>
-      ) : null}
     </div>
-  );
-}
-
-function LiveActivityContent({
-  label,
-  marker,
-  toolGlyph,
-  swapKey,
-  active = false,
-  highlighted = false,
-}: {
-  label: ReactNode;
-  marker: WorkLogMarkerKind;
-  toolGlyph?: ReactNode;
-  swapKey?: string | undefined;
-  active?: boolean;
-  highlighted?: boolean;
-}) {
-  return (
-    <WorkLogRow
-      live={active}
-      marker={marker}
-      icon={toolGlyph}
-      lane={marker === "dead-end" ? "branch-start" : "main"}
-      label={
-        <BlurSwap
-          swapKey={swapKey}
-          render={
-            <span
-              className={cn(
-                "block truncate",
-                highlighted && "text-foreground",
-                active && "live-tool-shine",
-              )}
-            />
-          }
-        >
-          {label}
-        </BlurSwap>
-      }
-    />
   );
 }
 
@@ -5766,7 +5762,7 @@ function NativeWorkEntryLogRow(props: WorkEntryRowProps) {
       />
     </span>
   ) : showFailedIndicator ? (
-    <span role="img" aria-label="Tool call failed">
+    <span role="img" aria-label="Tool call failed" className="flex">
       <WorkLogMarker kind="dead-end" />
     </span>
   ) : entryToolIcon ? (
@@ -5814,50 +5810,46 @@ function NativeWorkEntryLogRow(props: WorkEntryRowProps) {
       lane={!alerting && marker === "dead-end" ? "branch-start" : "main"}
       icon={icon}
       label={
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <p className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
-            <span
-              className={cn(answerPreview ? "min-w-0" : "min-w-0 flex-1", "truncate", headingClass)}
-            >
-              {isReasoning && !expanded ? (
-                <ReactMarkdown
-                  remarkPlugins={[
-                    remarkGfm,
-                    remarkKeepWindowsPaths,
-                    [
-                      remarkThoughtPreview,
-                      workEntry.toolLifecycleStatus === "inProgress" ? "Thinking" : "Thought",
-                    ],
-                  ]}
-                >
-                  {workEntry.detail ?? previewText}
-                </ReactMarkdown>
-              ) : threadLabel ? (
-                <ThreadReadLabel
-                  label={threadLabel}
-                  environmentId={ctx.activeThreadEnvironmentId}
-                  linked
-                />
-              ) : (
-                previewText
-              )}
-            </span>
-            {answerPreview ? (
-              <span
-                className={cn(
-                  "min-w-0 truncate",
-                  !expanded &&
-                    workEntry.questionAnswer &&
-                    hasQuestionAnswer(workEntry.questionAnswer)
-                    ? "text-foreground"
-                    : "text-muted-foreground",
-                )}
+        <p className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
+          <span
+            className={cn(answerPreview ? "min-w-0" : "min-w-0 flex-1", "truncate", headingClass)}
+          >
+            {isReasoning && !expanded ? (
+              <ReactMarkdown
+                remarkPlugins={[
+                  remarkGfm,
+                  remarkKeepWindowsPaths,
+                  [
+                    remarkThoughtPreview,
+                    workEntry.toolLifecycleStatus === "inProgress" ? "Thinking" : "Thought",
+                  ],
+                ]}
               >
-                {answerPreview}
-              </span>
-            ) : null}
-          </p>
-        </div>
+                {workEntry.detail ?? previewText}
+              </ReactMarkdown>
+            ) : threadLabel ? (
+              <ThreadReadLabel
+                label={threadLabel}
+                environmentId={ctx.activeThreadEnvironmentId}
+                linked
+              />
+            ) : (
+              previewText
+            )}
+          </span>
+          {answerPreview ? (
+            <span
+              className={cn(
+                "min-w-0 truncate",
+                !expanded && workEntry.questionAnswer && hasQuestionAnswer(workEntry.questionAnswer)
+                  ? "text-foreground"
+                  : "text-muted-foreground",
+              )}
+            >
+              {answerPreview}
+            </span>
+          ) : null}
+        </p>
       }
       trailing={
         <>
