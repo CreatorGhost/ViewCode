@@ -1,9 +1,18 @@
-import type { GitGraphCommit, GitPullRequestGraph, PullRequestCheck } from "@t3tools/contracts";
+import type {
+  GitGraphCommit,
+  GitPullRequestGraph,
+  PullRequestCheck,
+  ThreadPullRequestLink,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   type PrFlowActivitySource,
   type PrFlowSources,
+  PR_MERGE_NEWS_MS,
+  prFlowChipShown,
+  prFlowFolded,
+  prFlowTimelinePullRequests,
   prFlowCommandStep,
   prFlowCreating,
   prFlowCreatingPhase,
@@ -365,5 +374,87 @@ describe("thread activity", () => {
         source("running", [...items.slice(0, 2), command("git merge origin/main", "failed")]),
       ),
     ).toBe("r2:2");
+  });
+});
+
+describe("pull requests in the conversation", () => {
+  const link = (
+    number: number,
+    linkedAt: string,
+    state: "open" | "merged" | "closed",
+  ): ThreadPullRequestLink => ({
+    host: "github.com",
+    repository: "acme/app",
+    number,
+    url: `https://github.com/acme/app/pull/${number}`,
+    source: "created",
+    linkedAt,
+    snapshot: {
+      state,
+      title: `PR ${number}`,
+      headBranch: `feat/${number}`,
+      baseBranch: "dev",
+      isDraft: false,
+      updatedAt: linkedAt,
+      syncedAt: linkedAt,
+    },
+    stack: null,
+  });
+
+  it("orders cards by when the thread got each pull request; the latest open one is current", () => {
+    const { pullRequests, currentKey } = prFlowTimelinePullRequests([
+      link(170, "2026-10-19T12:00:00Z", "open"),
+      link(166, "2026-10-19T09:00:00Z", "merged"),
+    ]);
+    expect(pullRequests).toEqual([
+      { key: "github.com/acme/app#166", anchorAt: "2026-10-19T09:00:00Z" },
+      { key: "github.com/acme/app#170", anchorAt: "2026-10-19T12:00:00Z" },
+    ]);
+    expect(currentKey).toBe("github.com/acme/app#170");
+  });
+
+  it("keeps the current open card expanded and folds the rest", () => {
+    const base = { choice: null, mergedAgoMs: null, mergedMomentOver: false } as const;
+    expect(prFlowFolded({ ...base, state: "open", current: true })).toBe(false);
+    expect(prFlowFolded({ ...base, state: "open", current: false })).toBe(true);
+    expect(prFlowFolded({ ...base, state: "closed", current: true })).toBe(true);
+  });
+
+  it("plays a fresh merge, then folds; a merge that is no longer news starts folded", () => {
+    const merged = { state: "merged", current: true, choice: null } as const;
+    expect(prFlowFolded({ ...merged, mergedAgoMs: 5_000, mergedMomentOver: false })).toBe(false);
+    expect(prFlowFolded({ ...merged, mergedAgoMs: 5_000, mergedMomentOver: true })).toBe(true);
+    expect(
+      prFlowFolded({ ...merged, mergedAgoMs: PR_MERGE_NEWS_MS + 1, mergedMomentOver: false }),
+    ).toBe(true);
+    expect(prFlowFolded({ ...merged, mergedAgoMs: null, mergedMomentOver: false })).toBe(true);
+  });
+
+  it("lets the reader's own choice win either way", () => {
+    expect(
+      prFlowFolded({
+        state: "merged",
+        current: false,
+        choice: "expanded",
+        mergedAgoMs: 10 * PR_MERGE_NEWS_MS,
+        mergedMomentOver: true,
+      }),
+    ).toBe(false);
+    expect(
+      prFlowFolded({
+        state: "open",
+        current: true,
+        choice: "collapsed",
+        mergedAgoMs: null,
+        mergedMomentOver: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the composer chip for an open pull request and a merge that is still news", () => {
+    expect(prFlowChipShown({ state: "open", mergedAgoMs: null })).toBe(true);
+    expect(prFlowChipShown({ state: "merged", mergedAgoMs: 30_000 })).toBe(true);
+    expect(prFlowChipShown({ state: "merged", mergedAgoMs: PR_MERGE_NEWS_MS })).toBe(false);
+    expect(prFlowChipShown({ state: "closed", mergedAgoMs: null })).toBe(false);
   });
 });
