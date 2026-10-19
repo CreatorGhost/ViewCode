@@ -659,6 +659,72 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
+/* Live PR flow states (open conflicts, resolving, running checks) keep the activity shimmer's
+   beat: two sweeps then a rest over 1.8s, stepped, paused off screen by observeVisibleAnimation
+   (--visible-animation-state), and gone under reduced motion. The glow only fades in and out;
+   the bar's shine reuses live-tool-shine's background sweep. */
+@keyframes pr-flow-glow {
+  0%,
+  33%,
+  66%,
+  100% {
+    opacity: 0.35;
+  }
+  16.5%,
+  49.5% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+  .pr-flow-glow {
+    position: relative;
+    isolation: isolate;
+  }
+  .pr-flow-glow::before {
+    content: "";
+    position: absolute;
+    inset: -0.375rem -0.5rem;
+    z-index: -1;
+    border-radius: 9999px;
+    background: radial-gradient(
+      closest-side,
+      color-mix(in oklab, var(--warning) 26%, transparent),
+      transparent
+    );
+    animation: pr-flow-glow 1.8s steps(18) infinite;
+    animation-play-state: var(--visible-animation-state, paused);
+    will-change: var(--visible-animation-will-change, auto);
+  }
+  .pr-flow-glow-badge::before {
+    inset: -0.3125rem;
+    background: radial-gradient(
+      closest-side,
+      color-mix(in oklab, var(--warning) 48%, transparent),
+      transparent
+    );
+  }
+  .pr-flow-bar-shine {
+    background-image:
+      linear-gradient(
+        to right,
+        transparent,
+        color-mix(in oklab, white 60%, transparent),
+        transparent
+      ),
+      linear-gradient(var(--success), var(--success));
+    background-size:
+      4.5rem 100%,
+      100% 100%;
+    background-repeat: no-repeat;
+    animation: live-tool-shine 1.8s steps(18) infinite;
+    animation-play-state: var(--visible-animation-state, paused);
+  }
+}
+/* The shine's bright copy on an amber label: the warning colour lifted toward the foreground. */
+.pr-flow-warning-band {
+  color: color-mix(in oklab, var(--warning-foreground), var(--foreground) 55%);
+}
+
 /* Work log motion (WorkLog.tsx): a step that arrives while the agent works softens in, and its
    label settles the same way when it finishes. History that mounts finished stays still. */
 @media (prefers-reduced-motion: no-preference) {

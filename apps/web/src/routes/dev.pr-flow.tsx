@@ -243,7 +243,7 @@ const STEPS: ReadonlyArray<{ readonly name: string; readonly flow: () => PrFlow 
       ),
   },
   {
-    name: "testing",
+    name: "testing (half done)",
     flow: () =>
       prFlowFromPullRequest(
         { ...PR, mergeability: "mergeable", checksState: "pending" },
