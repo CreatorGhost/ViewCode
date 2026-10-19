@@ -1,9 +1,11 @@
 // @effect-diagnostics nodeBuiltinImport:off - Effect has no incremental digest.
 import {
+  DICTATION_MODEL_KEY,
   VOICE_MODEL_TIERS,
   VoiceModelError,
-  type VoiceModelTier,
-  type VoiceModelTierState,
+  type VoiceModelDownloadState,
+  type VoiceModelKey,
+  type VoiceModelRemoveInput,
   type VoiceModelsState,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -26,12 +28,15 @@ import * as NodeCrypto from "node:crypto";
 import { ServerConfig } from "../config.ts";
 
 /**
- * Where the natural read-aloud voice (Kokoro-82M) is mirrored. Published by
+ * Where the natural read-aloud voice (Kokoro-82M) and dictation's speech model
+ * (Moonshine base) are mirrored, one release each. Published by
  * .github/workflows/voice-models.yml; managed networks that block Hugging Face
  * usually allow GitHub. Hugging Face stays the fallback for each file.
  */
 export const VOICE_MODEL_RELEASE_URL =
   "https://github.com/CreatorGhost/ViewCode/releases/download/voice-models-v1";
+export const DICTATION_MODEL_RELEASE_URL =
+  "https://github.com/CreatorGhost/ViewCode/releases/download/dictation-models-v1";
 /** Written last into a tier's directory: its presence means every file was verified. */
 export const VOICE_MODEL_COMPLETE_RECORD = ".complete.json";
 const FILE_TIMEOUT = "30 minutes";
@@ -59,7 +64,8 @@ const Manifest = Schema.Struct({
     repo: Schema.String.check(Schema.isPattern(/^[\w.-]+\/[\w.-]+$/u)),
     revision: Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u)),
   }),
-  tiers: Schema.Struct({ small: TierFiles, medium: TierFiles, large: TierFiles }),
+  /** Files by model key: `small`, `medium` and `large` for the voice, `dictation` for dictation. */
+  tiers: Schema.Record(Schema.String, TierFiles),
 });
 type Manifest = typeof Manifest.Type;
 const decodeManifest = Schema.decodeEffect(Schema.fromJsonString(Manifest));
@@ -69,23 +75,57 @@ const decodeCompleteRecord = Schema.decodeEffect(CompleteRecordJson);
 const encodeCompleteRecord = Schema.encodeEffect(CompleteRecordJson);
 const isVoiceModelError = Schema.is(VoiceModelError);
 
-/** A tier's files, served to clients through the `voice-model` asset. */
-export function voiceModelTierDirectory(
-  path: Path.Path,
-  stateDir: string,
-  tier: VoiceModelTier,
-): string {
-  return path.join(stateDir, "models", "kokoro", tier);
+type ModelKind = NonNullable<VoiceModelRemoveInput["kind"]>;
+
+/** What differs between the read-aloud voice and the dictation model. */
+const MODEL_KINDS: Record<
+  ModelKind,
+  {
+    /** The directory under `models/` that holds this kind's downloads. */
+    readonly root: string;
+    /** In the user's words, for messages. */
+    readonly noun: string;
+    readonly unpublished: string;
+  }
+> = {
+  "read-aloud": {
+    root: "kokoro",
+    noun: "voice",
+    unpublished:
+      "The natural voice hasn't been published to ViewCode's GitHub release yet, so there is nothing to download. The system voice reads until it is.",
+  },
+  dictation: {
+    root: "dictation",
+    noun: "dictation model",
+    unpublished:
+      "The dictation model hasn't been published to ViewCode's GitHub release yet, so there is nothing to download.",
+  },
+};
+
+const kindOf = (key: VoiceModelKey): ModelKind =>
+  key === DICTATION_MODEL_KEY ? "dictation" : "read-aloud";
+const keysOf = (kind: ModelKind): ReadonlyArray<VoiceModelKey> =>
+  kind === "dictation" ? [DICTATION_MODEL_KEY] : VOICE_MODEL_TIERS;
+const MODEL_KEYS: ReadonlyArray<VoiceModelKey> = [...VOICE_MODEL_TIERS, DICTATION_MODEL_KEY];
+
+/** A model's files, served to clients through the `voice-model` asset. */
+export function voiceModelDirectory(path: Path.Path, stateDir: string, key: VoiceModelKey): string {
+  return key === DICTATION_MODEL_KEY
+    ? path.join(stateDir, "models", MODEL_KINDS.dictation.root, "moonshine-base")
+    : path.join(stateDir, "models", MODEL_KINDS["read-aloud"].root, key);
 }
 
 interface VoiceModelStoreService {
   readonly state: Effect.Effect<VoiceModelsState>;
   readonly changes: Stream.Stream<VoiceModelsState>;
-  /** Starts downloading a tier, replacing any other tier's download. */
-  readonly download: (tier: VoiceModelTier) => Effect.Effect<VoiceModelsState>;
-  readonly cancel: (tier: VoiceModelTier) => Effect.Effect<VoiceModelsState>;
-  /** Deletes every downloaded tier. */
-  readonly remove: Effect.Effect<VoiceModelsState, VoiceModelError>;
+  /**
+   * Starts downloading a model. A read-aloud tier replaces any other tier's
+   * download; the dictation model downloads beside them.
+   */
+  readonly download: (key: VoiceModelKey) => Effect.Effect<VoiceModelsState>;
+  readonly cancel: (key: VoiceModelKey) => Effect.Effect<VoiceModelsState>;
+  /** Deletes every downloaded read-aloud tier, or the dictation model. */
+  readonly remove: (kind: ModelKind) => Effect.Effect<VoiceModelsState, VoiceModelError>;
 }
 
 export class VoiceModelStore extends Context.Service<VoiceModelStore, VoiceModelStoreService>()(
@@ -103,15 +143,47 @@ export class VoiceModelStore extends Context.Service<VoiceModelStore, VoiceModel
 export interface VoiceModelStoreOptions {
   readonly stateDir: string;
   readonly releaseUrl?: string;
+  readonly dictationReleaseUrl?: string;
 }
 
-const absent = (tier: VoiceModelTier, totalBytes: number | null = null): VoiceModelTierState => ({
-  tier,
+const absent = (totalBytes: number | null = null): VoiceModelDownloadState => ({
   phase: "absent",
   downloadedBytes: 0,
   totalBytes,
   message: null,
 });
+
+const initialState = (): VoiceModelsState => ({
+  tiers: VOICE_MODEL_TIERS.map((tier) => ({ tier, ...absent() })),
+  dictation: absent(),
+});
+
+function modelState(state: VoiceModelsState, key: VoiceModelKey): VoiceModelDownloadState {
+  if (key === DICTATION_MODEL_KEY) return state.dictation ?? absent();
+  const { tier: _tier, ...rest } = state.tiers.find((each) => each.tier === key) ?? {
+    tier: key,
+    ...absent(),
+  };
+  return rest;
+}
+
+function withModelState(
+  state: VoiceModelsState,
+  key: VoiceModelKey,
+  update: (current: VoiceModelDownloadState) => VoiceModelDownloadState,
+): VoiceModelsState {
+  if (key === DICTATION_MODEL_KEY) {
+    return { ...state, dictation: update(state.dictation ?? absent()) };
+  }
+  return {
+    ...state,
+    tiers: state.tiers.map((each) => {
+      if (each.tier !== key) return each;
+      const { tier, ...rest } = each;
+      return { tier, ...update(rest) };
+    }),
+  };
+}
 
 export const makeVoiceModelStore = Effect.fn("VoiceModelStore.make")(function* (
   options: VoiceModelStoreOptions,
@@ -120,37 +192,36 @@ export const makeVoiceModelStore = Effect.fn("VoiceModelStore.make")(function* (
   const path = yield* Path.Path;
   const http = yield* HttpClient.HttpClient;
   const serviceScope = yield* Effect.scope;
-  const releaseUrl = options.releaseUrl ?? VOICE_MODEL_RELEASE_URL;
-  const root = path.dirname(voiceModelTierDirectory(path, options.stateDir, "small"));
-  const tierDirectory = (tier: VoiceModelTier) =>
-    voiceModelTierDirectory(path, options.stateDir, tier);
+  const releaseUrls: Record<ModelKind, string> = {
+    "read-aloud": options.releaseUrl ?? VOICE_MODEL_RELEASE_URL,
+    dictation: options.dictationReleaseUrl ?? DICTATION_MODEL_RELEASE_URL,
+  };
+  const kindRoot = (kind: ModelKind) =>
+    path.join(options.stateDir, "models", MODEL_KINDS[kind].root);
+  const modelDirectory = (key: VoiceModelKey) => voiceModelDirectory(path, options.stateDir, key);
   const gate = yield* Semaphore.make(1);
-  let running:
-    | { readonly id: symbol; readonly tier: VoiceModelTier; readonly fiber: Fiber.Fiber<void> }
-    | undefined;
+  // One download per kind: a read-aloud tier never waits on dictation's model.
+  const running = new Map<
+    ModelKind,
+    { readonly id: symbol; readonly key: VoiceModelKey; readonly fiber: Fiber.Fiber<void> }
+  >();
 
-  const state = yield* SubscriptionRef.make<VoiceModelsState>({
-    tiers: VOICE_MODEL_TIERS.map((tier) => absent(tier)),
-  });
-  const updateTier = (
-    tier: VoiceModelTier,
-    update: (current: VoiceModelTierState) => VoiceModelTierState,
-  ) =>
-    SubscriptionRef.update(state, (current) => ({
-      tiers: current.tiers.map((each) => (each.tier === tier ? update(each) : each)),
-    }));
-  const tierState = (tier: VoiceModelTier) =>
-    SubscriptionRef.get(state).pipe(
-      Effect.map((current) => current.tiers.find((each) => each.tier === tier) ?? absent(tier)),
-    );
+  const state = yield* SubscriptionRef.make<VoiceModelsState>(initialState());
+  const updateModel = (
+    key: VoiceModelKey,
+    update: (current: VoiceModelDownloadState) => VoiceModelDownloadState,
+  ) => SubscriptionRef.update(state, (current) => withModelState(current, key, update));
+  const currentModelState = (key: VoiceModelKey) =>
+    SubscriptionRef.get(state).pipe(Effect.map((current) => modelState(current, key)));
 
   // A 404 means the release exists without the files (or not at all): the
   // mirror workflow has not run. Saying "can't reach GitHub" then sends the
   // user chasing a network problem they don't have.
-  const fetchManifest = Effect.gen(function* () {
+  const fetchManifest = Effect.fn("VoiceModelStore.fetchManifest")(function* (kind: ModelKind) {
+    const releaseUrl = releaseUrls[kind];
+    const { noun } = MODEL_KINDS[kind];
     const unreachable = new VoiceModelError({
-      detail:
-        "Couldn't reach ViewCode's GitHub release for the voice. Check that the computer running ViewCode can reach github.com, then try again.",
+      detail: `Couldn't reach ViewCode's GitHub release for the ${noun}. Check that the computer running ViewCode can reach github.com, then try again.`,
     });
     const response = yield* http.execute(HttpClientRequest.get(`${releaseUrl}/manifest.json`)).pipe(
       Effect.timeout(MANIFEST_TIMEOUT),
@@ -160,10 +231,7 @@ export const makeVoiceModelStore = Effect.fn("VoiceModelStore.make")(function* (
       Effect.mapError(() => unreachable),
     );
     if (response.status === 404) {
-      return yield* new VoiceModelError({
-        detail:
-          "The natural voice hasn't been published to ViewCode's GitHub release yet, so there is nothing to download. The system voice reads until it is.",
-      });
+      return yield* new VoiceModelError({ detail: MODEL_KINDS[kind].unpublished });
     }
     if (response.status < 200 || response.status >= 300) {
       yield* Effect.logWarning("The voice model release refused the request.", {
@@ -180,8 +248,7 @@ export const makeVoiceModelStore = Effect.fn("VoiceModelStore.make")(function* (
       Effect.mapError(
         () =>
           new VoiceModelError({
-            detail:
-              "ViewCode's GitHub release answered, but its list of voice files couldn't be read. Try again later.",
+            detail: `ViewCode's GitHub release answered, but its list of ${noun} files couldn't be read. Try again later.`,
           }),
       ),
     );
@@ -218,13 +285,18 @@ export const makeVoiceModelStore = Effect.fn("VoiceModelStore.make")(function* (
   });
 
   const install = Effect.fn("VoiceModelStore.install")(
-    function* (tier: VoiceModelTier) {
-      const manifest: Manifest = yield* fetchManifest;
-      const files = manifest.tiers[tier];
+    function* (key: VoiceModelKey) {
+      const kind = kindOf(key);
+      const { noun } = MODEL_KINDS[kind];
+      const releaseUrl = releaseUrls[kind];
+      const manifest: Manifest = yield* fetchManifest(kind);
+      const files = manifest.tiers[key];
+      if (!files) return yield* new VoiceModelError({ detail: MODEL_KINDS[kind].unpublished });
       const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-      yield* updateTier(tier, (current) => ({ ...current, totalBytes }));
+      yield* updateModel(key, (current) => ({ ...current, totalBytes }));
+      const root = kindRoot(kind);
       yield* fs.makeDirectory(root, { recursive: true });
-      const staging = yield* fs.makeTempDirectoryScoped({ directory: root, prefix: `.${tier}-` });
+      const staging = yield* fs.makeTempDirectoryScoped({ directory: root, prefix: `.${key}-` });
       const model = path.join(staging, "model");
       let completedBytes = 0;
       let fileBytes = 0;
@@ -233,7 +305,7 @@ export const makeVoiceModelStore = Effect.fn("VoiceModelStore.make")(function* (
         const now = yield* Clock.currentTimeMillis;
         if (now - reportedAt < PROGRESS_INTERVAL_MS) return;
         reportedAt = now;
-        yield* updateTier(tier, (current) => ({
+        yield* updateModel(key, (current) => ({
           ...current,
           downloadedBytes: completedBytes + fileBytes,
         }));
@@ -259,6 +331,7 @@ export const makeVoiceModelStore = Effect.fn("VoiceModelStore.make")(function* (
         yield* attempt(`${releaseUrl}/${path.basename(file.path)}`).pipe(
           Effect.tapError((cause) =>
             Effect.logWarning("Voice model file failed from GitHub; trying Hugging Face.", {
+              model: key,
               file: file.path,
               cause,
             }),
@@ -270,6 +343,7 @@ export const makeVoiceModelStore = Effect.fn("VoiceModelStore.make")(function* (
           ),
           Effect.tapError((cause) =>
             Effect.logWarning("Voice model file failed from every mirror.", {
+              model: key,
               file: file.path,
               cause,
             }),
@@ -277,8 +351,7 @@ export const makeVoiceModelStore = Effect.fn("VoiceModelStore.make")(function* (
           Effect.mapError(
             () =>
               new VoiceModelError({
-                detail:
-                  "Couldn't download the voice from ViewCode's GitHub release or Hugging Face. Check the network of the computer running ViewCode, then try again.",
+                detail: `Couldn't download the ${noun} from ViewCode's GitHub release or Hugging Face. Check the network of the computer running ViewCode, then try again.`,
               }),
           ),
         );
@@ -289,11 +362,10 @@ export const makeVoiceModelStore = Effect.fn("VoiceModelStore.make")(function* (
         path.join(model, VOICE_MODEL_COMPLETE_RECORD),
         yield* encodeCompleteRecord({ revision: manifest.source.revision, bytes: totalBytes }),
       );
-      const destination = tierDirectory(tier);
+      const destination = modelDirectory(key);
       yield* fs.remove(destination, { recursive: true, force: true });
       yield* fs.rename(model, destination);
-      yield* updateTier(tier, () => ({
-        tier,
+      yield* updateModel(key, () => ({
         phase: "ready",
         downloadedBytes: totalBytes,
         totalBytes,
@@ -301,44 +373,47 @@ export const makeVoiceModelStore = Effect.fn("VoiceModelStore.make")(function* (
       }));
     },
     Effect.scoped,
-    Effect.mapError((cause) =>
-      isVoiceModelError(cause)
-        ? cause
-        : new VoiceModelError({
-            detail: "Couldn't save the voice. Check free disk space, then try again.",
-          }),
-    ),
+    (effect, key) =>
+      Effect.mapError(effect, (cause) =>
+        isVoiceModelError(cause)
+          ? cause
+          : new VoiceModelError({
+              detail: `Couldn't save the ${MODEL_KINDS[kindOf(key)].noun}. Check free disk space, then try again.`,
+            }),
+      ),
   );
 
-  const download: VoiceModelStoreService["download"] = (tier) =>
+  const download: VoiceModelStoreService["download"] = (key) =>
     gate
       .withPermit(
         Effect.gen(function* () {
-          const current = yield* tierState(tier);
+          const current = yield* currentModelState(key);
           if (current.phase === "ready" || current.phase === "downloading") {
             return yield* SubscriptionRef.get(state);
           }
-          if (running) yield* Fiber.interrupt(running.fiber);
-          yield* updateTier(tier, (value) => ({
+          const kind = kindOf(key);
+          const previous = running.get(kind);
+          if (previous) yield* Fiber.interrupt(previous.fiber);
+          yield* updateModel(key, (value) => ({
             ...value,
             phase: "downloading",
             downloadedBytes: 0,
             message: null,
           }));
-          const id = Symbol(tier);
-          const work = install(tier).pipe(
+          const id = Symbol(key);
+          const work = install(key).pipe(
             Effect.onExit((exit) =>
               Exit.isFailure(exit)
-                ? updateTier(tier, (value) => {
+                ? updateModel(key, (value) => {
                     if (value.phase === "ready") return value;
-                    if (Cause.hasInterruptsOnly(exit.cause)) return absent(tier, value.totalBytes);
+                    if (Cause.hasInterruptsOnly(exit.cause)) return absent(value.totalBytes);
                     const error = Cause.findErrorOption(exit.cause);
                     return {
                       ...value,
                       phase: "failed",
                       message: Option.isSome(error)
                         ? error.value.detail
-                        : "Couldn't download the voice. Try again.",
+                        : `Couldn't download the ${MODEL_KINDS[kind].noun}. Try again.`,
                     };
                   })
                 : Effect.void,
@@ -346,61 +421,69 @@ export const makeVoiceModelStore = Effect.fn("VoiceModelStore.make")(function* (
             Effect.ignoreCause,
             Effect.ensuring(
               Effect.sync(() => {
-                if (running?.id === id) running = undefined;
+                if (running.get(kind)?.id === id) running.delete(kind);
               }),
             ),
           );
           const fiber = yield* Effect.forkIn(Effect.interruptible(work), serviceScope);
-          running = { id, tier, fiber };
+          running.set(kind, { id, key, fiber });
           return yield* SubscriptionRef.get(state);
         }),
       )
       .pipe(Effect.uninterruptible);
 
-  const cancel: VoiceModelStoreService["cancel"] = (tier) =>
+  const cancel: VoiceModelStoreService["cancel"] = (key) =>
     gate.withPermit(
       Effect.gen(function* () {
-        if (running?.tier === tier) yield* Fiber.interrupt(running.fiber);
+        const current = running.get(kindOf(key));
+        if (current?.key === key) yield* Fiber.interrupt(current.fiber);
         return yield* SubscriptionRef.get(state);
       }),
     );
 
-  const remove: VoiceModelStoreService["remove"] = gate
-    .withPermit(
-      Effect.gen(function* () {
-        if (running) yield* Fiber.interrupt(running.fiber);
-        yield* fs.remove(root, { recursive: true, force: true });
-        yield* SubscriptionRef.set(state, { tiers: VOICE_MODEL_TIERS.map((tier) => absent(tier)) });
-        return yield* SubscriptionRef.get(state);
-      }),
-    )
-    .pipe(
-      Effect.uninterruptible,
-      Effect.mapError(
-        () =>
-          new VoiceModelError({
-            detail: "Couldn't remove the downloaded voice. Stop reading aloud, then try again.",
-          }),
-      ),
-    );
+  const remove: VoiceModelStoreService["remove"] = (kind) =>
+    gate
+      .withPermit(
+        Effect.gen(function* () {
+          const current = running.get(kind);
+          if (current) yield* Fiber.interrupt(current.fiber);
+          yield* fs.remove(kindRoot(kind), { recursive: true, force: true });
+          for (const key of keysOf(kind)) yield* updateModel(key, () => absent());
+          return yield* SubscriptionRef.get(state);
+        }),
+      )
+      .pipe(
+        Effect.uninterruptible,
+        Effect.mapError(
+          () =>
+            new VoiceModelError({
+              detail:
+                kind === "dictation"
+                  ? "Couldn't remove the dictation model. Stop dictating, then try again."
+                  : "Couldn't remove the downloaded voice. Stop reading aloud, then try again.",
+            }),
+        ),
+      );
 
-  // Tiers finished in an earlier run are ready; a download cut short by a
+  // Models finished in an earlier run are ready; a download cut short by a
   // crash leaves only its dot-prefixed staging directory, removed here.
-  for (const entry of yield* fs.readDirectory(root).pipe(Effect.orElseSucceed(() => []))) {
-    if (entry.startsWith(".")) {
-      yield* fs
-        .remove(path.join(root, entry), { recursive: true, force: true })
-        .pipe(Effect.ignore);
+  for (const kind of ["read-aloud", "dictation"] as const) {
+    const root = kindRoot(kind);
+    for (const entry of yield* fs.readDirectory(root).pipe(Effect.orElseSucceed(() => []))) {
+      if (entry.startsWith(".")) {
+        yield* fs
+          .remove(path.join(root, entry), { recursive: true, force: true })
+          .pipe(Effect.ignore);
+      }
     }
   }
-  for (const tier of VOICE_MODEL_TIERS) {
+  for (const key of MODEL_KEYS) {
     const record = yield* fs
-      .readFileString(path.join(tierDirectory(tier), VOICE_MODEL_COMPLETE_RECORD))
+      .readFileString(path.join(modelDirectory(key), VOICE_MODEL_COMPLETE_RECORD))
       .pipe(Effect.flatMap(decodeCompleteRecord), Effect.option);
     if (Option.isSome(record)) {
       const bytes = record.value.bytes;
-      yield* updateTier(tier, () => ({
-        tier,
+      yield* updateModel(key, () => ({
         phase: "ready",
         downloadedBytes: bytes,
         totalBytes: bytes,

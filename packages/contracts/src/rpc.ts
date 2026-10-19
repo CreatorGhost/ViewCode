@@ -176,7 +176,11 @@ import {
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
 } from "./threadSearch.ts";
-import { PullRequestStartReviewInput, PullRequestStartReviewResult, ReviewStartLocalInput } from "./viewcodeReview.ts";
+import {
+  PullRequestStartReviewInput,
+  PullRequestStartReviewResult,
+  ReviewStartLocalInput,
+} from "./viewcodeReview.ts";
 import {
   ProviderUploadFeedbackError,
   ProviderUploadFeedbackInput,
@@ -184,7 +188,12 @@ import {
 } from "./provider.ts";
 import { ProviderInstanceId, ProviderInstanceMutation } from "./providerInstance.ts";
 import { PullRequestReviewGuideResult } from "./pullRequestReviewGuide.ts";
-import { VoiceModelError, VoiceModelTierInput, VoiceModelsState } from "./voiceModels.ts";
+import {
+  VoiceModelError,
+  VoiceModelRemoveInput,
+  VoiceModelTierInput,
+  VoiceModelsState,
+} from "./voiceModels.ts";
 import {
   ProviderAccountAddInput,
   ProviderAccountAddResult,
@@ -646,7 +655,7 @@ export const WS_METHODS = {
   usageResumeCancel: "usageResume.cancel",
   usageResumeNow: "usageResume.now",
 
-  // ViewCode read aloud: the natural voice's model, downloaded by the environment
+  // ViewCode read aloud and dictation: their models, downloaded by the environment
   voiceModelsDownload: "voiceModels.download",
   voiceModelsCancel: "voiceModels.cancel",
   voiceModelsRemove: "voiceModels.remove",
@@ -1430,9 +1439,9 @@ const WsVoiceModelsCancelRpc = Rpc.make(WS_METHODS.voiceModelsCancel, {
   error: VoiceModelRpcError,
 });
 
-/** Removes every downloaded tier. */
+/** Removes every downloaded read-aloud tier, or the dictation model. */
 const WsVoiceModelsRemoveRpc = Rpc.make(WS_METHODS.voiceModelsRemove, {
-  payload: Schema.Struct({}),
+  payload: VoiceModelRemoveInput,
   success: VoiceModelsState,
   error: VoiceModelRpcError,
 });
