@@ -682,10 +682,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
    label settles the same way when it finishes. History that mounts finished stays still. */
 @media (prefers-reduced-motion: no-preference) {
   [data-work-row-arrive] {
-    animation: work-row-arrive 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: work-row-arrive 200ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
   }
   [data-work-label-settle] {
-    animation: work-row-arrive 150ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+    animation: work-row-arrive 150ms cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
   }
 }
 @keyframes work-row-arrive {
@@ -695,6 +695,61 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     transform: translateY(0.25rem);
   }
 }
+
+/* ---- ViewCode thinking log (chat/WorkLog.tsx) --------------------------------------------------
+   The rail grows into a step that arrives live, file chips stagger in 110ms apart, and a turn that
+   just finished pops its dot and then draws the check. Only transform, opacity, filter and stroke
+   offsets move; fills are backwards, so nothing keeps a filter or a layer once it settles. The
+   spinner turns only while its row is live and on screen (observeVisibleAnimation). */
+@media (prefers-reduced-motion: no-preference) {
+  [data-work-row-arrive] > [data-work-rail="above"] {
+    transform-origin: top;
+    animation: work-rail-grow 120ms var(--ease-out-soft) 25ms backwards;
+  }
+  [data-work-chip-arrive] {
+    animation: work-chip-arrive 150ms var(--ease-out-soft) var(--work-chip-delay, 0ms) backwards;
+  }
+  [data-work-finish] {
+    animation: work-finish-pop 150ms var(--ease-out-soft) 30ms backwards;
+  }
+  [data-work-finish] .work-finish-check {
+    stroke-dasharray: 1;
+    animation: work-finish-check 280ms var(--ease-in-out-draw) 280ms backwards;
+  }
+  .work-log-spinner {
+    animation: work-log-spin 790ms linear infinite;
+    animation-play-state: var(--visible-animation-state, paused);
+  }
+}
+@keyframes work-rail-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+@keyframes work-chip-arrive {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(1.5px) scale(0.9);
+  }
+}
+@keyframes work-finish-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+}
+@keyframes work-finish-check {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+@keyframes work-log-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* ---- end thinking log ------------------------------------------------------------------------ */
 
 /* Dictation (chat/ComposerDictation.tsx): its controls soften in over 180 ms, and each word the
    model hears blurs in. Opacity and blur only, so a word never shifts the line. */

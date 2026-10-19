@@ -1046,7 +1046,9 @@ describe("MessagesTimeline subagents", () => {
       const fold = buttons(/^Worked for/)[0];
       if (fold) await click(fold);
       if (count > 1) {
-        expect(children()).toHaveLength(0);
+        // Collapsed, each agent is a branch row that opens its thread, without its preview.
+        expect(children()).toHaveLength(count);
+        expect(text()).not.toContain(preview);
         await click(button(`${count} subagents`));
       } else {
         expect(buttons(`${count} subagents`)).toHaveLength(0);
@@ -1060,7 +1062,8 @@ describe("MessagesTimeline subagents", () => {
       expect(onOpenThread).toHaveBeenCalledWith("thread-subagent-1");
       if (count > 1) {
         await click(button(`${count} subagents`));
-        await vi.waitFor(() => expect(children()).toHaveLength(0));
+        await vi.waitFor(() => expect(text()).not.toContain(preview));
+        expect(children()).toHaveLength(count);
       }
     },
   );
