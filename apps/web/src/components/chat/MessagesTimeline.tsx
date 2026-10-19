@@ -318,6 +318,7 @@ import {
   formatReviewCommentFence,
   type ReviewCommentContext,
 } from "../../reviewCommentContext";
+import { ActivityShimmerOverlay } from "./ActivityShimmerOverlay";
 
 interface TimelineRowSharedState {
   citationRequest: AssistantCitationTarget | null;
@@ -3620,19 +3621,6 @@ function ExpandedWorkGroupEntries({
 }
 
 const workEntryKey = (entry: TimelineWorkEntry) => entry.id;
-
-function ActivityShimmerOverlay({ children }: { children: ReactNode }) {
-  return (
-    <span
-      aria-hidden
-      className="live-activity-focus pointer-events-none absolute inset-y-0 select-none"
-    >
-      <span className="live-activity-focus-counter block">
-        <span className="live-activity-focus-aligned block text-foreground">{children}</span>
-      </span>
-    </span>
-  );
-}
 
 const failedToolIconClassName = "text-tool-error-icon/40";
 

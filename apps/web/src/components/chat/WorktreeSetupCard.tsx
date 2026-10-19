@@ -14,7 +14,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { ChevronDown, ChevronRight } from "lucide";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { MorphIcon } from "~/components/MorphIcon";
@@ -23,6 +23,7 @@ import { MiddleTruncate } from "../ui/middle-truncate";
 import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 import { cn } from "~/lib/utils";
 import { WorkLogRow } from "./WorkLog";
+import { ActivityShimmerOverlay } from "./ActivityShimmerOverlay";
 
 interface WorktreeSetupCardProps {
   snapshot: WorktreeSetupSnapshot;
@@ -82,19 +83,6 @@ function stageRowClassName(status: WorktreeSetupStage["status"]): string {
   }
 }
 
-function ShimmerOverlay({ children }: { children: ReactNode }) {
-  return (
-    <span
-      aria-hidden
-      className="live-activity-focus pointer-events-none absolute inset-y-0 select-none"
-    >
-      <span className="live-activity-focus-counter block">
-        <span className="live-activity-focus-aligned block text-foreground">{children}</span>
-      </span>
-    </span>
-  );
-}
-
 function headerLabel(snapshot: WorktreeSetupSnapshot): string {
   switch (snapshot.phase) {
     case "running":
@@ -140,7 +128,7 @@ function SetupHeaderRow({
           className="relative min-w-0 shrink overflow-hidden whitespace-nowrap"
         >
           <span className="block truncate">{text}</span>
-          {running ? <ShimmerOverlay>{text}</ShimmerOverlay> : null}
+          {running ? <ActivityShimmerOverlay>{text}</ActivityShimmerOverlay> : null}
         </span>
         {totalElapsed !== null ? (
           <span className="ml-auto shrink-0 text-xs text-muted-foreground">
@@ -188,7 +176,7 @@ function StageRow({
           className={cn("relative block truncate", stageRowClassName(stage.status))}
         >
           {label}
-          {running ? <ShimmerOverlay>{label}</ShimmerOverlay> : null}
+          {running ? <ActivityShimmerOverlay>{label}</ActivityShimmerOverlay> : null}
         </span>
       }
       trailing={
