@@ -15,7 +15,10 @@ import { useProject, useThreadProjectionSelector, useThreadShell } from "../../.
 import { pullRequestEnvironment } from "../../../state/pullRequests";
 import { useEnvironmentQuery } from "../../../state/query";
 import { vcsActionManager, vcsEnvironment } from "../../../state/vcs";
-import { usePullRequestActionRunner } from "../../pullRequest/usePullRequestActions";
+import {
+  usePullRequestActionRunner,
+  usePullRequestMergeMethodResolver,
+} from "../../pullRequest/usePullRequestActions";
 import { toastManager } from "../../ui/toast";
 import { sendReviewFixToChat } from "../reviewFixChat";
 import {
@@ -105,7 +108,11 @@ export function useThreadPrFlow(
           repository: link.repository,
           number: link.number,
         };
-  const { perform } = usePullRequestActionRunner({ environmentId, reference });
+  const resolveMergeMethod = usePullRequestMergeMethodResolver(
+    environmentId,
+    shell?.projectId ?? null,
+  );
+  const { perform } = usePullRequestActionRunner({ environmentId, reference, resolveMergeMethod });
   const [local, setLocal] = useAtom(prFlowLocalAtom(scopedThreadKey(threadRef)));
   const command = useThreadProjectionSelector(threadRef, selectRunningCommand);
   const gitCommandsKey = useThreadProjectionSelector(threadRef, selectGitCommandsKey);

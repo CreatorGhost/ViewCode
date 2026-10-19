@@ -27,13 +27,19 @@ import { usePreparePullRequestThreadAction } from "~/lib/sourceControlActions";
 import type { ReviewCommentContext } from "~/reviewCommentContext";
 import { pullRequestEnvironment } from "~/state/pullRequests";
 
+import { useUiStateStore } from "~/uiStateStore";
 import { toastManager } from "../ui/toast";
-import { handoffPrompt, handoffReviewComments, readableFailure } from "./pullRequestDetail.logic";
+import {
+  handoffPrompt,
+  handoffReviewComments,
+  readableFailure,
+  resolvePullRequestMergeMethod,
+} from "./pullRequestDetail.logic";
 import { pullRequestEntryKey, type EnvironmentPullRequestEntry } from "./pullRequestList.logic";
 
 export function usePullRequestDefaultMergeMethodResolver(
   environmentId: EnvironmentId,
-  projectId: ProjectId,
+  projectId: ProjectId | null,
 ) {
   const projectDefault = useEnvironmentSettings(
     environmentId,
@@ -58,6 +64,30 @@ export function usePullRequestDefaultMergeMethodResolver(
       }).get(derivePhysicalProjectKey(project)) ??
       deriveLogicalProjectKeyFromSettings(project, grouping);
     return legacyOverrides[key];
+  };
+}
+
+/**
+ * Picks a merge method the repository allows: the one last chosen, else the project's default,
+ * else the host's first allowed one. Without it a merge asks for a merge commit, which a repository
+ * that allows only squash or rebase refuses.
+ */
+export function usePullRequestMergeMethodResolver(
+  environmentId: EnvironmentId,
+  projectId: ProjectId | null,
+) {
+  const resolveProjectDefault = usePullRequestDefaultMergeMethodResolver(environmentId, projectId);
+  return (detail: PullRequestDetail): PullRequestMergeMethod => {
+    const allowed = detail.capabilities.mergeMethods.filter(
+      (method) => detail.mergeCapabilities[method],
+    );
+    if (allowed.length === 0) throw new Error("No merge method is available for this repository.");
+    return resolvePullRequestMergeMethod(
+      allowed,
+      null,
+      resolveProjectDefault(),
+      useUiStateStore.getState().pullRequestMergeMethod,
+    );
   };
 }
 
