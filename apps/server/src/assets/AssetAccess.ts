@@ -8,7 +8,7 @@ import {
   AssetProjectFaviconResolutionError,
   AssetSigningKeyLoadError,
   AssetVoiceModelNotFoundError,
-  VoiceModelTier,
+  VoiceModelKey,
   AssetWorkspaceAssetInspectionError,
   AssetWorkspaceAssetNotFoundError,
   AssetWorkspaceContextNotFoundError,
@@ -68,7 +68,11 @@ import { extractIcnsPng } from "./icns.ts";
 import { openMediaFile, readMediaFileHeader, type OpenMediaFile } from "./MediaFile.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
-import { VOICE_MODEL_COMPLETE_RECORD, VOICE_MODEL_FILE_PATH_PATTERN, voiceModelTierDirectory } from "../voiceModels/VoiceModelStore.ts";
+import {
+  VOICE_MODEL_COMPLETE_RECORD,
+  VOICE_MODEL_FILE_PATH_PATTERN,
+  voiceModelDirectory,
+} from "../voiceModels/VoiceModelStore.ts";
 
 export const ASSET_ROUTE_PREFIX = "/api/assets";
 
@@ -168,7 +172,12 @@ const AssetClaimsSchema = Schema.Union([
     cwd: Schema.String,
     expiresAt: Schema.Number,
   }),
-  Schema.Struct({ version: Schema.Literal(1), kind: Schema.Literal("voice-model"), tier: VoiceModelTier, expiresAt: Schema.Number }),
+  Schema.Struct({
+    version: Schema.Literal(1),
+    kind: Schema.Literal("voice-model"),
+    tier: VoiceModelKey,
+    expiresAt: Schema.Number,
+  }),
 ]);
 type AssetClaims = typeof AssetClaimsSchema.Type;
 
@@ -790,7 +799,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
     }
     case "voice-model": {
       const config = yield* ServerConfig.ServerConfig;
-      const directory = voiceModelTierDirectory(path, config.stateDir, input.resource.tier);
+      const directory = voiceModelDirectory(path, config.stateDir, input.resource.tier);
       const ready = yield* fileSystem
         .exists(path.join(directory, VOICE_MODEL_COMPLETE_RECORD))
         .pipe(Effect.orElseSucceed(() => false));
@@ -955,10 +964,10 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
   if (decodedPath === null) return null;
   const path = yield* Path.Path;
   if (claims.kind === "voice-model") {
-    // Any verified file of the tier, by its path inside the model.
+    // Any verified file of the model, by its path inside it.
     if (!VOICE_MODEL_FILE_PATH_PATTERN.test(decodedPath)) return null;
     const config = yield* ServerConfig.ServerConfig;
-    const directory = voiceModelTierDirectory(path, config.stateDir, claims.tier);
+    const directory = voiceModelDirectory(path, config.stateDir, claims.tier);
     const filePath = path.join(directory, ...decodedPath.split("/"));
     const canonicalFile = yield* resolveCanonicalFile(filePath).pipe(
       Effect.orElseSucceed(() => null),

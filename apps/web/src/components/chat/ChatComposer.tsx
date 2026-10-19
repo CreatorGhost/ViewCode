@@ -5,6 +5,15 @@ import {
 } from "@t3tools/client-runtime/threadGoal";
 import { useThreadGoalControls } from "./useThreadGoalControls";
 import { ComposerExtrasMenu } from "./ComposerExtrasMenu";
+import {
+  ComposerDictationButton,
+  ComposerDictationControls,
+  ComposerDictationTranscript,
+  useComposerDictation,
+} from "./ComposerDictation";
+import { dictationInsertion, dictationIsActive } from "../../lib/dictation.logic";
+import { isDictationSupported } from "../../lib/dictationCapture";
+import { cancelDictation, confirmDictation, toggleDictation } from "../../lib/dictationSession";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
@@ -1517,6 +1526,8 @@ export interface ChatComposerHandle {
   isModelPickerOpen: () => boolean;
   isCaretAtStart: () => boolean;
   compactContext: () => void;
+  /** Starts dictating, or inserts what was heard while dictating. */
+  toggleDictation: () => void;
   readSnapshot: () => {
     value: string;
     cursor: number;
@@ -2119,6 +2130,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const attachmentDraftTarget = questionAttachmentTarget ?? composerDraftTarget;
   const attachmentDraft = useComposerThreadDraft(attachmentDraftTarget);
   const attachmentTargetKey = composerTargetKey(attachmentDraftTarget);
+  const dictationOwnerKey = composerTargetKey(composerDraftTarget);
+  const { state: dictationState, transcript: dictationTranscript } =
+    useComposerDictation(dictationOwnerKey);
+  const dictationActive = dictationIsActive(dictationState);
   // An import that finishes after a draft change must compare against the draft open *now*, not
   // the one captured in the closure that started it.
   const attachmentTargetKeyRef = useRef(attachmentTargetKey);
@@ -4913,6 +4928,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return nonPersistedComposerImageIdSet.has(image.id) && !failedInCurrentEnvironment;
   });
   const composerHasExpandedChrome =
+    dictationActive ||
     showComposerTopDrawer ||
     isTasksDrawerOpen ||
     composerMenuOpen ||
@@ -5912,6 +5928,60 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   };
   const insertComposerTextAtEndStable = useStableCallback(insertComposerTextAtEnd);
 
+  const dictationAvailable =
+    settings.dictationEnabled &&
+    isDictationSupported() &&
+    !isComposerApprovalState &&
+    pendingUserInputs.length === 0 &&
+    !projectSelectionRequired;
+  const commitDictation = (text: string) => {
+    const insertion = dictationInsertion(
+      promptRef.current,
+      readComposerSnapshot().expandedCursor,
+      text,
+    );
+    if (insertion.length > 0 && insertComposerText(insertion, "cursor")) return;
+    toastManager.add({
+      type: "error",
+      title: "Couldn't add the dictated text to this prompt",
+      description: text,
+    });
+  };
+  const commitDictationStable = useStableCallback(commitDictation);
+  const toggleComposerDictation = () => {
+    if (!dictationAvailable && !dictationActive) return;
+    toggleDictation(dictationOwnerKey, commitDictationStable);
+  };
+  const toggleComposerDictationStable = useStableCallback(toggleComposerDictation);
+  const confirmComposerDictationStable = useStableCallback(() =>
+    confirmDictation(dictationOwnerKey),
+  );
+  const cancelComposerDictationStable = useStableCallback(() => {
+    cancelDictation(dictationOwnerKey);
+    focusComposer();
+  });
+  // A composer that changes drafts or unmounts discards its dictation.
+  useEffect(() => () => cancelDictation(dictationOwnerKey), [dictationOwnerKey]);
+
+  useEffect(() => {
+    const handler = (event: globalThis.KeyboardEvent) => {
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          terminalFocus: getTerminalFocusOwner() !== null,
+          terminalOpen,
+          modelPickerOpen: isComposerModelPickerOpen,
+        },
+      });
+      if (command !== "composer.dictate") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat || isCommandPaletteOpen()) return;
+      toggleComposerDictationStable();
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [isComposerModelPickerOpen, keybindings, terminalOpen, toggleComposerDictationStable]);
+
   const insertContextReferencesAtCaret = (
     references: ReadonlyArray<ComposerContextReference>,
   ): boolean =>
@@ -6310,6 +6380,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         trigger.click();
       },
       compactContext: compactThreadContextStable,
+      toggleDictation: toggleComposerDictationStable,
       isModelPickerOpen: () => isComposerModelPickerOpen,
       isCaretAtStart: () => {
         const range = composerEditorRef.current?.readSelectionRange();
@@ -7408,12 +7479,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               message={providerInputSubmissionError ?? composerSubmissionError}
             />
 
+            <ComposerDictationTranscript state={dictationState} transcript={dictationTranscript} />
+
             {isComposerCollapsedMobile || isComposerApprovalState ? null : (
               <div
                 data-chat-composer-footer="true"
                 data-chat-composer-footer-compact={isComposerFooterCompact ? "true" : "false"}
                 className={cn(
-                  "flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-3 sm:px-4 sm:pb-4",
+                  "relative flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-3 sm:px-4 sm:pb-4",
                   pendingUserInputs.length > 0 && "pt-2",
                   isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                   showMobilePendingAnswerActions && "hidden sm:flex",
@@ -7427,9 +7500,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   ref={attachExpandedComposerControls}
                   data-chat-composer-controls="left"
                   data-chat-composer-footer-controls="true"
+                  inert={dictationActive || undefined}
                   className={cn(
-                    "relative -m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                    "relative -m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 transition-opacity duration-200 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
                     isComposerResting && "hidden",
+                    dictationActive && "opacity-0",
                   )}
                 >
                   {composerControlsCollapsed ? null : (
@@ -7454,8 +7529,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   data-chat-composer-primary-actions-compact={
                     isComposerPrimaryActionsCompact ? "true" : "false"
                   }
+                  inert={dictationActive || undefined}
                   // Only the model chip gives way when the column is narrow; it truncates.
-                  className="flex min-w-0 flex-nowrap items-center justify-end gap-2 *:shrink-0 *:data-[chat-provider-model-picker=true]:shrink"
+                  className={cn(
+                    "flex min-w-0 flex-nowrap items-center justify-end gap-2 transition-opacity duration-200 *:shrink-0 *:data-[chat-provider-model-picker=true]:shrink",
+                    dictationActive && "opacity-0",
+                  )}
                 >
                   {useModelEffortPicker && !composerControlsCollapsed && !showProviderUnavailable
                     ? modelEffortPicker
@@ -7479,6 +7558,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         }}
                       />
                     </>
+                  ) : null}
+                  {dictationAvailable && !isComposerResting ? (
+                    <ComposerDictationButton
+                      disabled={isConnecting}
+                      shortcutLabel={shortcutLabelForCommand(keybindings, "composer.dictate")}
+                      onToggle={toggleComposerDictationStable}
+                    />
                   ) : null}
                   {isComposerResting || showProviderUnavailable ? null : (
                     <ComposerUsageLimitsPopover
@@ -7548,6 +7634,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       : {})}
                   />
                 </div>
+                <ComposerDictationControls
+                  state={dictationState}
+                  onConfirm={confirmComposerDictationStable}
+                  onCancel={cancelComposerDictationStable}
+                  onRetry={toggleComposerDictationStable}
+                />
               </div>
             )}
             {showInlineRestingControls ? (

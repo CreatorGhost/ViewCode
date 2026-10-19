@@ -8,7 +8,7 @@ import {
 } from "./chatAttachment.ts";
 import { ProjectFaviconPath } from "./project.ts";
 import { ToolActivityNativeAppReference } from "./providerRuntime.ts";
-import { VoiceModelTier } from "./voiceModels.ts";
+import { VoiceModelKey } from "./voiceModels.ts";
 
 const ASSET_PATH_MAX_LENGTH = 1024;
 
@@ -56,10 +56,10 @@ export const AssetResource = Schema.Union([
     cwd: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
     url: TrimmedNonEmptyString.check(Schema.isMaxLength(2048)),
   }),
-  // A downloaded read-aloud voice model, served as a directory: the client's
-  // speech worker fetches its files by their path inside the model.
+  // A downloaded read-aloud voice or dictation model, served as a directory: the
+  // client's speech worker fetches its files by their path inside the model.
   Schema.TaggedStruct("voice-model", {
-    tier: VoiceModelTier,
+    tier: VoiceModelKey,
   }),
 ]);
 export type AssetResource = typeof AssetResource.Type;

@@ -59,6 +59,14 @@ export const VIEWCODE_SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["speak speech text to speech tts rate fast slow"],
   },
   {
+    id: "dictation",
+    title: "Dictation",
+    to: "/settings/appearance",
+    searchTerms: [
+      "dictate voice input speech to text microphone mic transcribe moonshine download model offline remove",
+    ],
+  },
+  {
     id: "resume-after-usage-limit",
     title: "Resume automatically after usage limits reset",
     to: "/settings/general",
