@@ -5,9 +5,9 @@ import { Atom } from "effect/reactivity";
 import { serverEnvironment } from "~/state/server";
 
 /** Why a server will not run Tailscale: its environment switch or its setting. */
-export type TailscaleBlock = "environment" | "setting";
+type TailscaleBlock = "environment" | "setting";
 
-export function tailscaleBlockOf(
+function tailscaleBlockOf(
   config: Pick<ServerConfig, "tailscaleBlockedBy" | "settings"> | null,
 ): TailscaleBlock | null {
   if (config === null) return null;
