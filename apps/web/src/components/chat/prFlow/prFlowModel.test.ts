@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   type PrFlowActivitySource,
   type PrFlowSources,
+  prFlowAwaitingReview,
   prFlowCommandStep,
   prFlowCreating,
   prFlowCreatingPhase,
@@ -284,6 +285,25 @@ describe("prFlowFromPullRequest", () => {
     });
     const draft = prFlowFromPullRequest({ ...OPEN, isDraft: true }, IDLE);
     expect(draft && prFlowStatus(draft).label).toBe("Draft, no conflicts");
+  });
+
+  it("says a pull request waiting on review is not ready to merge", () => {
+    const passing = { ...OPEN, mergeability: "mergeable", checksState: "passing" } as const;
+    const pending = prFlowFromPullRequest({ ...passing, reviewDecision: "review-required" }, IDLE);
+    expect(pending && prFlowStatus(pending)).toMatchObject({
+      tone: "warning",
+      label: "Review pending",
+      short: "Review pending",
+    });
+    expect(pending && prFlowAwaitingReview(pending)).toBe(true);
+    const changes = prFlowFromPullRequest(
+      { ...passing, reviewDecision: "changes-requested" },
+      IDLE,
+    );
+    expect(changes && prFlowStatus(changes).label).toBe("Changes requested");
+    const approved = prFlowFromPullRequest({ ...passing, reviewDecision: "approved" }, IDLE);
+    expect(approved && prFlowStatus(approved).label).toBe("Ready to merge");
+    expect(approved && prFlowAwaitingReview(approved)).toBe(false);
   });
 
   it("merges, then stays merged", () => {

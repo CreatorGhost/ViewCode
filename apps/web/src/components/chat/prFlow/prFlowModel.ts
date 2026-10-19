@@ -3,6 +3,7 @@ import type {
   GitGraphLane,
   GitPullRequestGraph,
   PullRequestCheck,
+  PullRequestReviewDecision,
 } from "@t3tools/contracts";
 
 /**
@@ -120,6 +121,8 @@ export interface PrFlow {
   readonly deletions: number | null;
   /** A draft cannot be merged until it is marked ready. */
   readonly draft: boolean;
+  /** The host's review verdict; a pull request still waiting on one is not ready to merge. */
+  readonly reviewDecision: PullRequestReviewDecision | null;
   /** Newest first: the branch, the base since the fork, and the fork itself last. */
   readonly rows: ReadonlyArray<PrFlowRow>;
   readonly headCommits: number | null;
@@ -139,6 +142,11 @@ export interface PrFlowStatus {
   readonly short: string;
   /** The top row's state, beside "Merge into <base>". */
   readonly target: string;
+}
+
+/** GitHub refuses the merge until someone with write access approves (or re-approves). */
+export function prFlowAwaitingReview(flow: PrFlow): boolean {
+  return flow.reviewDecision === "review-required" || flow.reviewDecision === "changes-requested";
 }
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -216,6 +224,17 @@ export function prFlowStatus(flow: PrFlow): PrFlowStatus {
       }
       if (flow.draft) {
         return { tone: "success", label: "Draft, no conflicts", short: "Draft", target: "draft" };
+      }
+      if (flow.reviewDecision === "review-required") {
+        return { tone: "warning", label: "Review pending", short: "Review pending", target: "" };
+      }
+      if (flow.reviewDecision === "changes-requested") {
+        return {
+          tone: "warning",
+          label: "Changes requested",
+          short: "Changes requested",
+          target: "",
+        };
       }
       return { tone: "success", label: "Ready to merge", short: "Ready to merge", target: "ready" };
     case "merging":
@@ -528,6 +547,7 @@ export interface PrFlowPullRequest {
   readonly deletions?: number | undefined;
   readonly checksState?: "passing" | "failing" | "pending" | null | undefined;
   readonly mergeability?: "mergeable" | "conflicting" | "unknown" | undefined;
+  readonly reviewDecision?: PullRequestReviewDecision | null | undefined;
 }
 
 export interface PrFlowSources {
@@ -598,6 +618,7 @@ export function prFlowFromPullRequest(
     additions: pr.additions ?? null,
     deletions: pr.deletions ?? null,
     draft: pr.isDraft === true,
+    reviewDecision: pr.reviewDecision ?? null,
     rows: laid?.rows ?? [],
     headCommits: graph?.head.length ?? null,
     conflicts: phase === "conflicts" || phase === "resolving" ? conflicts : null,
@@ -625,6 +646,7 @@ export function prFlowCreating(input: {
     additions: null,
     deletions: null,
     draft: false,
+    reviewDecision: null,
     rows: [],
     headCommits: input.commitsToPush,
     conflicts: null,
