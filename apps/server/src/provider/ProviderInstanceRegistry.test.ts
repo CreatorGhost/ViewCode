@@ -18,6 +18,7 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import type { GrokSettings } from "@t3tools/provider-grok/settings";
 import type { CursorSettings } from "@t3tools/provider-cursor/settings";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -25,6 +26,8 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import * as ChildProcess from "effect/process/ChildProcess";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { HttpClient, HttpClientResponse } from "effect/http";
 
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
@@ -404,6 +407,51 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
         version: "2.1.219",
       });
     }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.live("never runs a provider the admin policy blocks, even one settings turn on", () =>
+    Effect.gen(function* () {
+      if (yield* HostProcess.isWindows) return;
+      const fixtures = yield* makeTildeProviderFixtures();
+      const spawned: Array<string> = [];
+      const recordingSpawner = ChildProcessSpawner.make((command) => {
+        spawned.push(ChildProcess.isStandardCommand(command) ? command.command : "pipeline");
+        return Effect.die(new Error("A blocked provider was spawned."));
+      });
+      const codexId = ProviderInstanceId.make("codex");
+      const { registry } = yield* makeProviderInstanceRegistry<CodexDriverEnv>({
+        drivers: [CodexDriver],
+        configMap: {
+          [codexId]: {
+            driver: ProviderDriverKind.make("codex"),
+            enabled: true,
+            config: makeCodexConfig({ enabled: true, binaryPath: fixtures.codexBinaryPath }),
+          },
+        },
+      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, recordingSpawner));
+      const codex = yield* registry.getInstance(codexId);
+      expect(codex?.enabled).toBe(false);
+      expect(yield* codex!.snapshot.refresh).toMatchObject({
+        enabled: false,
+        status: "disabled",
+        disabledByAdmin: true,
+      });
+      const session = yield* codex!.orchestrationAdapter
+        .openSession({} as never)
+        .pipe(Effect.result);
+      const title = yield* codex!.textGeneration
+        .generateThreadTitle({} as never)
+        .pipe(Effect.result);
+      expect([session._tag, title._tag]).toEqual(["Failure", "Failure"]);
+      expect(spawned).toEqual([]);
+    }).pipe(
+      Effect.provideService(AdminPolicyRef, {
+        blockedDrivers: ["codex"],
+        tailscaleBlocked: false,
+        problem: null,
+      }),
+      Effect.provide(layerTest),
+    ),
   );
 
   it.live("runs Claude instance probes in the server state dir, not the server cwd", () =>

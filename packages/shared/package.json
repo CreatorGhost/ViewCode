@@ -558,6 +558,10 @@
     "./viewcodeProviderPolicy": {
       "types": "./src/viewcodeProviderPolicy.ts",
       "import": "./src/viewcodeProviderPolicy.ts"
+    },
+    "./viewcodeAdminPolicy": {
+      "types": "./src/viewcodeAdminPolicy.ts",
+      "import": "./src/viewcodeAdminPolicy.ts"
     }
   },
   "scripts": {

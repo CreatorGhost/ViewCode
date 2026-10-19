@@ -26,7 +26,7 @@ import * as NodeCrypto from "node:crypto";
 import * as ServerConfig from "../config.ts";
 import * as ModelManifest from "./ModelManifest.ts";
 import { resolveProviderCompatibility } from "./providerCompatibility.ts";
-import { AdminProviderPolicyRef } from "./AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 
 const DRIVER = ProviderDriverKind.make("codex");
 const STAGING_STALE_AFTER_MS = 24 * 60 * 60_000;
@@ -377,7 +377,7 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
     Effect.orElseSucceed(() => null),
   );
   const resolve = Effect.fn("CodexInstallation.resolve")(function* () {
-    if ((yield* AdminProviderPolicyRef).blockedDrivers.includes(DRIVER)) {
+    if ((yield* AdminPolicyRef).blockedDrivers.includes(DRIVER)) {
       return yield* installationError("resolve", "Blocked by your organization.");
     }
     const local = yield* resolveLocal();
@@ -578,7 +578,7 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
   const start = gate
     .withPermit(
       Effect.gen(function* () {
-        if ((yield* AdminProviderPolicyRef).blockedDrivers.includes(DRIVER)) {
+        if ((yield* AdminPolicyRef).blockedDrivers.includes(DRIVER)) {
           return yield* installationError("start", "Blocked by your organization.");
         }
         const current = yield* SubscriptionRef.get(state);
@@ -693,7 +693,7 @@ export const makeCodexInstallation = Effect.fn("makeCodexInstallation")(function
                 message: null,
               }) satisfies ProviderInstallState,
           );
-          if (!(yield* AdminProviderPolicyRef).blockedDrivers.includes(DRIVER)) yield* reuseLocal();
+          if (!(yield* AdminPolicyRef).blockedDrivers.includes(DRIVER)) yield* reuseLocal();
         }).pipe(Effect.uninterruptible),
       );
     },

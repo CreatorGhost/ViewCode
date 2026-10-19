@@ -1,4 +1,5 @@
-import { AdminProviderPolicyRef, applyAdminProviderPolicy } from "./AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
+import { applyAdminProviderPolicy } from "./AdminProviderPolicy.ts";
 import {
   defaultInstanceIdForDriver,
   providerInstanceConfigEnabledFlag,
@@ -74,7 +75,7 @@ export const deriveProviderInstanceConfigMap = (
 
 const layerSettingsWatcher = Layer.effectDiscard(
   Effect.gen(function* () {
-    const adminPolicy = yield* AdminProviderPolicyRef;
+    const adminPolicy = yield* AdminPolicyRef;
     const mutator = yield* ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator;
     const serverSettings = yield* Settings.ServerSettingsService;
     const settingsChanges = yield* serverSettings.subscribeChanges;
@@ -100,7 +101,7 @@ export const layer: Layer.Layer<
 > = Layer.unwrap(
   Effect.gen(function* () {
     const serverSettings = yield* Settings.ServerSettingsService;
-    const adminPolicy = yield* AdminProviderPolicyRef;
+    const adminPolicy = yield* AdminPolicyRef;
     const initialSettings: ServerSettings | undefined = yield* serverSettings.getSettings.pipe(
       Effect.orElseSucceed(() => undefined),
     );

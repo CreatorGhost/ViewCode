@@ -14,7 +14,7 @@ import * as ServerConfig from "../../config.ts";
 import * as Settings from "../../serverSettings.ts";
 import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
-import { AdminProviderPolicyRef } from "../AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 
 const encodeSettings = Schema.encodeSync(Schema.fromJsonString(ServerSettings));
 const decodeSettings = Schema.decodeEffect(Schema.fromJsonString(ServerSettings));
@@ -100,7 +100,11 @@ describe("provider launch settings", () => {
         Effect.provide(
           Layer.fresh(layer).pipe(
             Layer.provide(
-              Layer.succeed(AdminProviderPolicyRef, { blockedDrivers: ["codex"], problem: null }),
+              Layer.succeed(AdminPolicyRef, {
+                blockedDrivers: ["codex"],
+                tailscaleBlocked: false,
+                problem: null,
+              }),
             ),
           ),
         ),

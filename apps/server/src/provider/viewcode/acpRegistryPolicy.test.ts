@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import { AdminProviderPolicyRef } from "../AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 import { guardAcpRegistryPrepare } from "./acpRegistryPolicy.ts";
 
 it.effect("blocks registry setup for blocked drivers and permits an explicit allowed setup", () =>
@@ -16,13 +16,18 @@ it.effect("blocks registry setup for blocked drivers and permits an explicit all
     yield* prepare({ agentId: "devin" });
     yield* prepare({ agentId: "devin" }).pipe(
       Effect.result,
-      Effect.provideService(AdminProviderPolicyRef, {
+      Effect.provideService(AdminPolicyRef, {
         blockedDrivers: ["acpRegistry"],
+        tailscaleBlocked: false,
         problem: null,
       }),
     );
     assert.deepEqual(prepared, ["devin"]);
   }).pipe(
-    Effect.provideService(AdminProviderPolicyRef, { blockedDrivers: ["droid"], problem: null }),
+    Effect.provideService(AdminPolicyRef, {
+      blockedDrivers: ["droid"],
+      tailscaleBlocked: false,
+      problem: null,
+    }),
   ),
 );

@@ -26,7 +26,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 
 import * as ServerConfig from "../config.ts";
-import { AdminProviderPolicyRef } from "./AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 import { openZipArchive } from "../zipArchive.ts";
 import { makeAntigravityAcpRuntime } from "./acp/AntigravityAcpSupport.ts";
 import {
@@ -711,7 +711,7 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
   const start = gate
     .withPermit(
       Effect.gen(function* () {
-        if ((yield* AdminProviderPolicyRef).blockedDrivers.includes(DRIVER)) {
+        if ((yield* AdminPolicyRef).blockedDrivers.includes(DRIVER)) {
           return yield* installationError("start", "Blocked by your organization.");
         }
         const current = yield* SubscriptionRef.get(state);

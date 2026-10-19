@@ -1,7 +1,5 @@
-import {
-  AdminProviderPolicyRef,
-  applyAdminProviderPolicy,
-} from "./provider/AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
+import { applyAdminProviderPolicy } from "./provider/AdminProviderPolicy.ts";
 import { disableFirstRunProviders } from "./provider/viewcode/firstRunProviders.ts";
 import {
   VIEWCODE_DEFAULT_RUNTIME_MODE,
@@ -226,7 +224,7 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
         ? { providerHealthRefreshInterval: providerHealthRefreshInterval as Duration.Duration }
         : {}),
     });
-    const adminPolicy = yield* AdminProviderPolicyRef;
+    const adminPolicy = yield* AdminPolicyRef;
     const resolveEffectiveSettings = (settings: ServerSettings) =>
       resolveTextGenerationProvider(applyAdminProviderPolicy(settings, adminPolicy.blockedDrivers));
     const currentSettingsRef = yield* Ref.make<ServerSettings>(initialSettings);
@@ -586,7 +584,7 @@ const make = Effect.gen(function* () {
   const writeSemaphore = yield* Semaphore.make(1);
   const cacheKey = "settings" as const;
   const changesPubSub = yield* PubSub.unbounded<ServerSettings>();
-  const adminPolicy = yield* AdminProviderPolicyRef;
+  const adminPolicy = yield* AdminPolicyRef;
   if (adminPolicy.problem !== null) yield* Effect.logWarning(adminPolicy.problem);
   const resolveEffectiveSettings = (settings: ServerSettings) =>
     resolveTextGenerationProvider(applyAdminProviderPolicy(settings, adminPolicy.blockedDrivers));
