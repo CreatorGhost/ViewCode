@@ -1,4 +1,4 @@
-import { AdminProviderPolicyRef } from "./AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 import { guardProviderInstance } from "./viewcode/providerLaunchGate.ts";
 import { resolveInstanceExecutable } from "./viewcode/providerDetection.ts";
 import * as AntigravityInstallation from "./AntigravityInstallation.ts";
@@ -127,7 +127,7 @@ const buildEntry = <R>(input: {
     }
 
     const typedConfig = decodeResult.success;
-    const adminPolicy = yield* AdminProviderPolicyRef;
+    const adminPolicy = yield* AdminPolicyRef;
     const blockedByAdmin = isAdminBlockedProvider(entry, adminPolicy.blockedDrivers);
     const childScope = yield* Scope.make();
     yield* Scope.addFinalizer(parentScope, Scope.close(childScope, Exit.void).pipe(Effect.ignore));

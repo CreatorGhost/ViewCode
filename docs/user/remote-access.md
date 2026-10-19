@@ -204,7 +204,8 @@ HTTPS, the Connect phone Tailscale option, or opening a file in your editor over
 Tailscale SSH from another machine. Where security software stops apps that run
 Tailscale, turn off **Tailscale** in **Settings → Connections**, or start ViewCode with
 `VIEWCODE_DISABLE_TAILSCALE=1` to turn it off for that computer whatever the setting
-says. Tailscale features then say they are off instead of running it.
+says. IT can block it for everyone with a [company policy](./install.md#company-policy).
+Tailscale features then say they are off instead of running it.
 
 ### HTTPS web clients
 

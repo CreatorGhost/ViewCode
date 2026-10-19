@@ -1,4 +1,5 @@
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -79,10 +80,10 @@ export const findTailscaleExecutable = Effect.fnUntraced(function* <R>(input: {
 export const TAILSCALE_DISABLE_ENV = "VIEWCODE_DISABLE_TAILSCALE";
 
 /**
- * Why Tailscale may not run: the machine-wide environment switch or the
- * user's setting. A future admin policy adds its own reason here.
+ * Why Tailscale may not run: IT's admin policy (`tailscale.allowed: false`),
+ * the machine-wide environment switch, or the user's setting.
  */
-export const TailscaleBlockReason = Schema.Literals(["environment", "setting"]);
+export const TailscaleBlockReason = Schema.Literals(["policy", "environment", "setting"]);
 export type TailscaleBlockReason = typeof TailscaleBlockReason.Type;
 
 export function isTailscaleDisabledByEnvironment(env: NodeJS.ProcessEnv): boolean {
@@ -92,12 +93,15 @@ export function isTailscaleDisabledByEnvironment(env: NodeJS.ProcessEnv): boolea
 
 /**
  * The one answer to "may ViewCode run Tailscale here?". Null means yes. The
- * environment switch outranks the setting, so the UI can never undo it.
+ * admin policy outranks the environment switch, which outranks the setting, so
+ * the UI can never undo either.
  */
 export function resolveTailscaleBlock(input: {
+  readonly policyBlocked: boolean;
   readonly env: NodeJS.ProcessEnv;
   readonly settingEnabled: boolean;
 }): TailscaleBlockReason | null {
+  if (input.policyBlocked) return "policy";
   if (isTailscaleDisabledByEnvironment(input.env)) return "environment";
   if (!input.settingEnabled) return "setting";
   return null;
@@ -108,9 +112,14 @@ export class TailscaleDisabledError extends Schema.TaggedError<TailscaleDisabled
   { reason: TailscaleBlockReason },
 ) {
   override get message(): string {
-    return this.reason === "environment"
-      ? `Tailscale is turned off on this computer (${TAILSCALE_DISABLE_ENV}).`
-      : "Tailscale is turned off in ViewCode settings.";
+    switch (this.reason) {
+      case "policy":
+        return "Tailscale is blocked by your organization.";
+      case "environment":
+        return `Tailscale is turned off on this computer (${TAILSCALE_DISABLE_ENV}).`;
+      case "setting":
+        return "Tailscale is turned off in ViewCode settings.";
+    }
   }
 }
 
@@ -124,16 +133,20 @@ interface TailscaleCommandTarget {
  * Spawns the CLI by its PATH name and, when PATH has none, tries each known
  * install path in turn. A missing path fails to spawn, so nothing is probed
  * first. When none starts, the PATH failure is the one reported. Every
- * Tailscale command goes through here, so the environment switch stops them all.
+ * Tailscale command goes through here, so the admin policy and the environment
+ * switch stop them all.
  */
 const spawnTailscale = Effect.fnUntraced(function* (
   subcommand: "status" | "serve" | "debug",
   args: ReadonlyArray<string>,
 ) {
   const env = yield* HostProcess.Environment;
-  if (isTailscaleDisabledByEnvironment(env)) {
-    return yield* new TailscaleDisabledError({ reason: "environment" });
-  }
+  const machineBlock = resolveTailscaleBlock({
+    policyBlocked: (yield* AdminPolicyRef).tailscaleBlocked,
+    env,
+    settingEnabled: true,
+  });
+  if (machineBlock !== null) return yield* new TailscaleDisabledError({ reason: machineBlock });
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const platform = yield* HostProcess.Platform;
   const spawnAs = (executable: string) => {

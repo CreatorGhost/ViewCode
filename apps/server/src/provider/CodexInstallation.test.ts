@@ -20,7 +20,7 @@ import { HttpClient, HttpClientResponse } from "effect/http";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/process";
 import * as CodexInstallation from "./CodexInstallation.ts";
-import { AdminProviderPolicyRef } from "./AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 
 const archive = Buffer.from(
   "H4sIAAAAAAAC/+3W0W6DIBQGYB/FcD0sKNSkD7J7aom6tmAQtzXL3n3QZM3qdWVt+n8XoCckJp78wLY3q8bu9Ge2HBbUUp7nYD4H8s9zrNdSsCxnWQLT6JULn8ye09K9h/u2/c0/jSM9xqGzo0+bf3Gdf15WQiD/Kdy61/CA+z8dlO9Wrv2387+c5Z9VZY38p7BY0+Gh8t/sVauLt9Ga9Pnnop7ln1e4/6fxRQ7qZCf/qt3YW0M2OX/JyfvljbCCy3XBSaiGH9VqH4tKuaZbC6qG4aDpTrmP3sQV2nh3Gmxvzqsud0vyjaABAAAAAAAAAAAAAAAk8gOq19rvACgAAA==",
@@ -146,7 +146,11 @@ it.effect("admin-blocked installation never probes the local runtime or download
     expect(h.downloads()).toBe(0);
     expect(yield* h.fs.exists(h.probeLog)).toBe(false);
   }).pipe(
-    Effect.provideService(AdminProviderPolicyRef, { blockedDrivers: ["codex"], problem: null }),
+    Effect.provideService(AdminPolicyRef, {
+      blockedDrivers: ["codex"],
+      tailscaleBlocked: false,
+      problem: null,
+    }),
     Effect.scoped,
     Effect.provide(NodeServices.layer),
   ),

@@ -12,10 +12,10 @@ import type { ProviderAdapterV2SessionRuntime } from "@t3tools/provider-core/ser
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
 import { makeManualOnlyProviderMaintenanceCapabilities } from "@t3tools/provider-core/server/maintenanceResolver";
-import { AdminProviderPolicyRef } from "../AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 
 export const adminProviderBlockReason = (driver: ProviderDriverKind) =>
-  Effect.map(AdminProviderPolicyRef, (policy) =>
+  Effect.map(AdminPolicyRef, (policy) =>
     policy.blockedDrivers.includes(driver) ? "Blocked by your organization." : null,
   );
 

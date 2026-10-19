@@ -180,7 +180,7 @@ import { makeViewCodeProviderRpcHandlers } from "./provider/viewcode/viewcodePro
 import { guardAcpRegistryPrepare } from "./provider/viewcode/acpRegistryPolicy.ts";
 import { detectProviders } from "./provider/viewcode/providerDetection.ts";
 import * as ProviderInstanceRegistry from "./provider/ProviderInstanceRegistry.ts";
-import { AdminProviderPolicyRef } from "./provider/AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 import { isProviderDriverKind } from "@t3tools/contracts";
 import * as AcpRegistrySupport from "@t3tools/provider-acp-registry/server/AcpRegistrySupport";
 import * as AcpRegistryRuntimeCoordinator from "@t3tools/provider-acp-registry/server/AcpRegistryRuntimeCoordinator";
@@ -1690,7 +1690,8 @@ const layerWsRpc = (
           const settings = ServerSettings.redactServerSettingsForClient(
             yield* serverSettings.getSettings,
           );
-          const adminPolicy = yield* AdminProviderPolicyRef;
+          const adminPolicy = yield* AdminPolicyRef;
+          const tailscaleBlock = yield* tailscaleAccess.blockReason;
           const environment = yield* serverEnvironment.getDescriptor;
           const auth = yield* serverAuth.getDescriptor();
           const scratchWorkspaceRoot = yield* managedFolders.scratchRoot;
@@ -1715,8 +1716,8 @@ const layerWsRpc = (
               onNone: () => ({}),
               onSome: (targets) => ({ remoteOpenTargets: targets }),
             }),
-            ...((yield* tailscaleAccess.blockReason) === "environment"
-              ? { tailscaleBlockedBy: "environment" as const }
+            ...(tailscaleBlock === "policy" || tailscaleBlock === "environment"
+              ? { tailscaleBlockedBy: tailscaleBlock }
               : {}),
             directEndpoints: yield* resolveAvailableEditorsForConfig(directEndpoints.resolve()),
             observability: {

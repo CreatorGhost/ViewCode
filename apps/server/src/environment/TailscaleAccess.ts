@@ -1,4 +1,5 @@
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 import {
   readTailscaleSshEnabled,
   readTailscaleStatus,
@@ -58,13 +59,14 @@ const make = Effect.gen(function* () {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const settings = yield* ServerSettings.ServerSettingsService;
   const env = yield* HostProcess.Environment;
+  const policyBlocked = (yield* AdminPolicyRef).tailscaleBlocked;
   const lastStatus = yield* Ref.make(Option.none<TailscaleStatus>());
 
   const blockReason = settings.getSettings.pipe(
     Effect.map((current) => current.tailscaleEnabled),
     // An unreadable settings file must not stop features the user turned on.
     Effect.orElseSucceed(() => true),
-    Effect.map((settingEnabled) => resolveTailscaleBlock({ env, settingEnabled })),
+    Effect.map((settingEnabled) => resolveTailscaleBlock({ policyBlocked, env, settingEnabled })),
   );
 
   const whenAllowed = <A, E>(

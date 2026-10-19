@@ -18,7 +18,7 @@ import {
   addProviderAccount,
   prepareProviderAccountSignIn,
 } from "./providerAccounts.ts";
-import { AdminProviderPolicyRef } from "./AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 
 const tempDir = () => NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "viewcode-accounts-"));
 
@@ -48,7 +48,11 @@ it.effect("admin-blocked accounts fail before creating directories or updating s
       expect(result.failure.detail).toBe("Blocked by your organization.");
     expect(updated).toBe(false);
   }).pipe(
-    Effect.provideService(AdminProviderPolicyRef, { blockedDrivers: ["codex"], problem: null }),
+    Effect.provideService(AdminPolicyRef, {
+      blockedDrivers: ["codex"],
+      tailscaleBlocked: false,
+      problem: null,
+    }),
     Effect.provide(NodeServices.layer),
   ),
 );
