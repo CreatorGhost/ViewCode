@@ -36,7 +36,7 @@ excluded from ViewCode are gated, not deleted.
 | Command Code, Droid and Devin                     | Native provider drivers in `provider/viewcode/`; Droid/Devin use upstream ACP capabilities                                                                                     |
 | Cursor `cursor-agent` runtime                     | `provider/viewcode/cursorDriver.ts` wraps upstream's SDK `CursorDriver`; the CLI runtime is an ACP flavor (`cursorAgent*.ts`), chosen in `cursorRuntime.ts`                    |
 | Pi and Muse                                       | Upstream native provider packages, with ViewCode policy and environment hooks                                                                                                  |
-| First-run choice and admin policy                 | `provider/viewcode/firstRunProviders.ts`, launch gates and policy drivers; project toggles remain subordinate                                                                  |
+| First-run choice and admin policy                 | `provider/viewcode/firstRunProviders.ts`, launch gates and policy drivers; policy read by `@t3tools/shared/viewcodeAdminPolicy`; project toggles remain subordinate            |
 | Provider/account usage and automatic resume       | `resourceTelemetry/`, provider usage readers, `agents/UsageResume.ts` and native lifecycle bridge                                                                              |
 | Cursor/T3 session import and history tools        | Native `project/AgentSessionScanner.ts`/`AgentSessionImporter.ts`; `ViewCodeSessionSources.ts`, `CursorHistory.ts`, `T3CodeHistoryV2.ts`, `ViewCodeImportedLineage.ts`         |
 | Computer use and phone notifications              | `computerUse/ComputerUseV2Bridge.ts`, server route/layer hooks; `notifications/PushNotifications.ts`                                                                           |
@@ -607,8 +607,10 @@ goal state. Debug guidance must not alter the provider's own permission policy.
   opens (the config only carries the last answer). Server spawns go through
   `environment/TailscaleAccess.ts` (60s cache), desktop ones through
   `DesktopTailscaleGate`; both answer "allowed?" with `resolveTailscaleBlock`, where
-  `VIEWCODE_DISABLE_TAILSCALE` outranks the `tailscaleEnabled` setting. Add an admin
-  policy there, not at a call site. The dialog
+  IT's admin policy outranks `VIEWCODE_DISABLE_TAILSCALE`, which outranks the
+  `tailscaleEnabled` setting. `packages/tailscale` also checks the policy and the
+  environment switch where it spawns, so a caller that skips the gate still runs
+  nothing. Add a new reason there, not at a call site. The dialog
   does not offer upstream's hosted T3 Connect tunnel:
   Quick connect does that job on the user's own account, and a third choice only
   confused people. Native managed relay infrastructure remains upstream code, but ViewCode hides
@@ -1005,6 +1007,15 @@ Doctor/triage and their suggestions, Settings command installation, Nightly/Disc
 notices, T3 Connect promotions and anonymous-usage onboarding copy stay hidden.
 Database cleanup is documented as a deliberate manual task, not an automatic
 upgrade side effect.
+
+IT's machine-wide policy (`packages/shared/src/viewcodeAdminPolicy.ts`, user
+guide: [company policy](../user/install.md#company-policy)) blocks providers and
+Tailscale. Each process reads it once through `AdminPolicyRef`, and nothing a user
+controls (settings, project overrides, environment variables) may relax it. The
+macOS managed-preferences plist is decoded in-process on purpose: a startup spawn
+of `plutil` or `defaults` is the kind of launch endpoint security on managed Macs
+flags. Settings, the instance registry and launch gate, provider installation
+probes and account switching each check it; a new provider path must too.
 
 Anonymous analytics default to disabled with no bundled collection key; explicit
 operator configuration is required to enable collection. Native CLI self-update

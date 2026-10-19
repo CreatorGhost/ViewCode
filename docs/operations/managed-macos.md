@@ -28,18 +28,68 @@ Now nothing runs `tailscale` at startup, on a config read or on page load:
 - The desktop turns Serve on at launch only after the user turns on **Turn on
   Tailscale phone access at launch**, and lists Same Wi-Fi tailnet addresses
   from the network interfaces without the CLI.
-- Off switch: **Settings → Connections → Tailscale** (`tailscaleEnabled` in
-  `settings.json`, default on) or `VIEWCODE_DISABLE_TAILSCALE=1` in the
-  environment, which outranks the setting. Either turns every Tailscale command
-  into a no-op that reports "Tailscale is turned off". The one answer is
-  `resolveTailscaleBlock` in `packages/tailscale` (the server's
-  `TailscaleAccess.blockReason`, the desktop's `DesktopTailscaleGate`); an admin
-  policy adds its reason there. The environment switch is also enforced where
-  `packages/tailscale` spawns, so no caller can bypass it.
+- Off switches, strongest first: IT's [admin policy](#it-policy-blocking-providers-and-tailscale)
+  (`tailscale.allowed: false`), `VIEWCODE_DISABLE_TAILSCALE=1` in the
+  environment, then **Settings → Connections → Tailscale** (`tailscaleEnabled`
+  in `settings.json`, default on). Each turns every Tailscale command into a
+  no-op that reports why. The one answer is `resolveTailscaleBlock` in
+  `packages/tailscale` (the server's `TailscaleAccess.blockReason`, the
+  desktop's `DesktopTailscaleGate`). The policy and the environment switch are
+  also enforced where `packages/tailscale` spawns, so no caller can bypass them.
 
-On a managed Mac where EDR kills `tailscaled`, set `"tailscaleEnabled": false`
-in `userdata/settings.json` or export `VIEWCODE_DISABLE_TAILSCALE=1` before the
-first launch.
+On a managed Mac where EDR kills `tailscaled`, have IT block Tailscale with the
+policy, or set `"tailscaleEnabled": false` in `userdata/settings.json` or export
+`VIEWCODE_DISABLE_TAILSCALE=1` before the first launch.
+
+## IT policy: blocking providers and Tailscale
+
+A setting is the user's choice; a company that bans a tool needs a block the
+user cannot lift. ViewCode reads a machine-wide policy once when it starts (the
+server and the desktop app each read it):
+
+- macOS: managed preferences for `dev.viewcode.app`, i.e.
+  `/Library/Managed Preferences/dev.viewcode.app.plist`. ViewCode decodes the
+  plist itself (binary or XML); it runs no `plutil` or `defaults`.
+- Linux `/etc/viewcode/policy.json`, Windows `C:\ProgramData\ViewCode\policy.json`,
+  with the same keys as JSON.
+
+A blocked provider is off for the provider registry, the launch gate, Settings,
+the first-run picker and the "no provider" prompt whatever `settings.json` or a
+project says, and its binary is never probed or spawned (Codex's and
+Antigravity's installation probes included). Blocked Tailscale means no
+`tailscale` spawn at all. `settings.json` keeps the user's own choice, so lifting
+the policy restores it. An unreadable policy is logged and blocks nothing.
+Reader: `packages/shared/src/viewcodeAdminPolicy.ts`.
+
+**How IT sets it on macOS:** a configuration profile installed on the **device**
+(a user-scoped profile lands under `/Library/Managed Preferences/<user>/`, which
+ViewCode does not read) with a Custom Settings (application preferences) payload
+for the domain `dev.viewcode.app`. In Jamf Pro that is Application & Custom
+Settings → Upload, preference domain `dev.viewcode.app`, with:
+
+```xml
+<dict>
+  <key>providers</key>
+  <dict>
+    <key>codex</key>
+    <dict><key>allowed</key><false/></dict>
+  </dict>
+  <key>tailscale</key>
+  <dict><key>allowed</key><false/></dict>
+</dict>
+```
+
+Provider keys are the driver ids (`codex`, `claudeAgent`, `cursor`, `grok`,
+`opencode`, `antigravity`, `commandCode`, `droid`, `devin`, `pi`, `muse`;
+`acpRegistry` blocks every ACP registry agent). Only `allowed: false` blocks.
+
+**Check on the managed Mac:** `plutil -p "/Library/Managed Preferences/dev.viewcode.app.plist"`
+shows the keys above. Restart ViewCode; Settings → Providers shows Codex as
+**Blocked by your organization** with its switch off, the welcome screen and the
+"no provider" prompt do not offer it, and Settings → Connections → Tailscale says
+Tailscale is blocked by your organization. Then `userdata/logs/spawn-trace.log`
+must show no `codex`, no `tailscale` and no `plutil` line, and the server log no
+"Could not read the ViewCode admin policy" warning.
 
 ## How to check on a managed Mac
 
@@ -201,6 +251,11 @@ Each is independently justified, whether or not the EDR hypothesis holds.
 7. **Trim entitlements** to what's required (`allow-jit`).
 8. **Developer ID signing + notarization** before distributing builds to
    managed machines; ad-hoc builds carry no reputation.
+9. **Admin policy:** IT blocks providers and Tailscale machine-wide (see
+   [IT policy](#it-policy-blocking-providers-and-tailscale)).
+   _Done when:_ a blocked provider cannot be switched on and its binary never
+   runs, and blocked Tailscale means zero `tailscale` spawns, whatever
+   `settings.json` or the environment says.
 
 Items 1 to 3 go upstream as one issue ("managed machines need a way to stop
 provider probes"), item 4 as a separate one. Keep machine specifics out.
@@ -214,7 +269,9 @@ exception, or touches the EDR.
    T3 Code and an exception for the ViewCode app/bundle. This is the one fact
    that ends the guessing. The Cortex XDR app's alert "Details" disclosure shows
    the source PID and command line without admin.
-2. **Pre-disable providers you won't use** before the first launch. The
+2. **Pre-disable providers you won't use** before the first launch (where IT
+   owns the decision, the [IT policy](#it-policy-blocking-providers-and-tailscale)
+   enforces it instead). The
    desktop app reads `~/.viewcode/userdata/settings.json`; create it if absent
    (merge if present) with, for example:
 

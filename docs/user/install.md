@@ -23,8 +23,9 @@ as `nvm alias default 24`.
 
 On a company network that inspects TLS, add `export NODE_OPTIONS=--use-system-ca`
 to your shell profile so Node trusts the certificates your company installed.
-Enable only providers and remote-access tools your company allows. An IT provider
-policy takes precedence over choices made during setup or in a project.
+Enable only providers and remote-access tools your company allows. A
+[company policy](#company-policy) takes precedence over choices made during setup
+or in a project.
 
 ## Command line
 
@@ -119,8 +120,8 @@ managed runtimes without a `PATH` entry.
 A new install starts with every provider off. The welcome screen asks which ones
 you use and shows which CLIs it found, without running any of them; nothing starts
 until you turn a provider on there or in **Settings → Providers**. Existing installs
-keep their saved provider choices. A company administrator can block providers;
-that policy takes precedence over user choices and per-project provider toggles.
+keep their saved provider choices. A [company policy](#company-policy) can block
+providers whatever you or a project choose.
 
 ViewCode warns when a provider version has known compatibility problems with your
 release. Check **Settings → Providers** on that environment for the recommended
@@ -145,6 +146,36 @@ For provider-specific setup and accounts, see [Codex](./providers-codex.md),
 [Claude](./providers-claude.md), [OpenCode](./providers-opencode.md),
 [Antigravity](./providers-antigravity.md), [Droid](./providers-droid.md),
 [Devin](./providers-devin.md), and [Pi](./providers-pi.md).
+
+## Company policy
+
+IT can block providers and Tailscale for everyone on a computer. A blocked provider
+stays off whatever the user, a project or the welcome screen picks, never runs, and
+shows as **Blocked by your organization**. Blocked Tailscale means ViewCode never
+runs the `tailscale` command, and **Settings → Connections → Tailscale** shows it as
+blocked. Deploy the policy, then restart ViewCode:
+
+```json
+{
+  "providers": { "codex": { "allowed": false } },
+  "tailscale": { "allowed": false }
+}
+```
+
+| Platform | Where                                                                                      |
+| -------- | ------------------------------------------------------------------------------------------ |
+| macOS    | A device configuration profile with managed preferences for `dev.viewcode.app` (same keys) |
+| Linux    | `/etc/viewcode/policy.json`                                                                |
+| Windows  | `C:\ProgramData\ViewCode\policy.json`                                                      |
+
+On macOS the profile must be installed for the device, not a single user: ViewCode
+reads `/Library/Managed Preferences/dev.viewcode.app.plist`.
+
+Provider keys are `codex`, `claudeAgent`, `cursor`, `grok`, `opencode`,
+`antigravity`, `commandCode`, `droid`, `devin`, `pi` and `muse`; `acpRegistry`
+blocks every agent added from the ACP registry. Only `"allowed": false` blocks.
+Users cannot lift the policy from settings or the environment. A policy file that
+cannot be read is reported in the server log and blocks nothing.
 
 ## Next steps
 
