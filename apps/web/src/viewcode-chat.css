@@ -59,23 +59,25 @@ html[data-chat-density="comfortable"] [data-timeline-root] .chat-markdown {
  * over existing markup so upstream merges stay cheap.
  * ------------------------------------------------------------------------- */
 
+/* Header rules below use `html:root`, not `html[data-theme-id]`: the standard
+   theme sets no theme id, and the header must look the same there. Both have
+   the same specificity, so they still beat index.css's themed header rules. */
+
 /* Header chips (Button variant="chip" / size="chip"): borderless, muted at
    rest, a quiet fill on hover. Doubled class beats the themed header rule in
    index.css, which fills every header button with the toolbar surface. */
-html[data-theme-id] [data-chat-header] .vc-chip.vc-chip {
+html:root [data-chat-header] .vc-chip.vc-chip {
   --control-icon-color: currentColor;
   background-color: transparent;
   border-color: transparent;
   box-shadow: none;
   color: var(--muted-foreground);
 }
-html[data-theme-id]
-  [data-chat-header]
-  .vc-chip.vc-chip:is(:hover, [data-pressed], [data-popup-open]) {
+html:root [data-chat-header] .vc-chip.vc-chip:is(:hover, [data-pressed], [data-popup-open]) {
   background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
   color: var(--foreground);
 }
-html[data-theme-id] [data-chat-header] [data-slot="group"] [data-slot="separator"] {
+html:root [data-chat-header] [data-slot="group"] [data-slot="separator"] {
   display: none;
 }
 
@@ -84,7 +86,7 @@ html[data-theme-id] [data-chat-header] [data-slot="group"] [data-slot="separator
    dividers between them. Controls inside a pill are borderless and muted;
    hover and pressed only lift them. Beats index.css, which paints every
    header button with the toolbar surface. */
-html[data-theme-id]
+html:root
   :is(
     [data-chat-header-actions] > [data-slot="group"],
     [data-chat-header-actions] > [data-header-actions-group],
@@ -100,7 +102,7 @@ html[data-theme-id]
   border-radius: 9999px;
   background-color: color-mix(in srgb, var(--foreground) 5.5%, transparent);
 }
-html[data-theme-id]
+html:root
   :is(
     [data-chat-header-actions] > [data-slot="group"],
     [data-chat-header-actions] > [data-header-actions-group],
@@ -113,7 +115,7 @@ html[data-theme-id]
 }
 /* The titlebar host is as tall as the top bar; as a 2rem pill it centres itself
    in that bar instead of hanging from its top. */
-html[data-theme-id] [data-workspace-titlebar-controls]:has(> * + *) {
+html:root [data-workspace-titlebar-controls]:has(> * + *) {
   translate: 0 calc((var(--workspace-topbar-height) - 2rem) / 2);
 }
 /* ViewCode's inset sheet has a 1px top border the fixed host sits above. */
@@ -124,9 +126,7 @@ html[data-theme-id] [data-workspace-titlebar-controls]:has(> * + *) {
   }
 }
 /* A pane-toggle group nested in a titlebar pill joins it, not a pill of its own. */
-html[data-theme-id]
-  [data-workspace-titlebar-controls]:has(> * + *)
-  :is(div, [data-panel-layout-controls]) {
+html:root [data-workspace-titlebar-controls]:has(> * + *) :is(div, [data-panel-layout-controls]) {
   display: inline-flex;
   align-items: center;
   gap: 1px;
@@ -135,7 +135,7 @@ html[data-theme-id]
   background: none;
 }
 /* Hairline between neighbours. ::after, because Button draws on ::before. */
-html[data-theme-id]
+html:root
   :is(
     [data-chat-header-actions] > [data-slot="group"],
     [data-chat-header-actions] > [data-header-actions-group],
@@ -154,7 +154,7 @@ html[data-theme-id]
   background-color: color-mix(in srgb, var(--foreground) 12%, transparent);
   pointer-events: none;
 }
-html[data-theme-id]
+html:root
   :is([data-chat-header], [data-workspace-titlebar-controls])
   :is(
     [data-slot="button"],
@@ -174,7 +174,7 @@ html[data-theme-id]
   color: color-mix(in srgb, var(--foreground) 72%, transparent);
   font-size: 0.8125rem;
 }
-html[data-theme-id]
+html:root
   :is([data-chat-header], [data-workspace-titlebar-controls])
   :is(
     [data-slot="button"],
@@ -185,7 +185,7 @@ html[data-theme-id]
   box-shadow: none;
   border-radius: 9999px;
 }
-html[data-theme-id]
+html:root
   :is([data-chat-header], [data-workspace-titlebar-controls])
   :is(
     [data-slot="button"],
@@ -196,7 +196,7 @@ html[data-theme-id]
   width: 1.75rem;
   padding-inline: 0;
 }
-html[data-theme-id]
+html:root
   :is([data-chat-header], [data-workspace-titlebar-controls])
   :is(
     [data-slot="button"],
@@ -209,7 +209,7 @@ html[data-theme-id]
   height: 0.875rem;
 }
 /* Same sizes as the core app: 14px action icons, 16px panel toggles, 28px buttons. */
-html[data-theme-id]
+html:root
   :is(
     [data-panel-layout-controls]
       :is([data-slot="button"], [data-slot="toggle"], button[data-slot="tooltip-trigger"]),
@@ -219,7 +219,7 @@ html[data-theme-id]
   width: 1rem;
   height: 1rem;
 }
-html[data-theme-id]
+html:root
   :is([data-chat-header], [data-workspace-titlebar-controls])
   :is(
     [data-slot="button"],
@@ -231,16 +231,12 @@ html[data-theme-id]
   color: var(--foreground);
 }
 /* The editor menu chevron is a narrow tail on the open-in button. */
-html[data-theme-id] [data-chat-header-actions] > [data-slot="group"] > [data-slot="menu-trigger"] {
+html:root [data-chat-header-actions] > [data-slot="group"] > [data-slot="menu-trigger"] {
   min-width: 1.25rem;
   width: 1.25rem;
   padding-inline: 0;
 }
-html[data-theme-id]
-  [data-chat-header-actions]
-  > [data-slot="group"]
-  > [data-slot="menu-trigger"]
-  svg {
+html:root [data-chat-header-actions] > [data-slot="group"] > [data-slot="menu-trigger"] svg {
   width: 0.75rem;
   height: 0.75rem;
 }
@@ -614,7 +610,7 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
 /* A narrow header (right panel open on a small window) keeps the thread title readable: the
    open-in-editor group goes first, since the command palette and its shortcut still reach it. */
 @container header-actions (max-width: 26rem) {
-  html[data-theme-id] [data-chat-header] [data-chat-header-actions] > [data-slot="group"] {
+  html:root [data-chat-header] [data-chat-header-actions] > [data-slot="group"] {
     display: none;
   }
 }
