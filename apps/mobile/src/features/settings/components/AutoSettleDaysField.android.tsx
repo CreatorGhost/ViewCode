@@ -1,7 +1,4 @@
-import {
-  MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
-  MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
-} from "@t3tools/contracts";
+import { MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS, MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS } from "@t3tools/contracts";
 import { View } from "react-native";
 
 import { AppText } from "../../../components/AppText";

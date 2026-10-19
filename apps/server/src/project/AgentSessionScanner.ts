@@ -1,36 +1,17 @@
-/**
- * AgentSessionScanner - discovery of projects a user already works on.
- *
- * Claude Code and Codex both keep a per-session transcript on disk, and each
- * transcript records the directory the session ran in. Reading those `cwd`
- * values gives us the set of directories worth offering as projects during
- * onboarding, without asking the user to browse the filesystem.
- *
- * The scan is read-only and best-effort: an unreadable home, a malformed
- * transcript, or a directory that has since been deleted is skipped rather
- * than failing the scan. Project creation stays with the client, which
- * dispatches `project.create` for whichever candidates the user picks.
- *
- * @module project/AgentSessionScanner
- */
 import * as NodeOS from "node:os";
 
 import {
   AgentSessionScanError,
   ClaudeSettings,
   CodexSettings,
-  DEFAULT_MODEL,
-  DEFAULT_MODEL_BY_PROVIDER,
   ProviderDriverKind,
   ProviderInstanceId,
   resolveProviderInstanceEnabled,
-  type AgentSessionHiddenReason,
   type AgentSessionImportSource,
   type AgentSessionProjectCandidate,
   type AgentSessionProjectGit,
   type AgentSessionScanResult,
   type ProviderInstanceConfig,
-  type ServerSettings as ServerSettingsValue,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -48,42 +29,27 @@ import {
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
   parseOriginUrlFromGitConfig,
 } from "@t3tools/shared/git";
-import { AGENT_MESSAGE_TAG } from "@t3tools/shared/agentMessages";
-import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
 
 import * as ServerConfig from "../config.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
-import { expandHomePath } from "../pathExpansion.ts";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ViewCodeSessionSources from "./ViewCodeSessionSources.ts";
 import {
   createTranscriptJsonReader,
   createTranscriptJsonSelector,
   TranscriptJsonLimitError,
 } from "./AgentSessionJson.ts";
-import * as CursorHistory from "./CursorHistory.ts";
-import * as T3CodeHistory from "./T3CodeHistory.ts";
 
-/** Chunk size for full transcript reads. */
 const TRANSCRIPT_PREFIX_BYTES = 32 * 1024;
-/** Small reads avoid wasting the metadata budget on long Codex instruction headers. */
 const METADATA_READ_BYTES = 8 * 1024;
-/** Prevent malformed transcripts from turning project discovery into a full file scan. */
 const MAX_TRANSCRIPT_SCAN_BYTES = 1024 * 1024;
 
-/**
- * Upper bound on transcripts inspected (first line read) per source.
- * Newest-first ordering means the cap drops only stale sessions when a home
- * directory is unusually large.
- */
 const MAX_TRANSCRIPTS_PER_SOURCE = 5000;
 
-/**
- * Upper bound on discovery filesystem operations per source. Newest-first
- * ordering needs mtimes before the read cap can be applied, so directory reads
- * and candidate stats share a larger budget. Once it runs out the scan stops.
- */
 const MAX_DISCOVERY_OPERATIONS_PER_SOURCE = MAX_TRANSCRIPTS_PER_SOURCE * 4;
 const MAX_METADATA_BYTES_PER_SOURCE = 64 * 1024 * 1024;
 const MAX_METADATA_OPERATIONS_PER_SOURCE = MAX_TRANSCRIPTS_PER_SOURCE * 4;
@@ -93,7 +59,7 @@ const RECENT_THREAD_WINDOW_MS = 60 * 24 * 60 * 60 * 1000;
 /**
  * Large tool results (especially screenshots) can make an otherwise ordinary
  * Codex transcript several GiB. Streaming field selection avoids allocating
- * those payloads. Raw I/O and selected history have separate budgets.
+ * those payloads.
  */
 const MAX_IMPORTED_TRANSCRIPT_BYTES = 4 * 1024 * 1024 * 1024;
 const MAX_IMPORTED_MESSAGES = 200;
@@ -136,10 +102,9 @@ const TranscriptRecord = Schema.Struct({
       message: Schema.optional(Schema.String),
       model: Schema.optional(Schema.String),
       cwd: Schema.optional(Schema.String),
+      source: Schema.optional(Schema.Unknown),
       content: Schema.optional(Schema.Array(TranscriptContentBlock)),
       internal_chat_message_metadata_passthrough: Schema.optional(Schema.Unknown),
-      // Codex session_meta: `{ subagent: … }` marks a sub-agent rollout.
-      source: Schema.optional(Schema.Unknown),
     }),
   ),
 });
@@ -175,25 +140,15 @@ export interface AgentSessionThread {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly messages: ReadonlyArray<AgentSessionThreadMessage>;
-  /** Provider session that spawned this one, when it is a sub-agent. */
-  readonly parentProviderSessionId?: string;
-  /** User messages with text of their own, not only injected context. */
-  readonly userMessageCount: number;
-  /** Set when the import picker should fold this session away by default. */
-  readonly hiddenReason: AgentSessionHiddenReason | null;
-  /** Driver the thread continues on when `source` is not a driver itself (T3 Code). */
   readonly driver?: ProviderDriverKind;
-  /**
-   * Native session a T3 Code thread can resume. Claude and Codex files resume
-   * `providerSessionId` itself.
-   */
-  readonly resume?: T3CodeResume;
-}
-
-export interface T3CodeResume {
-  readonly provider: "claudeAgent" | "codex";
-  readonly sessionId: string;
-  readonly resumeSessionAt?: string;
+  readonly resume?: {
+    readonly provider: "codex" | "claudeAgent";
+    readonly sessionId: string;
+    readonly resumeSessionAt?: string;
+  };
+  readonly parentProviderSessionId?: string;
+  readonly userMessageCount?: number;
+  readonly hiddenReason?: import("@t3tools/contracts").AgentSessionHiddenReason | null;
 }
 
 export type AgentSessionRecentThread =
@@ -205,19 +160,11 @@ export type AgentSessionRecentThread =
   | { readonly _tag: "AlreadyImported"; readonly source: AgentSessionImportSource }
   | { readonly _tag: "Duplicate"; readonly source: AgentSessionImportSource }
   | { readonly _tag: "Skipped" }
-  /** A source was found but could not be read; nothing from it is listed. */
   | { readonly _tag: "Warning"; readonly message: string };
 
-/** Service tag for agent session discovery. */
 export class AgentSessionScanner extends Context.Service<
   AgentSessionScanner,
   {
-    /**
-     * Discover every directory the configured Claude and Codex homes have run
-     * a session in. Candidates are returned newest-first; the client decides
-     * which ones to import and how far back to look. Fails with the contract
-     * error directly — there is no server-local context worth wrapping.
-     */
     readonly scan: Effect.Effect<AgentSessionScanResult, AgentSessionScanError>;
     readonly recentThreads: (
       workspaceRoot: string,
@@ -228,13 +175,11 @@ export class AgentSessionScanner extends Context.Service<
 
 type AgentSessionSource = AgentSessionProjectCandidate["sources"][number];
 
-/** A single directory's worth of evidence from one source. */
 interface RawCandidate {
+  readonly externalProjectId?: string;
   readonly cwd: string;
   readonly source: AgentSessionSource;
   readonly providerInstanceId: ProviderInstanceId;
-  /** The T3 Code project this candidate came from (`source` is `t3code`). */
-  readonly t3ProjectId?: string;
   readonly threadCount: number;
   readonly lastActiveAtMs: number | null;
   readonly transcripts: ReadonlyArray<{
@@ -315,7 +260,16 @@ function codexTurnId(metadata: unknown): string | null {
   return decoded.value.turn_id;
 }
 
-/** Keep visible user and assistant text while ignoring tools, reasoning, and malformed records. */
+// Codex records setup context as user text ahead of the real request. Skip
+// these leading blocks when deriving a title; imported messages keep them.
+const CODEX_TITLE_PREAMBLE =
+  /^(?:\s*(?:<(recommended_plugins|environment_context|user_instructions|INSTRUCTIONS|in-app-browser-context)(?:\s[^>]*)?>[\s\S]*?<\/\1>|# AGENTS\.md instructions\b[^\n]*|## My request for Codex:))+/;
+
+function deriveTitle(source: AgentSessionSource, text: string): string | undefined {
+  const request = source === "codex" ? text.replace(CODEX_TITLE_PREAMBLE, "") : text;
+  return ViewCodeSessionSources.titleFromUserText(request) ?? undefined;
+}
+
 export function parseAgentSessionTranscript(
   input: AgentSessionTranscriptMetadata & {
     readonly contents: string;
@@ -327,113 +281,6 @@ export function parseAgentSessionTranscript(
   return parseAgentSessionRecords(input, records);
 }
 
-type CodexSessionOrigin =
-  | { readonly kind: "main" }
-  | { readonly kind: "child"; readonly parentSessionId: string }
-  | { readonly kind: "internal" };
-
-/**
- * Codex writes sub-agent rollouts next to the main ones. Spawned sub-agents
- * name their parent; review, compaction and memory runs are internal work
- * with no conversation of their own. Rollouts spell the key `subagent`, the
- * app-server protocol `subAgent`.
- */
-export function codexSessionOrigin(source: unknown): CodexSessionOrigin {
-  if (typeof source !== "object" || source === null) return { kind: "main" };
-  const record = source as Record<string, unknown>;
-  const subAgent = record.subagent ?? record.subAgent ?? record.sub_agent;
-  if (subAgent === undefined) return { kind: "main" };
-  if (typeof subAgent === "object" && subAgent !== null) {
-    const spawn = (subAgent as Record<string, unknown>).thread_spawn;
-    if (typeof spawn === "object" && spawn !== null) {
-      const parent = (spawn as Record<string, unknown>).parent_thread_id;
-      if (typeof parent === "string" && parent.trim().length > 0) {
-        return { kind: "child", parentSessionId: parent.trim() };
-      }
-    }
-  }
-  return { kind: "internal" };
-}
-
-const LEADING_TAG_BLOCK = /^<([A-Za-z_][\w-]*)[^>]*>[\s\S]*?<\/\1>\s*/;
-const TRAYCER_AGENT_MESSAGE = "[traycer:agent-message]";
-
-/** Drops leading context blocks a harness injects, optionally stopping at one tag. */
-function stripLeadingTagBlocks(text: string, keepTag?: string): string {
-  let rest = text.trim();
-  for (let match = rest.match(LEADING_TAG_BLOCK); match; match = rest.match(LEADING_TAG_BLOCK)) {
-    if (match[1] === keepTag) break;
-    rest = rest.slice(match[0].length).trimStart();
-  }
-  return rest;
-}
-
-/**
- * What the person actually typed: the text left after context blocks
- * harnesses inject as user messages (`<environment_context>`, AGENTS.md
- * instructions, plugin lists) and agent-message headers. Null when nothing is.
- */
-// The last line of ViewCode's handoff prelude (orchestration/Handoff.ts), sent
-// ahead of the user's message on the first turn after a provider switch.
-const HANDOFF_TRAILER = "The user's new message follows.";
-
-function userAuthoredText(text: string): string | null {
-  const rest = stripLeadingTagBlocks(text);
-  if (/^# AGENTS\.md instructions/i.test(rest)) return null;
-  const lines = rest
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(
-      (line) =>
-        line.length > 0 && !line.startsWith(TRAYCER_AGENT_MESSAGE) && line !== HANDOFF_TRAILER,
-    );
-  if (lines[0] === undefined || lines[0].startsWith("<")) return null;
-  return lines.join("\n");
-}
-
-/** A title from what the person actually asked. */
-export function titleFromUserText(text: string): string | null {
-  const authored = userAuthoredText(text);
-  if (authored === null) return null;
-  return authored.split("\n")[0]?.slice(0, 100).trim() || null;
-}
-
-const MIN_VISIBLE_USER_MESSAGES = 2;
-const MIN_VISIBLE_USER_CHARACTERS = 200;
-
-/**
- * Decide whether the import picker folds a session away, and count the user
- * messages worth showing. `userTexts` are the session's user messages in
- * order. The first message with content of its own decides whether another
- * agent started the session.
- */
-export function classifyAgentSession(input: {
-  readonly origin: CodexSessionOrigin["kind"];
-  readonly userTexts: ReadonlyArray<string>;
-}): { readonly hiddenReason: AgentSessionHiddenReason | null; readonly userMessageCount: number } {
-  const authored = input.userTexts.flatMap((text) => {
-    const value = userAuthoredText(text);
-    return value === null ? [] : [value];
-  });
-  const userMessageCount = authored.length;
-  const hidden = (hiddenReason: AgentSessionHiddenReason) => ({ hiddenReason, userMessageCount });
-  if (input.origin === "child") return hidden("subagent");
-  if (input.origin === "internal") return hidden("internal");
-  for (const text of input.userTexts) {
-    const rest = stripLeadingTagBlocks(text, AGENT_MESSAGE_TAG);
-    if (rest.startsWith(TRAYCER_AGENT_MESSAGE) || rest.startsWith(`<${AGENT_MESSAGE_TAG}`)) {
-      return hidden("agent-message");
-    }
-    if (userAuthoredText(text) !== null) break;
-  }
-  if (userMessageCount === 0) return hidden("no-user-text");
-  const characters = authored.reduce((total, text) => total + text.length, 0);
-  if (userMessageCount < MIN_VISIBLE_USER_MESSAGES && characters < MIN_VISIBLE_USER_CHARACTERS) {
-    return hidden("too-short");
-  }
-  return { hiddenReason: null, userMessageCount };
-}
-
 function parseAgentSessionRecords(
   input: AgentSessionTranscriptMetadata,
   records: ReadonlyArray<DecodedTranscriptRecord>,
@@ -443,16 +290,13 @@ function parseAgentSessionRecords(
   // timestamp text, so only transcript metadata can provide a resumable ID.
   let providerSessionId = input.source === "codex" ? "" : input.fallbackSessionId;
   let title: string | null = null;
+  let derivedTitle: string | undefined;
   let model: string | null = null;
   let hasCodexSessionId = false;
-  let origin: CodexSessionOrigin = { kind: "main" };
   const messages: Array<AgentSessionThreadMessage & { readonly codexResponseUser: boolean }> = [];
   let firstUserMessage:
     | (AgentSessionThreadMessage & { readonly codexResponseUser: boolean })
     | undefined;
-  // A Codex response item can include generated setup text beside the real
-  // prompt. Suppress response-user records only when the shared turn ID and a
-  // verbatim event copy prove which prompt the user submitted.
   const canonicalCodexResponseUserIndices = new Set<number>();
   let canonicalUserTextsInTurn = new Set<string>();
   let responseUsersInTurn: Array<{
@@ -512,6 +356,9 @@ function parseAgentSessionRecords(
     if (firstUserMessage === undefined && message.role === "user") {
       firstUserMessage = message;
     }
+    if (derivedTitle === undefined && message.role === "user") {
+      derivedTitle = deriveTitle(input.source, message.text);
+    }
     messages.push(message);
     if (messages.length > MAX_IMPORTED_MESSAGES) messages.shift();
   };
@@ -569,8 +416,6 @@ function parseAgentSessionRecords(
       if (!hasCodexSessionId && sessionId) {
         providerSessionId = sessionId;
         hasCodexSessionId = true;
-        // Only the rollout's own meta: a fork can repeat its parent's meta later.
-        origin = codexSessionOrigin(record.payload?.source);
       }
       continue;
     }
@@ -634,187 +479,27 @@ function parseAgentSessionRecords(
   const retainedMessages = firstUserMessageRetained
     ? visibleMessages
     : [visibleFirstUserMessage, ...visibleMessages.slice(-(MAX_IMPORTED_MESSAGES - 1))];
-  const classification = classifyAgentSession({
+  const origin = ViewCodeSessionSources.codexSessionOrigin(
+    records.find((record) => record.type === "session_meta")?.payload?.source,
+  );
+  const classification = ViewCodeSessionSources.classifyAgentSession({
     origin: origin.kind,
     userTexts: retainedMessages
       .filter((message) => message.role === "user")
       .map((message) => message.text),
   });
-  const derivedTitle =
-    [visibleFirstUserMessage, ...visibleMessages]
-      .filter((message) => message.role === "user")
-      .map((message) => titleFromUserText(message.text))
-      .find((candidate) => candidate !== null) ??
-    visibleFirstUserMessage.text.trim().split("\n")[0]?.slice(0, 100).trim();
 
   return {
     source: input.source,
     providerInstanceId: input.providerInstanceId,
     providerSessionId,
-    title: title ?? (derivedTitle && derivedTitle.length > 0 ? derivedTitle : "Imported thread"),
+    title: title ?? derivedTitle ?? "Imported thread",
     model,
     createdAt: retainedMessages[0]?.createdAt ?? fallbackTimestamp,
     updatedAt: fallbackTimestamp,
     messages: retainedMessages,
+    ...classification,
     ...(origin.kind === "child" ? { parentProviderSessionId: origin.parentSessionId } : {}),
-    userMessageCount: classification.userMessageCount,
-    hiddenReason: classification.hiddenReason,
-  };
-}
-
-const CLAUDE_SESSION_UUID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-/** The Claude or Codex session a T3 resume cursor names, in the shape the importer binds. */
-function t3CodeResume(driver: string, cursor: unknown): AgentSessionThread["resume"] | undefined {
-  if (typeof cursor !== "object" || cursor === null) return undefined;
-  const record = cursor as Record<string, unknown>;
-  const text = (value: unknown) =>
-    typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-  if (driver === "codex") {
-    const sessionId = text(record.threadId);
-    return sessionId === undefined ? undefined : { provider: "codex", sessionId };
-  }
-  if (driver === "claudeAgent") {
-    const sessionId = text(record.resume) ?? text(record.sessionId);
-    if (sessionId === undefined || !CLAUDE_SESSION_UUID.test(sessionId)) return undefined;
-    const resumeSessionAt = text(record.resumeSessionAt);
-    return {
-      provider: "claudeAgent",
-      sessionId,
-      ...(resumeSessionAt === undefined ? {} : { resumeSessionAt }),
-    };
-  }
-  return undefined;
-}
-
-/**
- * The messages an imported database thread keeps: all of them, or the first
- * user message and the latest ones. Null when no one ever wrote in it.
- */
-function importedMessageWindow<Message extends { readonly role: string }>(
-  all: ReadonlyArray<Message>,
-): ReadonlyArray<Message> | null {
-  const firstUserIndex = all.findIndex((message) => message.role === "user");
-  if (firstUserIndex === -1) return null;
-  if (all.length <= MAX_IMPORTED_MESSAGES) return all;
-  return firstUserIndex >= all.length - (MAX_IMPORTED_MESSAGES - 1)
-    ? all.slice(-MAX_IMPORTED_MESSAGES)
-    : [all[firstUserIndex]!, ...all.slice(-(MAX_IMPORTED_MESSAGES - 1))];
-}
-
-/**
- * A T3 Code thread as an importable session. It continues on the instance T3
- * used when ViewCode has one by that id, else on Codex. T3's saved Claude or
- * Codex session carries over only when it ran on that same instance; other
- * threads continue with a recap (see ProviderCommandReactor).
- */
-export function t3CodeThreadToAgentSession(
-  thread: T3CodeHistory.T3CodeThread,
-  settings: Pick<ServerSettingsValue, "providerInstances">,
-): AgentSessionThread | null {
-  const driverOf = (instanceId: string | null): ProviderDriverKind | null => {
-    if (instanceId === null) return null;
-    const configured = settings.providerInstances[ProviderInstanceId.make(instanceId)];
-    if (configured !== undefined) return configured.driver;
-    const builtIn = ProviderDriverKind.make(instanceId);
-    return DEFAULT_MODEL_BY_PROVIDER[builtIn] === undefined ? null : builtIn;
-  };
-  const t3Driver = driverOf(thread.instanceId);
-  const instanceId = t3Driver === null ? "codex" : (thread.instanceId ?? "codex");
-  const driver = t3Driver ?? ProviderDriverKind.make("codex");
-  const model =
-    t3Driver !== null && thread.model !== null
-      ? thread.model
-      : (DEFAULT_MODEL_BY_PROVIDER[driver] ?? DEFAULT_MODEL);
-
-  const binding = thread.binding;
-  const bindingInstanceId =
-    binding === null ? null : (binding.providerInstanceId ?? binding.providerName);
-  const resume =
-    binding !== null && bindingInstanceId === instanceId && binding.providerName === driver
-      ? t3CodeResume(driver, binding.resumeCursor)
-      : undefined;
-
-  const fallback = normalizeTimestamp(
-    thread.updatedAt,
-    normalizeTimestamp(thread.createdAt, DateTime.formatIso(DateTime.makeUnsafe(0))),
-  );
-  const all = thread.messages.map((message) => ({
-    ...message,
-    createdAt: normalizeTimestamp(message.createdAt, fallback),
-  }));
-  const messages = importedMessageWindow(all);
-  if (messages === null) return null;
-  const classification = classifyAgentSession({
-    origin: thread.parentThreadId === null ? "main" : "child",
-    userTexts: messages.filter((message) => message.role === "user").map((message) => message.text),
-  });
-  const title =
-    thread.title.length > 0
-      ? thread.title
-      : (all
-          .filter((message) => message.role === "user")
-          .map((message) => titleFromUserText(message.text))
-          .find((candidate) => candidate !== null) ?? "Imported thread");
-
-  return {
-    source: "t3code",
-    providerInstanceId: ProviderInstanceId.make(instanceId),
-    providerSessionId: thread.id,
-    title,
-    model,
-    createdAt: normalizeTimestamp(thread.createdAt, messages[0]?.createdAt ?? fallback),
-    updatedAt: fallback,
-    messages,
-    ...(thread.parentThreadId === null ? {} : { parentProviderSessionId: thread.parentThreadId }),
-    userMessageCount: classification.userMessageCount,
-    hiddenReason: classification.hiddenReason,
-    driver,
-    ...(resume === undefined ? {} : { resume }),
-  };
-}
-
-/**
- * A Cursor chat as an importable session. It continues on the Cursor driver
- * with no resume cursor, so its first turn carries a recap of the imported
- * history (see AgentSessionImporter).
- */
-export function cursorThreadToAgentSession(
-  thread: CursorHistory.CursorThread,
-): AgentSessionThread | null {
-  const fallback = normalizeTimestamp(thread.updatedAt, DateTime.formatIso(DateTime.makeUnsafe(0)));
-  const all = thread.messages.map((message) => ({
-    ...message,
-    createdAt: normalizeTimestamp(message.createdAt, fallback),
-  }));
-  const messages = importedMessageWindow(all);
-  if (messages === null) return null;
-  const userTexts = all.filter((message) => message.role === "user").map((message) => message.text);
-  const classification = classifyAgentSession({
-    origin: "main",
-    userTexts: messages.filter((message) => message.role === "user").map((message) => message.text),
-  });
-  // "New Agent" is the name Cursor gives every chat it never titled.
-  const cursorTitle = thread.title?.trim();
-  const title =
-    (cursorTitle && cursorTitle.toLowerCase() !== "new agent" ? cursorTitle : null) ??
-    userTexts.map(titleFromUserText).find((candidate) => candidate !== null) ??
-    "Imported thread";
-  return {
-    source: "cursor",
-    providerInstanceId: ProviderInstanceId.make("cursor"),
-    providerSessionId: thread.id,
-    title,
-    model: null,
-    createdAt: normalizeTimestamp(thread.createdAt, messages[0]?.createdAt ?? fallback),
-    updatedAt: fallback,
-    messages,
-    userMessageCount: classification.userMessageCount,
-    // A single prompt is mostly a one-off Cursor CLI command, not a conversation.
-    hiddenReason:
-      classification.hiddenReason ?? (classification.userMessageCount <= 1 ? "too-short" : null),
-    driver: ProviderDriverKind.make("cursor"),
   };
 }
 
@@ -847,16 +532,6 @@ function shouldRetainDecodedRecord(
   );
 }
 
-/**
- * T3 Code runs its own agent sessions inside disposable worktrees. Their
- * transcripts look exactly like user sessions, but re-importing the app's own
- * sandboxes as projects is never right. Matches this server's configured
- * worktrees directory plus the conventional `.t3/worktrees` layout, which
- * also catches sandboxes from other T3 homes on the same machine. Separators
- * are normalized (and, on Windows, case folded) so the prefix match holds
- * there too. Callers check both the recorded spelling and its realpath so a
- * symlink into the worktrees directory cannot bypass the filter.
- */
 function normalizeForWorktreeMatch(value: string, caseFold: boolean): string {
   const normalized = `${value.replaceAll("\\", "/")}/`;
   return caseFold ? normalized.toLowerCase() : normalized;
@@ -874,7 +549,6 @@ function isT3ManagedWorktree(
   );
 }
 
-/** Extract `cwd` from a session-meta record, tolerating the shapes each CLI writes. */
 function extractCwd(line: string): string | null {
   let parsed: unknown;
   try {
@@ -888,7 +562,6 @@ function extractCwd(line: string): string | null {
   if (typeof record.cwd === "string" && record.cwd.trim().length > 0) {
     return record.cwd;
   }
-  // Codex nests session metadata under `payload`.
   const payload = record.payload;
   if (typeof payload === "object" && payload !== null) {
     const nested = (payload as Record<string, unknown>).cwd;
@@ -904,8 +577,8 @@ function transcriptIdentity(filePath: string, stats: FileSystem.File.Info) {
     filePath,
     size: Number(stats.size),
     mtimeMs: Option.match(stats.mtime, { onNone: () => null, onSome: (date) => date.getTime() }),
-    device: stats.dev,
-    inode: Option.getOrNull(stats.ino),
+    device: Number(stats.dev),
+    inode: Option.match(stats.ino, { onNone: () => null, onSome: Number }),
     birthtimeMs: Option.match(stats.birthtime, {
       onNone: () => null,
       onSome: (date) => date.getTime(),
@@ -930,32 +603,28 @@ function sameTranscriptIdentity(
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
+  const externalSources = yield* ViewCodeSessionSources.make;
   // Different project imports can arrive concurrently from multiple clients.
   // Only one transcript may hold its selected-history budget at a time.
   const importReadLock = yield* Semaphore.make(1);
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig.ServerConfig;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
-  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-  // Optional so a scanner without a T3 Code install to read (tests, embeds) needs no stub.
-  const t3CodeHistory = yield* Effect.serviceOption(T3CodeHistory.T3CodeHistory);
-  const cursorHistory = yield* Effect.serviceOption(CursorHistory.CursorHistory);
+  const projectStore = yield* ProjectStore.ProjectStoreV2;
   const baseDir = path.resolve(serverConfig.baseDir);
   const worktreesDir = path.resolve(serverConfig.worktreesDir);
-  // Windows filesystems are case-insensitive, so path prefix checks there
-  // must case fold.
-  const foldWorktreeCase = (yield* HostProcessPlatform) === "win32";
-  const hostEnvironment = yield* HostProcessEnvironment;
-  const homeDir = NodeOS.homedir();
+  const realWorktreesDir = yield* fileSystem
+    .realPath(worktreesDir)
+    .pipe(Effect.orElseSucceed(() => worktreesDir));
+  const foldWorktreeCase = (yield* HostProcess.Platform) === "win32";
+  const hostEnvironment = yield* HostProcess.Environment;
+  const homeDir = yield* HostProcess.HomeDirectory;
   // `/private/tmp` is what macOS reports for sessions started in `/tmp`.
   const excludedProjectRoots = new Set(
     [homeDir, NodeOS.tmpdir(), "/tmp", "/private/tmp"].map((directory) =>
       normalizeProjectPathForComparison(path.resolve(directory)),
     ),
   );
-  // Codex creates one scratch directory per conversation under
-  // ~/Documents/Codex/<date>/<slug>. Neither those nor anything a user
-  // unpacked into Downloads is a project.
   const excludedProjectAncestors = [
     path.join(homeDir, "Downloads"),
     path.join(homeDir, "Documents", "Codex"),
@@ -971,7 +640,8 @@ export const make = Effect.gen(function* () {
     normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(
       normalizeForWorktreeMatch(baseDir, foldWorktreeCase),
     ) ||
-    isT3ManagedWorktree(candidatePath, worktreesDir, foldWorktreeCase);
+    isT3ManagedWorktree(candidatePath, worktreesDir, foldWorktreeCase) ||
+    isT3ManagedWorktree(candidatePath, realWorktreesDir, foldWorktreeCase);
 
   const listDirectory = (directory: string) =>
     fileSystem.readDirectory(directory).pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
@@ -979,19 +649,13 @@ export const make = Effect.gen(function* () {
   const statOption = (target: string) =>
     fileSystem.stat(target).pipe(Effect.asSome, Effect.orElseSucceed(Option.none));
 
-  /** Match directory aliases without assuming the host volume is case-insensitive. */
   const directoryIdentity = Effect.fn("AgentSessionScanner.directoryIdentity")(function* (
     target: string,
     knownStats?: FileSystem.File.Info,
   ) {
     const resolved = path.resolve(target);
     const stats = knownStats === undefined ? yield* statOption(resolved) : Option.some(knownStats);
-    if (
-      Option.isSome(stats) &&
-      Option.isSome(stats.value.ino) &&
-      Number.isSafeInteger(stats.value.ino.value) &&
-      stats.value.ino.value > 0
-    ) {
+    if (Option.isSome(stats) && Option.isSome(stats.value.ino) && stats.value.ino.value > 0n) {
       return `inode:${stats.value.dev}:${stats.value.ino.value}`;
     }
     const realPath = yield* fileSystem
@@ -1001,13 +665,9 @@ export const make = Effect.gen(function* () {
   });
 
   /**
-   * Git identity of a directory, or the reason it has none. Reads `.git`
-   * directly instead of spawning git so a scan over hundreds of candidates
-   * stays cheap. A `.git` file is a `gitdir:` pointer. When it points into a
-   * `worktrees/` directory the checkout is a linked worktree, which
-   * onboarding skips because its history belongs to the main checkout.
-   * Submodules use the same pointer shape but live under `modules/`, and
-   * are offered like any other repository.
+   * When it points into a `worktrees/` directory the checkout is a linked worktree, which
+   * onboarding skips because its history belongs to the main checkout. Submodules use the same
+   * pointer shape but live under `modules/`, and are offered like any other repository.
    */
   const readGitIdentity = Effect.fn("AgentSessionScanner.readGitIdentity")(function* (
     directory: string,
@@ -1042,8 +702,6 @@ export const make = Effect.gen(function* () {
     } as const;
   });
 
-  // A large history snapshot can precede session metadata. Read bounded
-  // chunks until a complete record names its cwd or the safety budget ends.
   const readCwd = Effect.fn("AgentSessionScanner.readCwd")(function* (
     transcript: TranscriptCandidate,
     budget: MetadataReadBudget,
@@ -1124,11 +782,6 @@ export const make = Effect.gen(function* () {
     ).pipe(Effect.orElseSucceed(() => null));
   });
 
-  /**
-   * Project history fields while reading, before allocating whole JSON records.
-   * Check the file identity on both sides of the read. A selected-history budget
-   * failure rejects the entire transcript before any imported messages persist.
-   */
   const readTranscript = Effect.fn("AgentSessionScanner.readTranscript")(function* (
     filePath: string,
     expected: ReturnType<typeof transcriptIdentity>,
@@ -1218,22 +871,16 @@ export const make = Effect.gen(function* () {
     );
   });
 
-  /**
-   * Resolve the Claude config directory the CLI would use, matching the
-   * precedence the spawned CLI sees: the instance's `homePath` (exported as
-   * `CLAUDE_CONFIG_DIR`), then a `CLAUDE_CONFIG_DIR` already in the
-   * environment, then `~/.claude`.
-   */
   const resolveClaudeConfigDir = (homePath: string, environmentHome?: string): string => {
     const configured = homePath.trim();
     if (configured.length > 0) {
-      return path.resolve(expandHomePath(configured));
+      return path.resolve(expandHomePath(configured, homeDir));
     }
     const fromEnvironment = environmentHome?.trim() ?? "";
     if (fromEnvironment.length > 0) {
-      return path.resolve(expandHomePath(fromEnvironment));
+      return path.resolve(expandHomePath(fromEnvironment, homeDir));
     }
-    return path.join(NodeOS.homedir(), ".claude");
+    return path.join(homeDir, ".claude");
   };
 
   const discoverClaudeTranscripts = Effect.fn("AgentSessionScanner.discoverClaudeTranscripts")(
@@ -1303,8 +950,6 @@ export const make = Effect.gen(function* () {
         operationsRemaining -= 1;
         return listDirectory(directory);
       };
-      // Date-partitioned directories sort chronologically, so walking them in
-      // reverse spends each home's share of the operation budget on recent sessions.
       for (const year of (yield* readDirectory(sessionsDir)).toSorted().toReversed()) {
         if (operationsRemaining <= 0) {
           truncated = true;
@@ -1418,20 +1063,15 @@ export const make = Effect.gen(function* () {
           config,
         }));
       if (!Object.hasOwn(settings.providerInstances, source)) {
-        const legacyInstance = {
+        const defaultInstance = {
           instanceId: ProviderInstanceId.make(source),
-          config: {
-            driver: ProviderDriverKind.make(source),
-            config: settings.providers[source],
-          },
+          config: { driver: ProviderDriverKind.make(source) },
         };
-        if (resolveProviderInstanceEnabled(legacyInstance.config)) {
-          instances.push(legacyInstance);
+        if (resolveProviderInstanceEnabled(defaultInstance.config)) {
+          instances.push(defaultInstance);
         }
       }
 
-      // A shared home contains one copy of each session. Prefer the built-in
-      // instance as its owner, then keep configured order for custom accounts.
       instances.sort((left, right) => {
         const leftDefault = left.instanceId === source ? 0 : 1;
         const rightDefault = right.instanceId === source ? 0 : 1;
@@ -1496,7 +1136,6 @@ export const make = Effect.gen(function* () {
       if (transcriptCandidates.length > MAX_TRANSCRIPTS_PER_SOURCE) {
         truncated = true;
       }
-      // Give each account a turn before taking another file from the same home.
       const selectedTranscripts = selectMetadataTranscripts(transcriptCandidates);
       const metadataBudget: MetadataReadBudget = {
         bytesRemaining: MAX_METADATA_BYTES_PER_SOURCE,
@@ -1508,71 +1147,19 @@ export const make = Effect.gen(function* () {
       truncated ||= metadataBudget.truncated;
     }
 
-    // Each history source may add a warning; all of them are shown.
-    const warnings: Array<string> = [];
-    if (Option.isSome(t3CodeHistory)) {
-      const read = yield* t3CodeHistory.value.projects;
-      const t3Warning = T3CodeHistory.t3CodeReadWarning(read);
-      if (t3Warning !== null) {
-        warnings.push(t3Warning);
-        yield* Effect.logWarning("Could not read T3 Code projects", { reason: read });
-      }
-      if (read._tag === "Read") {
-        for (const project of read.value) {
-          const lastActive =
-            project.lastActiveAt === null ? Option.none() : DateTime.make(project.lastActiveAt);
-          raw.push({
-            cwd: project.workspaceRoot,
-            source: "t3code",
-            providerInstanceId: ProviderInstanceId.make("t3code"),
-            t3ProjectId: project.id,
-            threadCount: project.threadCount,
-            lastActiveAtMs: Option.isSome(lastActive)
-              ? DateTime.toEpochMillis(lastActive.value)
-              : null,
-            transcripts: [],
-          });
-        }
-      }
-    }
-
-    if (Option.isSome(cursorHistory)) {
-      const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-      const read = yield* cursorHistory.value.projects(nowMs - RECENT_THREAD_WINDOW_MS);
-      const cursorWarning = CursorHistory.cursorReadWarning(read);
-      if (cursorWarning !== null) {
-        warnings.push(cursorWarning);
-        yield* Effect.logWarning("Could not read Cursor projects", { reason: read._tag });
-      }
-      if (read._tag === "Read") {
-        for (const project of read.value) {
-          raw.push({
-            cwd: project.workspaceRoot,
-            source: "cursor",
-            providerInstanceId: ProviderInstanceId.make("cursor"),
-            threadCount: project.threadCount,
-            lastActiveAtMs: project.lastActiveAt === null ? null : Date.parse(project.lastActiveAt),
-            transcripts: [],
-          });
-        }
-      }
-    }
-
-    return {
-      candidates: raw,
-      truncated,
-      warning: warnings.length === 0 ? null : warnings.join(" "),
-    };
+    const external = yield* externalSources.discover(
+      DateTime.toEpochMillis(yield* DateTime.now) - RECENT_THREAD_WINDOW_MS,
+    );
+    raw.push(...external.candidates);
+    return { candidates: raw, truncated, warnings: external.warnings };
   });
 
   let cachedCandidates: ReadonlyArray<RawCandidate> | null = null;
 
   const scan: AgentSessionScanner["Service"]["scan"] = Effect.gen(function* () {
-    const { candidates: raw, truncated, warning } = yield* collectCandidates();
+    const { candidates: raw, truncated, warnings } = yield* collectCandidates();
     cachedCandidates = raw;
 
-    // Filesystem identity merges symlinks and case aliases without collapsing
-    // distinct case-sensitive directories.
     const merged = new Map<
       string,
       {
@@ -1587,14 +1174,13 @@ export const make = Effect.gen(function* () {
     const gitIdentities = new Map<string, AgentSessionProjectGit | null>();
 
     for (const candidate of raw) {
-      const expanded = expandHomePath(candidate.cwd.trim());
+      const expanded = expandHomePath(candidate.cwd.trim(), homeDir);
       if (!path.isAbsolute(expanded)) continue;
       const resolved = path.resolve(expanded);
       if (isExcludedProjectPath(resolved)) continue;
       let key = directoryKeys.get(resolved);
       if (key === undefined) {
         const stats = yield* statOption(resolved);
-        // Directories that no longer exist can't be imported.
         if (Option.isNone(stats) || stats.value.type !== "Directory") {
           directoryKeys.set(resolved, "");
           continue;
@@ -1642,24 +1228,22 @@ export const make = Effect.gen(function* () {
 
     // Resolve persisted roots too. A project and a transcript can name
     // different symlinks to the same directory.
-    const shellSnapshot = yield* projectionSnapshotQuery
-      .getShellSnapshot()
+    const importedProjects = yield* projectStore
+      .listShells()
       .pipe(
         Effect.mapError(
           (cause) => new AgentSessionScanError({ operation: "read-projects", cause }),
         ),
       );
-    const importedProjectsByRoot = new Map<string, (typeof shellSnapshot.projects)[number]>();
-    for (const project of shellSnapshot.projects) {
-      const projectRoot = path.resolve(expandHomePath(project.workspaceRoot));
+    const importedProjectsByRoot = new Map<string, (typeof importedProjects)[number]>();
+    for (const project of importedProjects) {
+      const projectRoot = path.resolve(expandHomePath(project.workspaceRoot, homeDir));
       importedProjectsByRoot.set(normalizeProjectPathForComparison(projectRoot), project);
       importedProjectsByRoot.set(yield* directoryIdentity(projectRoot), project);
     }
 
     const candidates: Array<AgentSessionProjectCandidate> = [];
     for (const [key, entry] of merged.entries()) {
-      // Keep the path key for missing roots and use filesystem identity for
-      // aliases that resolve to the same directory.
       const importedProject =
         importedProjectsByRoot.get(normalizeProjectPathForComparison(entry.path)) ??
         importedProjectsByRoot.get(key);
@@ -1679,7 +1263,6 @@ export const make = Effect.gen(function* () {
       });
     }
 
-    // Newest first, undated candidates last.
     candidates.sort((left, right) => {
       if (left.lastActiveAt === right.lastActiveAt) return left.path.localeCompare(right.path);
       if (left.lastActiveAt === null) return 1;
@@ -1691,7 +1274,7 @@ export const make = Effect.gen(function* () {
       candidates,
       scannedAt: DateTime.formatIso(yield* DateTime.now),
       ...(truncated ? { truncated: true } : {}),
-      ...(warning === null ? {} : { warning }),
+      ...(warnings.length === 0 ? {} : { warning: [...new Set(warnings)].join(" ") }),
     };
   });
 
@@ -1699,7 +1282,7 @@ export const make = Effect.gen(function* () {
     workspaceRoot: string,
     completedSources: ReadonlyArray<AgentSessionImportSource>,
   ) {
-    const root = path.resolve(expandHomePath(workspaceRoot));
+    const root = path.resolve(expandHomePath(workspaceRoot, homeDir));
     const realRoot = yield* fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => root));
     if (isExcludedProjectPath(root) || isExcludedProjectPath(realRoot)) return Stream.empty;
     const rootIdentity = yield* directoryIdentity(root);
@@ -1709,20 +1292,18 @@ export const make = Effect.gen(function* () {
     const candidates = cachedCandidates ?? (yield* collectCandidates()).candidates;
     cachedCandidates = candidates;
 
+    const matchingCandidates: RawCandidate[] = [];
     const eligibleTranscripts: Array<{
       readonly candidate: RawCandidate;
       readonly transcript: RawCandidate["transcripts"][number] & { readonly mtimeMs: number };
     }> = [];
-    const t3ProjectIds: Array<string> = [];
-    const cursorRoots: Array<string> = [];
     for (const candidate of candidates) {
-      const expanded = expandHomePath(candidate.cwd.trim());
+      const expanded = expandHomePath(candidate.cwd.trim(), homeDir);
       if (!path.isAbsolute(expanded)) continue;
       const resolved = path.resolve(expanded);
       if ((yield* directoryIdentity(resolved)) !== rootIdentity) continue;
-      if (candidate.t3ProjectId !== undefined) t3ProjectIds.push(candidate.t3ProjectId);
-      if (candidate.source === "cursor") cursorRoots.push(candidate.cwd);
 
+      matchingCandidates.push(candidate);
       for (const transcript of candidate.transcripts) {
         if (
           transcript.mtimeMs === null ||
@@ -1753,9 +1334,7 @@ export const make = Effect.gen(function* () {
     let bytesRemaining = MAX_IMPORT_BYTES;
     let transcriptsRemaining = MAX_IMPORT_TRANSCRIPTS;
     let recordsRemaining = MAX_IMPORT_RECORDS;
-    const t3Outcomes = yield* readT3CodeThreads(t3ProjectIds);
-    const cursorOutcomes = yield* readCursorThreads(cursorRoots, cutoffMs);
-    const providerOutcomes = Stream.fromIteratorSucceed(eligibleTranscripts.values(), 1).pipe(
+    const transcripts = Stream.fromIteratorSucceed(eligibleTranscripts.values(), 1).pipe(
       Stream.mapEffect(({ candidate, transcript }) =>
         Effect.gen(function* () {
           const completed = completedByFile.get(
@@ -1793,7 +1372,6 @@ export const make = Effect.gen(function* () {
           ) {
             return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
           }
-          // Reserve the whole file even if its read or parse fails.
           transcriptsRemaining -= 1;
           bytesRemaining -= identity.size;
           const snapshot = yield* readTranscript(
@@ -1807,7 +1385,6 @@ export const make = Effect.gen(function* () {
           }
           recordsRemaining -= snapshot.recordCount;
 
-          // A stable replacement file can belong to a different project than the cached candidate.
           let snapshotCwd: string | null = null;
           for (const record of snapshot.records) {
             snapshotCwd = extractDecodedCwd(record);
@@ -1816,7 +1393,7 @@ export const make = Effect.gen(function* () {
           if (snapshotCwd === null) {
             return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
           }
-          const expandedCwd = expandHomePath(snapshotCwd.trim());
+          const expandedCwd = expandHomePath(snapshotCwd.trim(), homeDir);
           if (
             !path.isAbsolute(expandedCwd) ||
             (yield* directoryIdentity(path.resolve(expandedCwd))) !== rootIdentity
@@ -1858,91 +1435,12 @@ export const make = Effect.gen(function* () {
       Stream.map(Option.toArray),
       Stream.flattenIterable,
     );
-    return Stream.concat(providerOutcomes, Stream.fromIterable([...t3Outcomes, ...cursorOutcomes]));
-  });
 
-  /**
-   * Every thread of the given T3 Code projects, whatever its age: moving from
-   * T3 Code means bringing all of it. Already-imported threads are still
-   * listed; the importer recognizes them by thread id.
-   */
-  const readT3CodeThreads = Effect.fn("AgentSessionScanner.readT3CodeThreads")(function* (
-    projectIds: ReadonlyArray<string>,
-  ) {
-    if (projectIds.length === 0 || Option.isNone(t3CodeHistory)) {
-      return [] as Array<AgentSessionRecentThread>;
-    }
-    const read = yield* t3CodeHistory.value.threads(projectIds);
-    if (read._tag !== "Read") {
-      const warning = T3CodeHistory.t3CodeReadWarning(read);
-      if (warning === null) return [];
-      yield* Effect.logWarning("Could not read T3 Code threads", { reason: read });
-      return [{ _tag: "Warning", message: warning } as const];
-    }
     const settings = yield* serverSettings.getSettings.pipe(
       Effect.mapError((cause) => new AgentSessionScanError({ operation: "read-settings", cause })),
     );
-    return read.value.flatMap((t3Thread): Array<AgentSessionRecentThread> => {
-      const thread = t3CodeThreadToAgentSession(t3Thread, settings);
-      if (thread === null) return [];
-      return [
-        {
-          _tag: "Importable",
-          thread,
-          // A database row has no file identity; the path records where it came from.
-          source: {
-            provider: "t3code",
-            providerInstanceId: thread.providerInstanceId,
-            providerSessionId: thread.providerSessionId,
-            filePath: read.databasePath,
-            size: 0,
-            mtimeMs: null,
-            device: 0,
-            inode: null,
-            birthtimeMs: null,
-          },
-        },
-      ];
-    });
-  });
-
-  /** Cursor chats of the given folders updated inside the recency window. */
-  const readCursorThreads = Effect.fn("AgentSessionScanner.readCursorThreads")(function* (
-    workspaceRoots: ReadonlyArray<string>,
-    cutoffMs: number,
-  ) {
-    if (workspaceRoots.length === 0 || Option.isNone(cursorHistory)) {
-      return [] as Array<AgentSessionRecentThread>;
-    }
-    const read = yield* cursorHistory.value.threads(workspaceRoots, cutoffMs);
-    const outcomes: Array<AgentSessionRecentThread> = [];
-    const warning = CursorHistory.cursorReadWarning(read);
-    if (warning !== null) {
-      yield* Effect.logWarning("Could not read Cursor threads", { reason: read._tag });
-      outcomes.push({ _tag: "Warning", message: warning });
-    }
-    if (read._tag !== "Read") return outcomes;
-    for (const cursorThread of read.value) {
-      const thread = cursorThreadToAgentSession(cursorThread);
-      if (thread === null) continue;
-      outcomes.push({
-        _tag: "Importable",
-        thread,
-        // A database row has no file identity; the path records where it came from.
-        source: {
-          provider: "cursor",
-          providerInstanceId: thread.providerInstanceId,
-          providerSessionId: thread.providerSessionId,
-          filePath: cursorThread.sourcePath,
-          size: 0,
-          mtimeMs: null,
-          device: 0,
-          inode: null,
-          birthtimeMs: null,
-        },
-      });
-    }
-    return outcomes;
+    const external = yield* externalSources.recent(matchingCandidates, cutoffMs, settings);
+    return Stream.concat(Stream.fromIterable(external), transcripts);
   });
 
   const recentThreads: AgentSessionScanner["Service"]["recentThreads"] = (
@@ -1954,3 +1452,11 @@ export const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(AgentSessionScanner, make);
+
+export {
+  classifyAgentSession,
+  codexSessionOrigin,
+  cursorThreadToAgentSession,
+  t3CodeThreadToAgentSession,
+  titleFromUserText,
+} from "./ViewCodeSessionSources.ts";

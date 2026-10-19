@@ -13,7 +13,7 @@
 import * as NodeCrypto from "node:crypto";
 import * as NodeZlib from "node:zlib";
 
-import * as Undici from "@effect/platform-node/Undici";
+import * as Undici from "undici";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";

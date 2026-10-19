@@ -1,26 +1,39 @@
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as SynchronizedRef from "effect/SynchronizedRef";
-import { HttpServer } from "effect/unstable/http";
-import * as NetAddress from "effect/unstable/net/NetAddress";
-
-import { BROWSER_CLI_ROUTE_PATH } from "../browserCli/browserCliProtocol.ts";
-import { COMPUTER_USE_ROUTE_PATH } from "../computerUse/computerUsePolicy.ts";
+import * as Option from "effect/Option";
+import * as ServerConfig from "../config.ts";
+import { ensureBrowserCliShim } from "../browserCli/BrowserCliShim.ts";
+import { computerUseScreenshotsDir } from "../computerUse/computerUsePolicy.ts";
+import { ensureComputerUseShim } from "../computerUse/ComputerUseShim.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import { ensureReviewCliShim } from "../reviewCli/ReviewCliShim.ts";
 import { REVIEW_CLI_ROUTE_PATH } from "../reviewCli/reviewCliProtocol.ts";
+import * as SynchronizedRef from "effect/SynchronizedRef";
+import { HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
+
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
-import * as McpProviderSession from "./McpProviderSession.ts";
-import { MCP_STDIO_BRIDGE_TOKEN_ENV } from "./McpStdioBridge.ts";
-import * as McpStdioBridgeLaunch from "./McpStdioBridgeLaunch.ts";
+import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import { resolveMcpStdioBridgeLaunch } from "./McpStdioBridgeLaunch.ts";
 
 export interface McpCredentialRequest {
   readonly threadId: ThreadId;
   readonly providerInstanceId: ProviderInstanceId;
-  readonly capabilities: ReadonlySet<McpInvocationContext.McpCapability>;
+  /**
+   * When false, the credential is minted without the "preview" capability so
+   * the user's choice to withhold agent browser access holds everywhere the
+   * token is honored (#7083). Defaults to full access.
+   */
+  readonly browserToolsAvailable?: boolean;
+  readonly capabilities?: ReadonlySet<McpInvocationContext.McpCapability>;
 }
 
 export interface McpIssuedCredential {
@@ -28,15 +41,11 @@ export interface McpIssuedCredential {
 }
 
 export interface McpSessionRegistryShape {
+  readonly computerAvailable?: Effect.Effect<boolean>;
   readonly issue: (request: McpCredentialRequest) => Effect.Effect<McpIssuedCredential>;
   readonly resolve: (
     rawToken: string,
-  ) => Effect.Effect<McpInvocationContext.McpInvocationScope | undefined>;
-  /**
-   * Records a sign of life for every credential bound to `threadId`. Provider
-   * turns call this so that a session which is plainly alive keeps its
-   * credential even when it goes a long time without touching an MCP tool.
-   */
+  ) => Effect.Effect<McpInvocationContext.McpThreadInvocationScope | undefined>;
   readonly touch: (threadId: ThreadId) => Effect.Effect<void>;
   readonly revokeProviderSession: (providerSessionId: string) => Effect.Effect<void>;
   readonly revokeThread: (threadId: ThreadId) => Effect.Effect<void>;
@@ -50,7 +59,7 @@ export class McpSessionRegistry extends Context.Service<
 
 interface CredentialRecord {
   readonly tokenHash: string;
-  readonly scope: McpInvocationContext.McpInvocationScope;
+  readonly scope: McpInvocationContext.McpThreadInvocationScope;
   readonly lastAliveAt: number;
 }
 
@@ -64,18 +73,9 @@ export interface McpSessionRegistryOptions {
 }
 
 /**
- * How long a credential outlives the last sign of life from its provider
- * session.
- *
- * Liveness is refreshed both by MCP traffic and by `touch` on every provider
- * turn, so a session that is still doing work never expires no matter how long
- * it goes between browser tool calls. This window therefore only bounds
- * credentials whose session died without a clean stop — the normal paths
- * (`stopSession`, `stopAll`) revoke eagerly and do not wait for it.
- *
  * The bound matters because `/mcp` is mounted outside the environment auth
  * stack and is reachable on whatever host the server binds to, so this token is
- * the only thing guarding the `viewcode` toolkits on a remote-reachable server.
+ * the only thing guarding the `t3-code` toolkits on a remote-reachable server.
  */
 const DEFAULT_LIVENESS_WINDOW_MS = 24 * 60 * 60 * 1_000;
 
@@ -84,8 +84,6 @@ const bytesToHex = (bytes: Uint8Array): string =>
 
 const tokenFromBytes = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64url");
 
-// A wildcard bind is reachable on loopback, which is where the provider
-// subprocesses run; anything else is announced as the address it bound.
 const getHttpMcpEndpointHost = (address: NetAddress.IpAddress): string =>
   NetAddress.isUnspecified(address)
     ? "127.0.0.1"
@@ -95,6 +93,9 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   options: McpSessionRegistryOptions = {},
 ) {
   const crypto = yield* Crypto.Crypto;
+  const fs = yield* FileSystem.FileSystem;
+  const platform = yield* HostProcessPlatform;
+  const path = yield* Path.Path;
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const environmentId = yield* environment.getEnvironmentId;
   const httpServer = yield* HttpServer.HttpServer;
@@ -103,33 +104,35 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   const livenessWindowMs = options.livenessWindowMs ?? DEFAULT_LIVENESS_WINDOW_MS;
   const httpOrigin = NetAddress.isInetAddress(httpServer.address)
     ? `http://${getHttpMcpEndpointHost(httpServer.address.address)}:${httpServer.address.port}`
-    : "http://localhost";
-  const endpoint = `${httpOrigin}/mcp`;
-  // The computer-use CLI speaks plain HTTP itself, so on a socket listener it
-  // dials the socket directly instead of going through the stdio bridge.
-  const computerUseEndpoint =
+    : "http://127.0.0.1";
+  const endpoint =
     httpServer.address._tag === "UnixPathAddress"
       ? `unix:${httpServer.address.path}`
-      : `${httpOrigin}${COMPUTER_USE_ROUTE_PATH}`;
-  // Same for the browser CLI.
+      : `${httpOrigin}/mcp`;
+  const stdioBridge =
+    httpServer.address._tag === "UnixPathAddress"
+      ? yield* resolveMcpStdioBridgeLaunch({ socketPath: httpServer.address.path })
+      : undefined;
   const browserEndpoint =
     httpServer.address._tag === "UnixPathAddress"
       ? `unix:${httpServer.address.path}`
-      : `${httpOrigin}${BROWSER_CLI_ROUTE_PATH}`;
-  // And the review CLI.
+      : `${httpOrigin}/api/browser`;
   const reviewEndpoint =
     httpServer.address._tag === "UnixPathAddress"
       ? `unix:${httpServer.address.path}`
       : `${httpOrigin}${REVIEW_CLI_ROUTE_PATH}`;
-  // A socket listener has no URL a provider can dial, so providers launch the
-  // stdio bridge, which forwards to `/mcp` over the same socket. On TCP the
-  // bridge dials the endpoint, for agents that take only stdio MCP servers.
-  const isSocketListener = httpServer.address._tag === "UnixPathAddress";
-  const stdioBridge = yield* McpStdioBridgeLaunch.resolveMcpStdioBridgeLaunch(
-    httpServer.address._tag === "UnixPathAddress"
-      ? { socketPath: httpServer.address.path }
-      : { url: endpoint },
-  );
+  const config = yield* Effect.serviceOption(ServerConfig.ServerConfig);
+  const settings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+  const browserCliShimDir = Option.isSome(config)
+    ? yield* ensureBrowserCliShim({ stateDir: config.value.stateDir }).pipe(
+        Effect.orElseSucceed(() => undefined),
+      )
+    : undefined;
+  const reviewCliShimDir = Option.isSome(config)
+    ? yield* ensureReviewCliShim({ stateDir: config.value.stateDir }).pipe(
+        Effect.orElseSucceed(() => undefined),
+      )
+    : undefined;
 
   const hashToken = (token: string) =>
     crypto
@@ -145,30 +148,61 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     return next.size === records.size ? records : next;
   };
 
+  const computerShimDirectory = Effect.gen(function* () {
+    const enabled =
+      Option.isSome(settings) &&
+      (yield* settings.value.getSettings.pipe(
+        Effect.map((value) => value.computerUse !== "off"),
+        Effect.orElseSucceed(() => false),
+      ));
+    return enabled && Option.isSome(config)
+      ? yield* ensureComputerUseShim({ stateDir: config.value.stateDir }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+          Effect.orElseSucceed(() => undefined),
+        )
+      : undefined;
+  });
+
   const issue: McpSessionRegistryShape["issue"] = Effect.fn("McpSessionRegistry.issue")(
     function* (request) {
       yield* Effect.annotateCurrentSpan({
         threadId: request.threadId,
         providerInstanceId: request.providerInstanceId,
-        transport: isSocketListener ? "stdio" : "http",
-        capabilities: [...request.capabilities],
+        transport: stdioBridge ? "stdio" : "http",
       });
       const issuedAt = yield* currentTimeMillis;
-      const providerSessionId = yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+      const providerSessionId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
       const rawToken = yield* crypto.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
       const tokenHash = yield* hashToken(rawToken);
-      const bridgeLaunch = {
-        ...stdioBridge,
-        env: { ...stdioBridge.env, [MCP_STDIO_BRIDGE_TOKEN_ENV]: rawToken },
-      };
-      const scope: McpInvocationContext.McpInvocationScope = {
+      const browserToolsAvailable = request.browserToolsAvailable ?? true;
+      const computerShimDir = yield* computerShimDirectory;
+      const computerEndpoint =
+        httpServer.address._tag === "UnixPathAddress"
+          ? `unix:${httpServer.address.path}`
+          : `${httpOrigin}/api/computer-use`;
+      const scope: McpInvocationContext.McpThreadInvocationScope = {
         environmentId,
-        threadId: ThreadId.make(request.threadId),
-        providerSessionId,
-        providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
+        requestNamespace: providerSessionId,
+        thread: {
+          threadId: ThreadId.make(request.threadId),
+          providerSessionId,
+          providerInstanceId: ProviderInstanceId.make(request.providerInstanceId),
+        },
+        client: undefined,
         capabilities: new Set<McpInvocationContext.McpCapability>([
+          "orchestration",
+          "agents",
+          "worktree",
           "pull-requests",
-          ...request.capabilities,
+          ...(computerShimDir === undefined ? [] : (["computer"] as const)),
+          ...[
+            ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
+          ].filter(
+            (capability) =>
+              (capability !== "computer" || computerShimDir !== undefined) &&
+              (capability !== "preview" || browserToolsAvailable),
+          ),
         ]),
         issuedAt,
       };
@@ -180,15 +214,46 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       return {
         config: {
           environmentId,
-          threadId: scope.threadId,
+          threadId: scope.thread.threadId,
           providerSessionId,
-          providerInstanceId: scope.providerInstanceId,
+          providerInstanceId: scope.thread.providerInstanceId,
           endpoint,
-          computerUseEndpoint,
+          ...(stdioBridge === undefined
+            ? {}
+            : {
+                stdio: {
+                  ...stdioBridge,
+                  env: { ...stdioBridge.env, T3_MCP_BEARER_TOKEN: rawToken },
+                },
+              }),
           browserEndpoint,
+          cliPathSeparator: platform === "win32" ? ";" : ":",
+          ...(browserCliShimDir === undefined ? {} : { browserCliShimDir }),
           reviewEndpoint,
+          computerUseEndpoint: computerEndpoint,
+          ...(reviewCliShimDir === undefined ? {} : { reviewCliShimDir }),
           authorizationHeader: `Bearer ${rawToken}`,
-          ...(isSocketListener ? { stdio: bridgeLaunch } : { stdioBridge: bridgeLaunch }),
+          ...(computerShimDir === undefined
+            ? {}
+            : {
+                agentDeviceEnvironment: {
+                  VIEWCODE_COMPUTER_ENDPOINT: computerEndpoint,
+                  VIEWCODE_COMPUTER_AUTH: `Bearer ${rawToken}`,
+                  VIEWCODE_COMPUTER_CLI: path.join(computerShimDir, "viewcode-computer"),
+                  ...(Option.isSome(config)
+                    ? {
+                        VIEWCODE_COMPUTER_SCREENSHOTS_DIR: computerUseScreenshotsDir(
+                          config.value.stateDir,
+                          request.threadId,
+                          path.join,
+                        ),
+                      }
+                    : {}),
+                  PATH: computerShimDir,
+                  PATH_SEPARATOR: platform === "win32" ? ";" : ":",
+                },
+              }),
+          browserToolsAvailable: scope.capabilities.has("preview"),
           capabilities: scope.capabilities,
         },
       };
@@ -218,7 +283,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
         const current = pruneDead(records, timestamp);
         const next = new Map(current);
         for (const [tokenHash, record] of current) {
-          if (record.scope.threadId === threadId) {
+          if (record.scope.thread.threadId === threadId) {
             next.set(tokenHash, { ...record, lastAliveAt: timestamp });
           }
         }
@@ -233,17 +298,20 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     }));
 
   return McpSessionRegistry.of({
+    computerAvailable: computerShimDirectory.pipe(
+      Effect.map((directory) => directory !== undefined),
+    ),
     issue,
     resolve,
     touch,
     revokeProviderSession: Effect.fn("McpSessionRegistry.revokeProviderSession")(
       function* (providerSessionId) {
-        yield* revokeWhere((record) => record.scope.providerSessionId === providerSessionId);
+        yield* revokeWhere((record) => record.scope.thread.providerSessionId === providerSessionId);
       },
     ),
     revokeThread: Effect.fn("McpSessionRegistry.revokeThread")(function* (threadId) {
       yield* Effect.annotateCurrentSpan({ threadId });
-      yield* revokeWhere((record) => record.scope.threadId === threadId);
+      yield* revokeWhere((record) => record.scope.thread.threadId === threadId);
     }),
     revokeAll: SynchronizedRef.set(state, { records: new Map() }),
   });
@@ -251,21 +319,27 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
 
 let activeMcpSessionRegistry: McpSessionRegistryShape | undefined;
 
-const make = Effect.acquireRelease(
-  makeWithOptions().pipe(
-    Effect.tap((registry) =>
-      Effect.sync(() => {
-        activeMcpSessionRegistry = registry;
-      }),
+const make = Effect.gen(function* () {
+  const settings = yield* ServerSettings.ServerSettingsService;
+  const config = yield* ServerConfig.ServerConfig;
+  return yield* Effect.acquireRelease(
+    makeWithOptions().pipe(
+      Effect.provideService(ServerSettings.ServerSettingsService, settings),
+      Effect.provideService(ServerConfig.ServerConfig, config),
+      Effect.tap((registry) =>
+        Effect.sync(() => {
+          activeMcpSessionRegistry = registry;
+        }),
+      ),
     ),
-  ),
-  (registry) =>
-    Effect.sync(() => {
-      if (activeMcpSessionRegistry === registry) {
-        activeMcpSessionRegistry = undefined;
-      }
-    }),
-);
+    (registry) =>
+      Effect.sync(() => {
+        if (activeMcpSessionRegistry === registry) {
+          activeMcpSessionRegistry = undefined;
+        }
+      }),
+  );
+});
 
 export const layer = Layer.effect(McpSessionRegistry, make);
 
@@ -278,10 +352,6 @@ export const issueActiveMcpCredential = (
         .pipe(Effect.andThen(activeMcpSessionRegistry.issue(request)))
     : Effect.undefined;
 
-/**
- * Refreshes the liveness of a thread's MCP credential. Called on every provider
- * turn so an active session is never mistaken for an abandoned one.
- */
 export const touchActiveMcpThread = (threadId: ThreadId): Effect.Effect<void> =>
   activeMcpSessionRegistry ? activeMcpSessionRegistry.touch(threadId) : Effect.void;
 
@@ -291,7 +361,6 @@ export const revokeActiveMcpThread = (threadId: ThreadId): Effect.Effect<void> =
 export const revokeAllActiveMcpCredentials = (): Effect.Effect<void> =>
   activeMcpSessionRegistry ? activeMcpSessionRegistry.revokeAll : Effect.void;
 
-/** Exposed for tests. */
 export const __testing = {
   make: makeWithOptions,
 };

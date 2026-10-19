@@ -1,7 +1,7 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 
 import { getClientSettings } from "~/hooks/useSettings";
-import type { Thread } from "~/types";
+import type { EnvironmentThread as Thread } from "@t3tools/client-runtime/viewcodeThread";
 import { latestReadableReply, readAloudMessageKey } from "./readAloud.logic";
 import { speakReadAloud } from "./readAloudPlayer";
 

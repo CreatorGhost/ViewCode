@@ -1,3 +1,4 @@
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   AuthAccessWriteScope,
   type AuthPairingCredentialResult,
@@ -5,7 +6,7 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { CheckIcon, CopyIcon, SmartphoneIcon, TriangleAlertIcon } from "lucide-react";
-import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -217,30 +218,33 @@ function ConnectPhoneDialogContent() {
   const [confirmingTurnOff, setConfirmingTurnOff] = useState(false);
   const [exposureError, setExposureError] = useState<string | null>(null);
 
-  const setNetworkAccess = useCallback(async (enabled: boolean) => {
+  const setNetworkAccess = async (enabled: boolean) => {
     const bridge = window.desktopBridge;
     if (!bridge) return;
     setPendingMode(enabled ? "on" : "off");
     setExposureError(null);
     // The relaunch can land before this call resolves, so the flag goes first.
     if (enabled) writeResumeFlag();
-    try {
+    const operation = await settlePromise(async () => {
       await bridge.setServerExposureMode(enabled ? "network-accessible" : "local-only");
       refreshDesktopNetworkAccessState();
       setConfirmingTurnOff(false);
-    } catch (error) {
+    });
+
+    setPendingMode(null);
+
+    if (operation._tag === "Failure") {
+      const error = squashAtomCommandFailure(operation);
       if (enabled) clearResumeFlag();
       setExposureError(errorMessage(error, "Could not change network access."));
-    } finally {
-      setPendingMode(null);
     }
-  }, []);
+  };
 
   return (
     <>
       <DialogHeader>
         <DialogTitle>Connect phone</DialogTitle>
-        <DialogDescription>Control ViewCode from the T3 Code mobile app.</DialogDescription>
+        <DialogDescription>Control ViewCode from the ViewCode mobile app.</DialogDescription>
         <ToggleGroup
           aria-label="Phone connection"
           value={[mode === "local" ? "local" : "anywhere"]}
@@ -541,7 +545,7 @@ function usePairingCode(endpointId: string) {
     return () => window.clearTimeout(timer);
   }, [code]);
 
-  const createCode = useCallback(() => setCounter((current) => current + 1), []);
+  const createCode = () => setCounter((current) => current + 1);
   return {
     code,
     status,
@@ -581,10 +585,7 @@ function useLanSelfTest(endpoint: PhoneEndpoint | undefined) {
       cancelled = true;
     };
   }, [check, current]);
-  const start = useCallback(
-    () => setRun((previous) => ({ url, id: (previous?.id ?? 0) + 1 })),
-    [url],
-  );
+  const start = () => setRun((previous) => ({ url, id: (previous?.id ?? 0) + 1 }));
   // The dialog mounts this only while open, so this runs once per open.
   const autoTestedUrl = useRef<string | null>(null);
   useEffect(() => {
@@ -624,10 +625,10 @@ function ReadyBody({
     createCode: createFreshCode,
   } = usePairingCode(endpoint?.id ?? "");
   const lanTest = useLanSelfTest(endpoint);
-  const createCode = useCallback(() => {
+  const createCode = () => {
     if (window.desktopBridge) refreshDesktopNetworkAccessState();
     createFreshCode();
-  }, [createFreshCode]);
+  };
   if (!endpoint) return null;
   const pairingUrl = code ? resolveDesktopPairingUrl(endpoint.httpBaseUrl, code.credential) : null;
   const lanWarning = describeLanReachability(lanTest.result, endpoint.httpBaseUrl);
@@ -636,7 +637,7 @@ function ReadyBody({
   return (
     <Panel>
       <ol className="space-y-1.5 text-sm">
-        <Step n={1}>Install T3 Code from the App Store or Google Play.</Step>
+        <Step n={1}>Install ViewCode from the App Store or Google Play.</Step>
         <Step n={2}>Open it and tap Add environment.</Step>
         <Step n={3}>Scan this code.</Step>
       </ol>
@@ -661,7 +662,7 @@ function ReadyBody({
               size={224}
               level="M"
               marginSize={1}
-              title="Pairing code for the T3 Code mobile app"
+              title="Pairing code for the ViewCode mobile app"
             />
           </div>
         ) : status === "paired" ? (

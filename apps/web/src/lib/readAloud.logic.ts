@@ -10,8 +10,9 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
-import { deriveUnsettledTurnId } from "../components/chat/MessagesTimeline.logic";
-import type { ChatMessage, Thread } from "../types";
+import { deriveUnsettledTurnId } from "../components/chat/viewcodeReadableTurn";
+import type { OrchestrationMessage as ChatMessage } from "@t3tools/client-runtime/viewcodeThread";
+import type { EnvironmentThread as Thread } from "@t3tools/client-runtime/viewcodeThread";
 
 /** Chromium's speechSynthesis can cut off long utterances, so each one stays short. */
 export const READ_ALOUD_MAX_CHUNK_LENGTH = 250;

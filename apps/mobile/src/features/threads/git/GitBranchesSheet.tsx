@@ -109,11 +109,14 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
               icon="plus"
               label="Create & checkout"
               tone="primary"
-              disabled={busy || newBranchName.trim().length === 0}
+              disabled={
+                busy || !gitActions.canChangeThreadBranch || newBranchName.trim().length === 0
+              }
               onPress={() => {
                 const branch = sanitizeFeatureBranchName(newBranchName.trim());
                 if (branch.length === 0) return;
-                void gitActions.onCreateSelectedThreadBranch(branch).then(() => {
+                return gitActions.onCreateSelectedThreadBranch(branch).then((result) => {
+                  if (result == null) return;
                   setNewBranchName("");
                   navigation.goBack();
                 });
@@ -151,6 +154,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
               tone="primary"
               disabled={
                 busy ||
+                !gitActions.canChangeThreadBranch ||
                 worktreeBaseBranch.trim().length === 0 ||
                 worktreeBranchName.trim().length === 0
               }
@@ -158,9 +162,10 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
                 const baseBranch = worktreeBaseBranch.trim();
                 const newBranch = worktreeBranchName.trim();
                 if (baseBranch.length === 0 || newBranch.length === 0) return;
-                void gitActions
+                return gitActions
                   .onCreateSelectedThreadWorktree({ baseBranch, newBranch })
-                  .then(() => {
+                  .then((result) => {
+                    if (result == null) return;
                     setWorktreeBranchName("");
                     navigation.goBack();
                   });
@@ -183,7 +188,8 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
               </Text>
             ) : null}
             {availableBranches.map((branch) => {
-              const disabled = disabledExistingBranches.has(branch.name);
+              const disabled =
+                !gitActions.canChangeThreadBranch || disabledExistingBranches.has(branch.name);
               const subtitle = branch.worktreePath
                 ? branch.worktreePath === currentWorktreePath
                   ? "Checked out in this thread"
@@ -205,7 +211,8 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
                   accessibilityState={{ selected: branch.current, disabled: busy || disabled }}
                   disabled={busy || disabled}
                   onPress={() => {
-                    void gitActions.onCheckoutSelectedThreadBranch(branch.name).then(() => {
+                    return gitActions.onCheckoutSelectedThreadBranch(branch.name).then((result) => {
+                      if (result == null) return;
                       navigation.goBack();
                     });
                   }}

@@ -112,12 +112,15 @@ export function pullRequestListRowsAreEqual(
       previous.url === next.url &&
       previous.state === next.state &&
       previous.isDraft === next.isDraft &&
+      previous.mergeability === next.mergeability &&
+      previous.baseBranch === next.baseBranch &&
       previous.updatedAt === next.updatedAt &&
       previous.additions === next.additions &&
       previous.deletions === next.deletions &&
       previous.checksState === next.checksState &&
       previous.reviewDecision === next.reviewDecision &&
       previous.viewerReviewRequested === next.viewerReviewRequested &&
+      previous.viewerLogin === next.viewerLogin &&
       previous.author?.login === next.author?.login &&
       previous.author?.avatarUrl === next.author?.avatarUrl &&
       previous.stack?.position === next.stack?.position &&
@@ -261,7 +264,9 @@ export function filterPullRequestList<
     const viewerKey = entry.environmentId ? `${entry.environmentId} ${entry.host}` : entry.host;
     // "Me" is the account this project's repository is read as, else the host's.
     const viewer =
-      viewers[projectViewerKey(entry.environmentId, entry.projectId)] ?? viewers[viewerKey];
+      entry.viewerLogin ??
+      viewers[projectViewerKey(entry.environmentId, entry.projectId)] ??
+      viewers[viewerKey];
     if (controls.involvement === "reviewing" && !entry.viewerReviewRequested) return false;
     if (
       controls.involvement === "authored" &&

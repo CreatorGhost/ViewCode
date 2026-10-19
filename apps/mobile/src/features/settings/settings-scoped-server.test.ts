@@ -1,9 +1,4 @@
-import {
-  DEFAULT_SERVER_SETTINGS,
-  type EnvironmentId,
-  type ProjectId,
-  type ServerSettings,
-} from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, type EnvironmentId, type ProjectId, type ServerSettings } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { SettingsTarget } from "./settings-environment-filter";
@@ -37,7 +32,7 @@ describe("mobile project settings scope", () => {
     };
     const secondSettings: ServerSettings = {
       ...DEFAULT_SERVER_SETTINGS,
-      responseStreamingMode: "token",
+      responseStreamingMode: "turn",
       projectSettingsOverrides: {},
     };
     const targets = resolveMobileSettingsTargets(
@@ -66,7 +61,7 @@ describe("mobile project settings scope", () => {
       },
     ]);
     expect(firstSettings.responseStreamingMode).toBe("paragraph");
-    expect(secondSettings.responseStreamingMode).toBe("token");
+    expect(secondSettings.responseStreamingMode).toBe("turn");
   });
 
   it("removes a project override when a picker sends null for a key that cannot store it", () => {

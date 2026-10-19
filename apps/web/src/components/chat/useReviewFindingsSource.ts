@@ -33,7 +33,6 @@ import {
   reviewFindingRatings,
 } from "@t3tools/shared/reviewFindings";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
-import { useMemo } from "react";
 
 import { environmentAgentControlAtom } from "../../state/agentControl";
 import { useThreadShell } from "../../state/entities";
@@ -56,7 +55,7 @@ function useLinkedReviewThreads(key: LinkedReviewsKey | null): ReadonlyArray<Lin
 }
 
 /** Which findings of the source were posted, and how they are rated, from its thread's records. */
-function useFindingRecords(
+function findingRecords(
   source: ReviewFindingsSource | null,
   sourceActivities: ReadonlyArray<OrchestrationThreadActivity>,
 ): {
@@ -64,16 +63,13 @@ function useFindingRecords(
   readonly ratings: ReadonlyMap<string, ReviewFindingRating>;
 } {
   const sourceActivityId = source?.activityId ?? null;
-  return useMemo(
-    () =>
-      sourceActivityId === null
-        ? { posted: NO_POSTED, ratings: NO_RATINGS }
-        : {
-            posted: postedReviewFindings(sourceActivities, sourceActivityId),
-            ratings: reviewFindingRatings(sourceActivities, sourceActivityId),
-          },
-    [sourceActivities, sourceActivityId],
-  );
+  return (() =>
+    sourceActivityId === null
+      ? { posted: NO_POSTED, ratings: NO_RATINGS }
+      : {
+          posted: postedReviewFindings(sourceActivities, sourceActivityId),
+          ratings: reviewFindingRatings(sourceActivities, sourceActivityId),
+        })();
 }
 
 /** The latest review a view knows of and where it stands (see `selectLatestReview`). */
@@ -90,25 +86,22 @@ export interface LatestReviewStatus {
   readonly progress: ReviewProgress;
 }
 
-function useLatestReview(threads: ReadonlyArray<LinkedReviewThread>): LatestReviewStatus | null {
-  const latest = useMemo(() => selectLatestReview(threads), [threads]);
-  return useMemo(
-    () =>
-      latest === null
-        ? null
-        : {
-            threadId: latest.thread.id,
-            title: latest.thread.title,
-            mode: latest.mode,
-            focus: latest.focus,
-            scope: latest.scope,
-            modelSelection: latest.thread.modelSelection,
-            startedAt: latest.thread.createdAt,
-            endedAt: latest.thread.endedAt,
-            progress: latest.progress,
-          },
-    [latest],
-  );
+function latestReviewStatus(threads: ReadonlyArray<LinkedReviewThread>): LatestReviewStatus | null {
+  const latest = (() => selectLatestReview(threads))();
+  return (() =>
+    latest === null
+      ? null
+      : {
+          threadId: latest.thread.id,
+          title: latest.thread.title,
+          mode: latest.mode,
+          focus: latest.focus,
+          scope: latest.scope,
+          modelSelection: latest.thread.modelSelection,
+          startedAt: latest.thread.createdAt,
+          endedAt: latest.thread.endedAt,
+          progress: latest.progress,
+        })();
 }
 
 /**
@@ -128,25 +121,19 @@ export function useReviewFindingsSource(threadRef: ScopedThreadRef): {
   const shell = useThreadShell(threadRef);
   const activities =
     useAtomValue(environmentThreadDetails.activitiesAtom(threadRef)) ?? NO_ACTIVITIES;
-  const pullRequests = useMemo(
-    () => visibleThreadPullRequests(shell?.pullRequests ?? []),
-    [shell?.pullRequests],
-  );
+  const pullRequests = (() => visibleThreadPullRequests(shell?.pullRequests ?? []))();
   const linkedThreads = useLinkedReviewThreads(
     shell === null
       ? null
       : { environmentId: threadRef.environmentId, threadId: threadRef.threadId, pullRequests },
   );
   const title = shell?.title ?? "";
-  const source = useMemo(
-    () =>
-      selectReviewFindingsSource({
-        thread: { id: threadRef.threadId, title, activities },
-        pullRequests,
-        linkedThreads,
-      }),
-    [activities, linkedThreads, pullRequests, threadRef.threadId, title],
-  );
+  const source = (() =>
+    selectReviewFindingsSource({
+      thread: { id: threadRef.threadId, title, activities },
+      pullRequests,
+      linkedThreads,
+    }))();
   const sourceActivities =
     source === null
       ? NO_ACTIVITIES
@@ -154,8 +141,8 @@ export function useReviewFindingsSource(threadRef: ScopedThreadRef): {
         ? activities
         : (linkedThreads.find((thread) => thread.id === source.threadId)?.activities ??
           NO_ACTIVITIES);
-  const { posted, ratings } = useFindingRecords(source, sourceActivities);
-  const review = useLatestReview(linkedThreads);
+  const { posted, ratings } = findingRecords(source, sourceActivities);
+  const review = latestReviewStatus(linkedThreads);
   return { source, posted, ratings, pullRequests, projectId: shell?.projectId ?? null, review };
 }
 
@@ -179,21 +166,19 @@ export function usePullRequestReviewFindings(
   environmentId: EnvironmentId,
   pullRequest: ThreadPullRequestKey | null,
 ): PullRequestReview {
-  const pullRequests = useMemo(() => (pullRequest === null ? [] : [pullRequest]), [pullRequest]);
+  const pullRequests = (() => (pullRequest === null ? [] : [pullRequest]))();
   const linkedThreads = useLinkedReviewThreads(
     pullRequest === null ? null : { environmentId, threadId: null, pullRequests },
   );
-  const source = useMemo(
-    () => selectPullRequestReviewFindings({ pullRequests, threads: linkedThreads }),
-    [linkedThreads, pullRequests],
-  );
-  const review = useLatestReview(linkedThreads);
+  const source = (() =>
+    selectPullRequestReviewFindings({ pullRequests, threads: linkedThreads }))();
+  const review = latestReviewStatus(linkedThreads);
   const sourceActivities =
     source === null
       ? NO_ACTIVITIES
       : (linkedThreads.find((thread) => thread.id === source.threadId)?.activities ??
         NO_ACTIVITIES);
-  const { posted, ratings } = useFindingRecords(source, sourceActivities);
+  const { posted, ratings } = findingRecords(source, sourceActivities);
   const dismissedByIdentity = useReviewFixSentStore((state) =>
     source === null
       ? NO_DISMISSED

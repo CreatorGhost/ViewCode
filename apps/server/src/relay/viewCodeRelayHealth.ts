@@ -1,6 +1,6 @@
 import type { ViewCodeRelayState, ViewCodeRelayStatus } from "@t3tools/contracts";
 
-import * as NetAddress from "effect/unstable/net/NetAddress";
+import * as NetAddress from "effect/net/NetAddress";
 
 import { TLS_REFUSALS_BEFORE_BLOCKED } from "../cloud/managedTunnelHealth.ts";
 

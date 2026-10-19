@@ -43,6 +43,7 @@ const outlineClasses =
 const contextSeamClasses =
   "group-data-with-context/composer-surface:after:[clip-path:polygon(0_0,100%_0,100%_100%,calc(100%-22px)_100%,calc(100%-22px)_calc(100%-2px),22px_calc(100%-2px),22px_100%,0_100%)]";
 
+/** Frames the input while leaving the shared edge open for the context strip's outline. */
 function Host({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
@@ -59,6 +60,7 @@ function Host({ className, ...props }: ComponentProps<"div">) {
   );
 }
 
+/** Covers the input surface when an attached banner or the model strip transition replaces the outer glass backdrop. */
 function Main({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
@@ -79,6 +81,7 @@ function Main({ className, ...props }: ComponentProps<"div">) {
   );
 }
 
+/** Extends the composer outline below the input, masking its overlap up to one pixel above the shared edge so no seam shows. */
 function ContextStrip({ className, ...props }: ComponentProps<"div">) {
   return (
     <div

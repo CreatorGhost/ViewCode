@@ -2,7 +2,7 @@ import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 
 export function nativePullRequestDestination(
   url: string,
-  context: { environmentId: string; projectId: string } | null,
+  context: { environmentId: string; projectId: string; threadId?: string } | null,
 ) {
   const parsed = parseChangeRequestUrl(url);
   if (!parsed || !context) return null;

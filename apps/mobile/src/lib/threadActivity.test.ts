@@ -1,17 +1,9 @@
+import type { OrchestrationThread } from "@t3tools/client-runtime/viewcodeThread";
+
 import { derivePendingRequests } from "@t3tools/client-runtime/pending-requests";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
-import {
-  ApprovalRequestId,
-  EventId,
-  MessageId,
-  ProjectId,
-  ProviderInstanceId,
-  ThreadId,
-  TurnId,
-  type OrchestrationThread,
-  type OrchestrationThreadActivity,
-} from "@t3tools/contracts";
+import { ApprovalRequestId, EventId, MessageId, ProjectId, ProviderInstanceId, ThreadId, TurnId, type OrchestrationThreadActivity } from "@t3tools/contracts";
 
 import {
   agentSpawnSummary,
@@ -276,6 +268,10 @@ function makeThread(
     worktreePath: null,
     pullRequests: [],
     latestTurn: null,
+    latestUserMessageAt: null,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    hasActionableProposedPlan: false,
     createdAt: "2026-04-01T00:00:00.000Z",
     updatedAt: "2026-04-01T00:00:00.000Z",
     archivedAt: null,

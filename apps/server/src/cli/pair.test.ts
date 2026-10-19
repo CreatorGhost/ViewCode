@@ -5,15 +5,16 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { AuthStandardClientScopes } from "@t3tools/contracts";
 import * as NetService from "@t3tools/shared/Net";
-import { HostProcessEnvironment } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { assert, describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestConsole from "effect/testing/TestConsole";
-import { Command } from "effect/unstable/cli";
+import { Command, CliError } from "effect/cli";
 
-import { cli } from "../bin.ts";
+import { cli } from "../binCli.ts";
 import {
   SERVICE_LAUNCHER_CONTEXT_ENV,
   SERVICE_LAUNCHER_PROTOCOL,
@@ -26,13 +27,14 @@ import {
 } from "../serverRuntimeState.ts";
 import {
   DevServerNotProxiableError,
+  SocketServerNotNetworkAccessibleError,
   resolveDirectPairingBaseUrl,
   resolveTailscaleLocalTarget,
 } from "./pair.ts";
 
 import packageJson from "../../package.json" with { type: "json" };
 
-const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
+const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
 const baseState = {
   version: 1,
@@ -94,11 +96,8 @@ describe("pair tailscale local target", () => {
 const runCli = (args: ReadonlyArray<string>) => Command.runWith(cli, { version: "0.0.0" })(args);
 
 const provideCliTestLayers = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  Effect.provide(effect, Layer.mergeAll(CliRuntimeLayer, TestConsole.layer));
+  Effect.provide(effect, Layer.mergeAll(layerCliRuntime, TestConsole.layer));
 
-// Console output accumulates across CLI runs within a test, and each
-// Console.log call is one entry — so the latest command's output is the last
-// entry, even when it spans many lines.
 const captureStdout = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   provideCliTestLayers(
     Effect.gen(function* () {
@@ -143,7 +142,97 @@ const withDescriptorServer = <A, E, R>(run: (origin: string) => Effect.Effect<A,
     (server) => Effect.sync(() => server.close()),
   );
 
+const withSocketDescriptorServer = <A, E, R>(run: (listenPath: string) => Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pairuds-"));
+    const listenPath =
+      HostProcess.Platform.defaultValue() === "win32"
+        ? `\\\\.\\pipe\\${NodePath.basename(directory)}`
+        : NodePath.join(directory, "s.sock");
+    const server = NodeHttp.createServer((request, response) => {
+      assert.equal(request.url, "/.well-known/t3/environment");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify(testDescriptor));
+    });
+    yield* Effect.addFinalizer(() =>
+      Effect.promise(
+        () =>
+          new Promise<void>((resolve) => {
+            server.closeAllConnections();
+            server.close(() => {
+              NodeFS.rmSync(directory, { recursive: true, force: true });
+              resolve();
+            });
+          }),
+      ),
+    );
+    yield* Effect.promise(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          server.once("error", reject);
+          server.listen(listenPath, resolve);
+        }),
+    );
+    assert.equal(server.address(), listenPath);
+    return yield* run(listenPath);
+  }).pipe(Effect.scoped);
+
 describe("t3 pair", () => {
+  it.effect.each([
+    { mode: "direct", flags: [] },
+    { mode: "Tailscale", flags: ["--tailscale"] },
+  ])("refuses $mode pairing for a socket-only server", ({ flags }) =>
+    withSocketDescriptorServer((listenPath) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-local-"));
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => NodeFS.rmSync(baseDir, { recursive: true, force: true })),
+        );
+        yield* persistServerRuntimeState({
+          path: NodePath.join(baseDir, "userdata/server-runtime.json"),
+          state: yield* makePersistedServerRuntimeState({
+            config: { host: "127.0.0.1", devUrl: undefined, listenPath },
+            port: 3773,
+          }),
+        });
+        const result = yield* runCli(["pair", "--base-dir", baseDir, ...flags]).pipe(
+          provideCliTestLayers,
+          Effect.flip,
+        );
+        assert.instanceOf(result, SocketServerNotNetworkAccessibleError);
+        assert.include(result.message, "Enable network access");
+        assert.include(result.message, "--relay");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("discovers a socket-only server and pairs through its configured relay", () =>
+    withSocketDescriptorServer((listenPath) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-relayuds-"));
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => NodeFS.rmSync(baseDir, { recursive: true, force: true })),
+        );
+        const stateDir = NodePath.join(baseDir, "userdata");
+        yield* persistServerRuntimeState({
+          path: NodePath.join(stateDir, "server-runtime.json"),
+          state: yield* makePersistedServerRuntimeState({
+            config: { host: "127.0.0.1", devUrl: undefined, listenPath },
+            port: 3773,
+          }),
+        });
+        NodeFS.writeFileSync(
+          NodePath.join(stateDir, "settings.json"),
+          JSON.stringify({
+            viewcodeRelay: { enabled: true, url: "https://relay.example.workers.dev" },
+          }),
+        );
+        const output = yield* captureStdout(runCli(["pair", "--base-dir", baseDir, "--relay"]));
+        assert.include(output, "Pairing URL: https://relay.example.workers.dev/pair#token=");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("mints a token and prints a QR pairing URL for a live server", () =>
     withDescriptorServer((origin) =>
       Effect.gen(function* () {
@@ -163,24 +252,25 @@ describe("t3 pair", () => {
         assert.include(output, `Pairing with pair-test (${origin})`);
         assert.include(output, `Pairing URL: ${origin}/pair#token=`);
         assert.isTrue(output.includes("█") || output.includes("▀") || output.includes("▄"));
-        // Loopback origins are not reachable from a phone; the output must say so.
         assert.include(output, "only reachable from this machine");
 
         const token = /#token=([A-Z2-9]+)/.exec(output)?.[1];
         assert.isString(token);
 
-        // The token must be in the same store the running server reads.
         const listed = yield* captureStdout(
           runCli(["auth", "pairing", "list", "--base-dir", baseDir, "--json"]),
         );
-        // @effect-diagnostics-next-line preferSchemaOverJson:off - CLI JSON output is decoded as a presentation DTO.
-        const credentials = JSON.parse(listed) as ReadonlyArray<{ readonly label?: string }>;
+        const credentials = JSON.parse(listed) as ReadonlyArray<{
+          readonly label?: string;
+          readonly scopes: ReadonlyArray<string>;
+        }>;
         assert.equal(credentials.length, 1);
         assert.equal(credentials[0]?.label, "t3 pair");
+        assert.deepEqual(credentials[0]?.scopes, AuthStandardClientScopes);
       }),
     ).pipe(
       Effect.provide(NodeServices.layer),
-      Effect.provideService(HostProcessEnvironment, {
+      Effect.provideService(HostProcess.Environment, {
         ...process.env,
         [SERVICE_LAUNCHER_CONTEXT_ENV]: JSON.stringify({
           protocol: SERVICE_LAUNCHER_PROTOCOL,
@@ -194,6 +284,43 @@ describe("t3 pair", () => {
         off: () => undefined,
       }),
     ),
+  );
+
+  it.effect("mints a pairing grant with only the selected scopes", () =>
+    withDescriptorServer((origin) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-scopes-test-"));
+        yield* persistServerRuntimeState({
+          path: NodePath.join(baseDir, "userdata", "server-runtime.json"),
+          state: yield* makePersistedServerRuntimeState({
+            config: { host: "127.0.0.1", devUrl: undefined },
+            port: Number(new URL(origin).port),
+          }),
+        });
+
+        yield* captureStdout(
+          runCli([
+            "pair",
+            "--base-dir",
+            baseDir,
+            "--scope",
+            "orchestration:read",
+            "--scope",
+            "relay:read",
+            "--scope",
+            "orchestration:read",
+          ]),
+        );
+        const listed = yield* captureStdout(
+          runCli(["auth", "pairing", "list", "--base-dir", baseDir, "--json"]),
+        );
+        const credentials = JSON.parse(listed) as ReadonlyArray<{
+          readonly scopes: ReadonlyArray<string>;
+        }>;
+        assert.lengthOf(credentials, 1);
+        assert.deepEqual(credentials[0]?.scopes, ["orchestration:read", "relay:read"]);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
   );
 
   it.effect("pairs through the recorded dev web URL for dev servers", () =>
@@ -231,7 +358,6 @@ describe("t3 pair", () => {
         });
         NodeFS.writeFileSync(
           NodePath.join(stateDir, "settings.json"),
-          // @effect-diagnostics-next-line preferSchemaOverJson:off - test fixture writes a settings.json string.
           JSON.stringify({
             viewcodeRelay: { enabled: true, url: "https://relay.example.workers.dev" },
           }),
@@ -282,8 +408,8 @@ describe("t3 pair", () => {
         typeof error === "object" && error !== null && "cause" in error ? error.cause : error,
       );
       assert.include(rendered, "No running ViewCode server found.");
-      assert.include(rendered, "npx t3 serve");
-      assert.include(rendered, "npx t3 connect");
+      assert.include(rendered, "viewcode serve");
+      assert.notInclude(rendered, "T3 Connect");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
@@ -292,16 +418,12 @@ describe("t3 pair", () => {
       Effect.gen(function* () {
         const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-pid-test-"));
         const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
-        // The origin answers (another server reused the port), but the pid
-        // that wrote this state file is dead — pairing must not mint a token
-        // into the dead server's database.
         const state = yield* makePersistedServerRuntimeState({
           config: { host: "127.0.0.1", devUrl: undefined },
           port: Number(new URL(origin).port),
         });
         yield* persistServerRuntimeState({
           path: statePath,
-          // pid 2**22 + 1 exceeds any default Linux/macOS pid range.
           state: { ...state, pid: 4_194_305 },
         });
 
@@ -321,8 +443,6 @@ describe("t3 pair", () => {
     Effect.gen(function* () {
       const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-stale-test-"));
       const statePath = NodePath.join(baseDir, "userdata", "server-runtime.json");
-      // A port from the dynamic range with nothing listening: the probe fails
-      // fast with ECONNREFUSED and discovery moves on.
       yield* persistServerRuntimeState({
         path: statePath,
         state: yield* makePersistedServerRuntimeState({
@@ -340,5 +460,75 @@ describe("t3 pair", () => {
       );
       assert.include(rendered, "No running ViewCode server found.");
     }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+describe("auth scope options", () => {
+  it.effect.each([
+    { group: "pairing", action: "create" },
+    { group: "session", action: "issue" },
+  ] as const)(
+    "issues and persists only the selected scopes for auth $group $action",
+    ({ group, action }) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(
+          NodePath.join(NodeOS.tmpdir(), "t3-cli-auth-scopes-test-"),
+        );
+        const output = yield* captureStdout(
+          runCli([
+            "auth",
+            group,
+            action,
+            "--base-dir",
+            baseDir,
+            "--json",
+            "--scope",
+            "orchestration:read",
+            "--scope",
+            "access:read",
+            "--scope",
+            "orchestration:read",
+          ]),
+        );
+        const issued = JSON.parse(output) as { readonly scopes: ReadonlyArray<string> };
+        const listOutput = yield* captureStdout(
+          runCli(["auth", group, "list", "--base-dir", baseDir, "--json"]),
+        );
+        const listed = JSON.parse(listOutput) as ReadonlyArray<{
+          readonly scopes: ReadonlyArray<string>;
+        }>;
+
+        assert.deepEqual(issued.scopes, ["orchestration:read", "access:read"]);
+        assert.lengthOf(listed, 1);
+        assert.deepEqual(listed[0]?.scopes, issued.scopes);
+      }),
+  );
+
+  it.effect.each(
+    [["pair"], ["auth", "pairing", "create"], ["auth", "session", "issue"]].map((command) => ({
+      command,
+      label: command.join(" "),
+    })),
+  )("rejects invalid scopes before running $label", ({ command }) =>
+    Effect.gen(function* () {
+      const error = yield* runCli([
+        ...command,
+        "--scope",
+        "orchestration:read",
+        "--scope",
+        "admin",
+      ]).pipe(Effect.provide(layerCliRuntime), Effect.flip);
+
+      if (!CliError.isCliError(error) || error._tag !== "ShowHelp") {
+        assert.fail(`Expected ShowHelp, got ${String(error)}`);
+      }
+      assert.deepEqual(error.commandPath, ["t3", ...command]);
+      const scopeError = error.errors[0];
+      if (scopeError?._tag !== "InvalidValue") {
+        assert.fail(`Expected InvalidValue, got ${String(scopeError?._tag)}`);
+      }
+      assert.equal(scopeError.option, "scope");
+      assert.equal(scopeError.value, "admin");
+    }),
   );
 });

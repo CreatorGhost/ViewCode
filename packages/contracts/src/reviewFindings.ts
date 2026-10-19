@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 
 import {
+  CommandId,
   EventId,
   IsoDateTime,
   NonNegativeInt,
@@ -299,6 +300,7 @@ export type ReviewFixStartedActivityPayload = typeof ReviewFixStartedActivityPay
 /** Undoes what a fix session changed, files and conversation, back to before its first turn. */
 export const ReviewUndoFixesInput = Schema.Struct({
   threadId: ThreadId,
+  commandId: Schema.optional(CommandId),
 });
 export type ReviewUndoFixesInput = typeof ReviewUndoFixesInput.Type;
 
@@ -314,6 +316,7 @@ export class ReviewUndoFixesError extends Schema.TaggedError<ReviewUndoFixesErro
   "ReviewUndoFixesError",
   {
     stage: Schema.Literals(["thread", "not-a-fix", "running", "nothing", "revert"]),
+    detail: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
@@ -328,7 +331,7 @@ export class ReviewUndoFixesError extends Schema.TaggedError<ReviewUndoFixesErro
       case "nothing":
         return "Nothing to undo: the session has not changed anything since the fix started.";
       case "revert":
-        return "Could not undo the fixes.";
+        return this.detail ?? "Could not undo the fixes.";
     }
   }
 }

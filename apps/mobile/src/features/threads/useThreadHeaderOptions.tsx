@@ -123,8 +123,23 @@ export function useThreadHeaderOptions(props: {
     unstable_headerSubtitle: props.usesNativeHeaderGlass ? props.subtitle : undefined,
     contentStyle: undefined,
   };
+  const { environmentId, threadId, gitStatus, projectScripts } = props.gitControls;
   return {
     options,
+    // The native factories are stabilized; include their displayed contents
+    // and state used only by action closures so navigation re-reads both.
+    optionsVersion: [
+      splitLeftHeaderItems,
+      threadCenterHeaderItems,
+      compactRightHeaderItems,
+      sideChatHeaderItems,
+      environmentId,
+      threadId,
+      gitStatus?.isDefaultRef,
+      gitStatus?.refName,
+      gitStatus?.pr?.url,
+      projectScripts,
+    ],
     sidebar: false,
     fallback:
       !layout.usesSplitView && !props.usesNativeHeaderGlass ? (

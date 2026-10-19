@@ -1,6 +1,7 @@
 @import "tailwindcss";
 /* ViewCode: chat column width and density tokens (max-w-chat). */
 @import "./viewcode-chat.css";
+@import "./viewcode-native.css";
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));
@@ -103,7 +104,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --command-shell-inset: 0.5rem;
   --command-content-inset: 1rem;
   --floating-content-inset: 0.75rem;
-  /* App layer order: docked sheets, then the floating preview player (47–49, see
+  /* App layer order: the bottom terminal drawer (45, above the timeline minimap),
+     docked sheets, then the floating preview player (47–49, see
      previewMiniPlayerLayout.ts), then dialogs and popovers (50 and up). */
   --z-sheet: 46;
   --glass-blur: 12px;
@@ -149,6 +151,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 }
 
 .wco {
+  --native-titlebar-height: env(titlebar-area-height, 0px);
   --workspace-topbar-height: max(40px, env(titlebar-area-height, 52px));
   --workspace-controls-top: env(titlebar-area-y, 0px);
   --workspace-controls-left: calc(env(titlebar-area-x, 0px) + 0.75rem);
@@ -196,6 +199,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
      by the composer, its context strip and attached banners. */
   --shadow-composer: 0 12px 28px -18px rgb(0 0 0 / 40%);
   --shadow-composer-dark: 0 14px 32px -18px rgb(0 0 0 / 75%);
+  /* Overlap the lower toolbar backdrop by one pixel to cover the composer seam. */
+  --spacing-composer-seam: calc(var(--spacing) * 4 - 1px);
   /* Dark-mode shade where an attached surface meets the composer: 10px of
      shadow fading away from the seam. Inline, so the offsets resolve on the
      element. below: the context strip under the composer (1rem seam, faint
@@ -524,13 +529,164 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
-@keyframes live-tool-shine {
+/* Panel open/close: content slides and fades on the compositor while the layout changes once
+   (see PreviewPanelShell). Width is never animated, so the chat does not re-lay out per frame. */
+[data-panel-animations="true"] [data-panel-motion="enter"] {
+  animation: panel-slide-in var(--panel-animation-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+[data-panel-animations="true"] [data-panel-motion="exit"] {
+  animation: panel-slide-out calc(var(--panel-animation-duration) * 0.8) cubic-bezier(0.4, 0, 1, 1)
+    both;
+}
+[data-panel-animations="true"] [data-terminal-drawer="closed"] {
+  transition: grid-template-rows 0s linear calc(var(--panel-animation-duration) * 0.8);
+}
+[data-panel-animations="true"] [data-terminal-drawer="open"] > * {
+  animation: drawer-slide-in var(--panel-animation-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+[data-panel-animations="true"] [data-terminal-drawer="closed"] > * {
+  animation: drawer-slide-out calc(var(--panel-animation-duration) * 0.8) cubic-bezier(0.4, 0, 1, 1)
+    both;
+}
+@keyframes drawer-slide-in {
   from {
+    opacity: 0;
+    transform: translateY(1.5rem);
+  }
+}
+@keyframes drawer-slide-out {
+  to {
+    opacity: 0;
+    transform: translateY(1.5rem);
+  }
+}
+@keyframes panel-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(2rem);
+  }
+}
+@keyframes panel-slide-out {
+  to {
+    opacity: 0;
+    transform: translateX(2rem);
+  }
+}
+
+/* PR flow (components/chat/prFlow): states cut in with a short blur, the branch map draws each
+   stage as the flow reaches it. Only transform, opacity and stroke offsets move. */
+@media (prefers-reduced-motion: no-preference) {
+  .pr-flow-swap {
+    animation: work-row-arrive 140ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  }
+  .pr-flow-open {
+    display: grid;
+    animation: pr-flow-open 340ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .pr-map-draw {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: pr-map-draw var(--pr-map-duration, 480ms) cubic-bezier(0.16, 1, 0.3, 1)
+      var(--pr-map-delay, 0ms) forwards;
+  }
+  .pr-map-pop {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: pr-map-pop 240ms cubic-bezier(0.2, 0.7, 0.3, 1) var(--pr-map-delay, 0ms) both;
+  }
+  .pr-map-pulse {
+    animation: pr-map-pulse 1.1s ease-in-out infinite;
+  }
+  .pr-map-ring {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: pr-map-ring 460ms cubic-bezier(0.16, 1, 0.3, 1) var(--pr-map-delay, 0ms) both;
+  }
+}
+.pr-flow-open > * {
+  overflow: hidden;
+  min-height: 0;
+}
+.pr-map-hidden {
+  opacity: 0;
+}
+.pr-map-fade {
+  opacity: 0;
+  transition: opacity 260ms ease;
+}
+@keyframes pr-flow-open {
+  from {
+    grid-template-rows: 0fr;
+  }
+  to {
+    grid-template-rows: 1fr;
+  }
+}
+@keyframes pr-map-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes pr-map-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+}
+@keyframes pr-map-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes pr-map-ring {
+  from {
+    opacity: 0.9;
+    transform: scale(2.4);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+/* Work log motion (WorkLog.tsx): a step that arrives while the agent works softens in, and its
+   label settles the same way when it finishes. History that mounts finished stays still. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-work-row-arrive] {
+    animation: work-row-arrive 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  [data-work-label-settle] {
+    animation: work-row-arrive 150ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  }
+}
+@keyframes work-row-arrive {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(0.25rem);
+  }
+}
+
+/* Two sweeps, then a rest, so the live step reads as working without a constant flicker. Steps
+   keep it to ~30 updates a second during a sweep and none while resting. */
+@keyframes live-tool-shine {
+  0% {
     background-position:
       -4.5rem 0,
       0 0;
   }
-  to {
+  33% {
+    background-position:
+      calc(100% + 4.5rem) 0,
+      0 0;
+  }
+  33.01% {
+    background-position:
+      -4.5rem 0,
+      0 0;
+  }
+  66%,
+  100% {
     background-position:
       calc(100% + 4.5rem) 0,
       0 0;
@@ -548,7 +704,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
       100% 100%;
     background-repeat: no-repeat;
     background-clip: text;
-    animation: live-tool-shine 2.2s steps(30) infinite;
+    animation: live-tool-shine 1.8s steps(18) infinite;
     animation-play-state: var(--visible-animation-state, paused);
   }
 }
@@ -1703,7 +1859,8 @@ code {
    Inline code stays relative to its sentence so it never towers over prose;
    diffs and file previews take the size through --diffs-font-size. */
 .chat-markdown .chat-markdown-shiki .shiki,
-.chat-markdown pre code {
+.chat-markdown .chat-markdown-codeblock pre,
+:is(.chat-markdown, .composer-tiptap) pre code {
   font-size: var(--font-size-code, inherit);
 }
 
@@ -1897,6 +2054,35 @@ code {
   border-left: 2px solid var(--contrast-border);
   padding-left: 0.8rem;
   color: var(--contrast-muted-foreground);
+}
+
+/* A quote in the composer is text the user is still writing; muting it reads
+   as disabled in an input, so the border alone carries the quote. */
+.composer-tiptap blockquote {
+  margin: 0.65rem 0;
+  color: var(--foreground);
+}
+
+/* Preflight already draws the 1px rule, as it does in chat; only the block
+   spacing needs to match. */
+.composer-tiptap hr {
+  margin: 0.65rem 0;
+}
+
+/* Block spacing separates blocks, not the draft from the composer edge. A
+   leading list or quote would otherwise push the first line down, and the
+   one-line resting composer clips it. */
+.composer-tiptap > :first-child {
+  margin-top: 0;
+}
+
+.composer-tiptap > :last-child {
+  margin-bottom: 0;
+}
+
+/* A heading at the top of a draft should not push the first line down. */
+.composer-tiptap :is(h1, h2, h3, h4, h5, h6):first-child {
+  margin-top: 0;
 }
 
 .chat-markdown section[data-footnotes] {

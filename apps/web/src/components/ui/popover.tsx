@@ -38,6 +38,7 @@ const popoverViewportPaddingClassName = {
 // control panels that hang off a pill (the composer's model and usage popovers).
 const popoverPopupVariantClassName = {
   default: "rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]",
+  panel: "rounded-xl before:rounded-[calc(var(--radius-xl)-1px)]",
   floating: "rounded-3xl before:rounded-[calc(var(--radius-3xl)-1px)]",
 } as const;
 
@@ -55,6 +56,7 @@ function PopoverPopup({
   anchor,
   collisionAvoidance,
   variant = "default",
+  touchBackdrop = false,
   ...props
 }: PopoverPrimitive.Popup.Props & {
   variant?: keyof typeof popoverPopupVariantClassName;
@@ -68,12 +70,22 @@ function PopoverPopup({
   anchor?: PopoverPrimitive.Positioner.Props["anchor"];
   width?: keyof typeof popoverPopupWidthClassName;
   collisionAvoidance?: PopoverPrimitive.Positioner.Props["collisionAvoidance"];
+  touchBackdrop?: boolean;
 }) {
   // Viewport rekeys its children when the active trigger clears on close. Persistent
   // single-trigger forms need a stable container to retain drafts and submit guards.
   const Viewport = keepMounted ? "div" : PopoverPrimitive.Viewport;
   return (
     <PopoverPrimitive.Portal keepMounted={keepMounted}>
+      {touchBackdrop ? (
+        // A non-modal popover closes on an outside tap and lets that tap reach the
+        // control under the finger. On touch screens the backdrop takes the tap, so
+        // tapping away only closes the popover, as it does for modal menus and selects.
+        <PopoverPrimitive.Backdrop
+          className="fixed inset-0 z-[130] hidden pointer-coarse:block"
+          data-slot="popover-backdrop"
+        />
+      ) : null}
       <PopoverPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}

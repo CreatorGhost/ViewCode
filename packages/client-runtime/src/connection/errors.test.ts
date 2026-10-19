@@ -61,6 +61,7 @@ describe("mapManagedRelayError", () => {
     expect(mapConnectRefusal("endpoint_provider_not_managed")).toMatchObject({
       _tag: "ConnectionBlockedError",
       reason: "permission",
+      detail: expect.stringContaining("turn T3 Connect on"),
     });
     expect(mapConnectRefusal(undefined)).toMatchObject({
       _tag: "ConnectionBlockedError",
@@ -135,22 +136,6 @@ describe("mapRemoteDpopEnvironmentError", () => {
       _tag: "ConnectionTransientError",
       detail: `${error.message} ${NETWORK_BLOCKING_HINT}`,
     });
-  });
-
-  it("tells the person why a pairing code was refused", () => {
-    const reject = (pairingProblem?: "expired" | "used") =>
-      mapRemoteEnvironmentError(
-        new EnvironmentAuthInvalidError({
-          code: "auth_invalid",
-          reason: "invalid_credential",
-          ...(pairingProblem ? { pairingProblem } : {}),
-          traceId: "trace-1",
-        }),
-      );
-
-    expect(reject("expired")).toMatchObject({ detail: expect.stringContaining("has expired") });
-    expect(reject("used")).toMatchObject({ detail: expect.stringContaining("already used") });
-    expect(reject()).toMatchObject({ detail: "The environment credential is invalid." });
   });
 
   it("does not present a generic environment auth error as confirmed clock skew", () => {

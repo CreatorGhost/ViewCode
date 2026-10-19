@@ -1,7 +1,6 @@
 import type { CodeViewDiffItem } from "@pierre/diffs/react";
 import { reviewedChangeLabel, reviewNoChangesText } from "@t3tools/client-runtime/agent-review";
 import type { EnvironmentId, LocalReviewScope, ProjectId } from "@t3tools/contracts";
-import { useMemo } from "react";
 
 import { useClientSettings } from "~/hooks/useSettings";
 import { useTheme } from "~/hooks/useTheme";
@@ -31,24 +30,22 @@ export function ReviewChangeView({
   const diff = useReviewDiff({ environmentId, target, projectId, cwd: cwd ?? null, scope });
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
-  const items = useMemo<CodeViewDiffItem<undefined>[]>(
-    () =>
-      diff.files.map(({ fileKey, fileDiff }) => ({ id: fileKey, type: "diff" as const, fileDiff })),
-    [diff.files],
-  );
-  const options = useMemo(
-    () => ({
-      diffStyle: "unified" as const,
-      lineDiffType: "none" as const,
-      overflow: settings.wordWrap ? ("wrap" as const) : ("scroll" as const),
-      theme: resolveDiffThemeName(resolvedTheme),
-      preferredHighlighter: PREFERRED_HIGHLIGHTER,
-      themeType: resolvedTheme,
-      stickyHeaders: true,
-      ...(diff.loadDiffFiles ? { loadDiffFiles: diff.loadDiffFiles } : {}),
-    }),
-    [diff.loadDiffFiles, resolvedTheme, settings.wordWrap],
-  );
+  const items = (() =>
+    diff.files.map(({ fileKey, fileDiff }) => ({
+      id: fileKey,
+      type: "diff" as const,
+      fileDiff,
+    })))();
+  const options = (() => ({
+    diffStyle: "unified" as const,
+    lineDiffType: "none" as const,
+    overflow: settings.wordWrap ? ("wrap" as const) : ("scroll" as const),
+    theme: resolveDiffThemeName(resolvedTheme),
+    preferredHighlighter: PREFERRED_HIGHLIGHTER,
+    themeType: resolvedTheme,
+    stickyHeaders: true,
+    ...(diff.loadDiffFiles ? { loadDiffFiles: diff.loadDiffFiles } : {}),
+  }))();
   return (
     <div className="flex h-full min-h-0 flex-col">
       <p className="border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs">

@@ -44,7 +44,7 @@ import {
   stripAnsi,
   wranglerNeedsLogin,
 } from "@t3tools/shared/viewcodeRelaySetup";
-import * as Undici from "@effect/platform-node/Undici";
+import * as Undici from "undici";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -60,7 +60,7 @@ import * as Queue from "effect/Queue";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { ServerConfig } from "../config.ts";
@@ -721,7 +721,6 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
     return service;
   });
 
-// --- real dependencies ------------------------------------------------------------
 
 const PROBE_TIMEOUT = Duration.seconds(10);
 

@@ -1,7 +1,7 @@
 import { SegmentedButton, SingleChoiceSegmentedButtonRow, Text } from "@expo/ui/jetpack-compose";
 import { defaultMinSize, fillMaxWidth } from "@expo/ui/jetpack-compose/modifiers";
-import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
-import { useScaledTextRole } from "../features/settings/appearance/useScaledTextRole";
+import { useAppearancePreferences } from "../lib/appearancePreferencesContext";
+import { useScaledTextRole } from "../lib/useScaledTextRole";
 import type { SegmentedControlProps } from "./SegmentedControl.types";
 
 /** Compose content shared by screen controls and native dialogs, inside their existing Host. */

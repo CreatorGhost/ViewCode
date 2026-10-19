@@ -1,11 +1,6 @@
 import { useNavigation, useNavigationState, useRoute } from "@react-navigation/native";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
-import {
-  AuthOrchestrationOperateScope,
-  ThreadId,
-  type PullRequestDetail,
-  type PullRequestLinkedThreadsResult,
-} from "@t3tools/contracts";
+import { AuthOrchestrationOperateScope, ThreadId, type PullRequestDetail, type PullRequestLinkedThreadsResult } from "@t3tools/contracts";
 import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { normalizeThreadPullRequestKey } from "@t3tools/shared/threadPullRequests";

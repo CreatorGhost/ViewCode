@@ -8,9 +8,10 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
-import { Command, CliError } from "effect/unstable/cli";
+import { Command, CliError } from "effect/cli";
 import * as TestConsole from "effect/testing/TestConsole";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
+import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 
 import {
   ReleaseGitHubOutputConfigurationError,
@@ -73,6 +74,16 @@ const captureLogs = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   });
 
 it.layer(ScriptTestLayer)("update-release-package-versions", (it) => {
+  it.effect("keeps shipped application surfaces on the same release version", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const versions = yield* readReleaseVersions(path.resolve(import.meta.dirname, ".."));
+      assert.deepEqual(
+        Object.fromEntries(versions),
+        Object.fromEntries(releasePackageFiles.map((file) => [file, serverPackageJson.version])),
+      );
+    }),
+  );
   it.effect("updates all release package versions under the provided root", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

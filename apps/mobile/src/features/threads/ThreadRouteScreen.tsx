@@ -1,3 +1,13 @@
+import { requestOlderThreadTurns } from "../../state/threads";
+import {
+  threadHasOlderTurns,
+  undeliveredRunMessages,
+} from "@t3tools/client-runtime/viewcodeThreadAtoms";
+import type {
+  EnvironmentThread,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/viewcodeThread";
+
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
 import { enqueueThreadOutboxMessage } from "../../state/thread-outbox";
@@ -6,7 +16,7 @@ import {
   clearComposerDraftContent,
 } from "../../state/use-composer-drafts";
 import { useWorktreeSetup } from "./use-worktree-setup";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import { ScreenHeader } from "../../components/ScreenHeader";
 import { ScreenHeaderButton } from "../../components/ScreenHeaderButton";
@@ -28,11 +38,7 @@ import {
   ThreadId,
   type ProjectScript,
 } from "@t3tools/contracts";
-import {
-  requestOlderThreadTurns,
-  threadHasOlderTurns,
-  undeliveredUserMessages,
-} from "@t3tools/client-runtime/state/threads";
+
 import {
   projectScriptCwd,
   projectScriptRuntimeEnv,
@@ -59,7 +65,10 @@ import {
   useRemoteEnvironmentRuntime,
 } from "../../state/use-remote-environment-registry";
 import { useKnownTerminalSessions } from "../../state/use-terminal-session";
-import { useSelectedThreadDetailState } from "../../state/use-thread-detail";
+import {
+  useSelectedThreadDetailState,
+  useSelectedThreadProjection,
+} from "../../state/use-thread-detail";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { GitActionProgressOverlay } from "./GitActionProgressOverlay";
 import {
@@ -76,7 +85,7 @@ import { ThreadDetailScreen, type ThreadDetailScreenProps } from "./ThreadDetail
 import { resolveComposerCheckout } from "./composerChrome";
 import { GitOverviewSheet } from "./git/GitOverviewSheet";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { agentControlEnvironment } from "../../state/agentControl";
+import { useThreadUsageResume } from "./useThreadUsageResume";
 import { deriveUsageResumeNotice } from "@t3tools/client-runtime/usage-resume";
 import { useSelectedThreadGitActions } from "../../state/use-selected-thread-git-actions";
 import { useSelectedThreadGitState } from "../../state/use-selected-thread-git-state";
@@ -173,7 +182,7 @@ function ThreadHeader(
         subtitle={props.subtitle}
         sidebar={native.sidebar}
         options={native.options}
-        optionsVersion={[props.gitControls.projectScripts, Boolean(props.onOpenSideChat)]}
+        optionsVersion={native.optionsVersion}
         trailing={
           props.fileInspectorSupported && props.hasThreadCwd ? (
             <ScreenHeaderButton
@@ -332,6 +341,18 @@ export function ThreadRouteScreen(props: ThreadRouteScreenProps) {
   );
 }
 
+function undeliveredMessagesSignature(thread: EnvironmentThread | null): string | null {
+  return thread === null ? null : JSON.stringify([...undeliveredRunMessages(thread.projection)]);
+}
+
+function parseUndeliveredMessages(
+  signature: string | null,
+): ReadonlyMap<string, string> | undefined {
+  return signature === null
+    ? undefined
+    : new Map(JSON.parse(signature) as Array<[string, string]>);
+}
+
 function ThreadRouteContent(
   props: ThreadRouteScreenProps & {
     readonly selectedThreadDetailState: ReturnType<typeof useSelectedThreadDetailState>;
@@ -349,11 +370,20 @@ function ThreadRouteContent(
     selectedThreadProject,
     selectedEnvironmentConnection,
   } = useThreadSelection();
+  const usageResumeControls = useThreadUsageResume(
+    selectedThread === null
+      ? null
+      : { environmentId: selectedThread.environmentId, threadId: selectedThread.id },
+  );
   const selectedThreadDetailState = props.selectedThreadDetailState;
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
+  const selectedThreadProjection = useSelectedThreadProjection();
+  // Keyed by contents: the projection changes with every streamed item, and a new map
+  // would re-render every feed row.
+  const undeliveredSignature = undeliveredMessagesSignature(selectedThreadProjection);
   const undeliveredMessages = useMemo(
-    () => undeliveredUserMessages(selectedThreadDetail?.activities ?? []),
-    [selectedThreadDetail?.activities],
+    () => parseUndeliveredMessages(undeliveredSignature),
+    [undeliveredSignature],
   );
   // "Load earlier turns" header state for windowed (paginated) thread loads.
   const loadEarlierTurns = useMemo(() => {
@@ -996,27 +1026,12 @@ function ThreadRouteContent(
           connectionState: routeConnectionState,
         });
   const serverConfig = routeEnvironmentRuntime?.serverConfig ?? null;
-  const cancelUsageResume = useAtomCommand(agentControlEnvironment.cancelUsageResume);
-  const resumeUsageNow = useAtomCommand(agentControlEnvironment.resumeUsageNow);
-  const [usageResumeBusy, setUsageResumeBusy] = useState(false);
   const usageResumeNotice = deriveUsageResumeNotice({
     activities: selectedThreadDetail?.activities ?? [],
     session: selectedThread?.session ?? null,
     latestTurn: selectedThreadDetail?.latestTurn ?? null,
     nowMs: Date.now(),
   });
-  const runUsageResume = (command: typeof cancelUsageResume) => async () => {
-    if (selectedThread === null) return;
-    setUsageResumeBusy(true);
-    try {
-      await command({
-        environmentId: selectedThread.environmentId,
-        input: { threadId: selectedThread.id },
-      });
-    } finally {
-      setUsageResumeBusy(false);
-    }
-  };
   const renderThreadRouteBody = () => (
     <>
       <GitActionProgressOverlay
@@ -1034,9 +1049,9 @@ function ThreadRouteContent(
               ? {
                   text: usageResumeNotice.text,
                   canCancel: usageResumeNotice.canCancel,
-                  busy: usageResumeBusy,
-                  onCancel: runUsageResume(cancelUsageResume),
-                  onResumeNow: runUsageResume(resumeUsageNow),
+                  busy: usageResumeControls.busy,
+                  onCancel: usageResumeControls.onCancel,
+                  onResumeNow: usageResumeControls.onResumeNow,
                 }
               : null
           }

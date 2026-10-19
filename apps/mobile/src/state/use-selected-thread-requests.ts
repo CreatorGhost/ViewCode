@@ -1,6 +1,5 @@
-import { derivePendingRequests } from "@t3tools/client-runtime/pending-requests";
-import { useServerConfigs } from "./entities";
 import { Alert } from "react-native";
+import { useServerConfigs } from "./entities";
 import {
   questionAttachmentDraftKey,
   questionAttachmentDraftPrefix,
@@ -17,10 +16,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ApprovalRequestId,
+  RuntimeRequestId,
   type ProviderApprovalDecision,
   type UserInputQuestion,
 } from "@t3tools/contracts";
-import { Atom } from "effect/unstable/reactivity";
+import {
+  type PendingThreadRequests,
+  seedUserInputDraftAnswers,
+} from "@t3tools/client-runtime/state/thread-requests";
+import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
+import { Atom } from "effect/reactivity";
 
 import { threadEnvironment } from "../state/threads";
 import { scopedRequestKey } from "../lib/scopedEntities";
@@ -31,9 +36,12 @@ import {
   type PendingUserInputDraftAnswer,
 } from "../lib/threadActivity";
 import { appAtomRegistry } from "./atom-registry";
-import { useSelectedThreadDetail } from "./use-thread-detail";
+import { useSelectedThreadPendingRequests } from "./use-thread-detail";
 import { useThreadSelection } from "./use-thread-selection";
 import { useAtomCommand } from "./use-atom-command";
+import { readEnvironmentScope } from "./session";
+
+const EMPTY_PENDING_REQUESTS: PendingThreadRequests = { approvals: [], userInputs: [] };
 
 const userInputDraftsByRequestKeyAtom = Atom.make<
   Record<string, Record<string, PendingUserInputDraftAnswer>>
@@ -91,26 +99,55 @@ export function useSelectedThreadRequests() {
     "thread user input dismissal",
   );
   const { selectedThread: selectedThreadShell } = useThreadSelection();
-  const selectedThread = useSelectedThreadDetail();
+  const pendingRequests = useSelectedThreadPendingRequests();
   const userInputDraftsByRequestKey = useAtomValue(userInputDraftsByRequestKeyAtom);
-  const [respondingApprovalId, setRespondingApprovalId] = useState<ApprovalRequestId | null>(null);
   const userInputResponsesInFlight = useRef(new Set<string>());
+  const [respondingApprovalId, setRespondingApprovalId] = useState<ApprovalRequestId | null>(null);
   const [respondingUserInputId, setRespondingUserInputId] = useState<ApprovalRequestId | null>(
     null,
   );
 
-  const { approvals: activePendingApprovals, userInputs: activePendingUserInputs } = useMemo(
-    () => derivePendingRequests(selectedThread?.activities ?? []),
-    [selectedThread?.activities],
+  // Keep the retained mobile presentation IDs at the UI boundary; the native
+  // request store and RPCs continue to use RuntimeRequestId.
+  const pendingApprovals = pendingRequests?.approvals ?? EMPTY_PENDING_REQUESTS.approvals;
+  const activePendingApprovals = useMemo(
+    () =>
+      pendingApprovals.map((request) => ({
+        ...request,
+        requestId: ApprovalRequestId.make(request.requestId),
+      })),
+    [pendingApprovals],
   );
   const activePendingApproval = activePendingApprovals[0] ?? null;
+  const pendingUserInputs = pendingRequests?.userInputs ?? EMPTY_PENDING_REQUESTS.userInputs;
+  const activePendingUserInputs = useMemo(
+    () =>
+      pendingUserInputs.map((request) => ({
+        ...request,
+        requestId: ApprovalRequestId.make(request.requestId),
+      })),
+    [pendingUserInputs],
+  );
   const activePendingUserInput = activePendingUserInputs[0] ?? null;
+  useEffect(() => {
+    if (!activePendingUserInput || !selectedThreadShell) return;
+    const requestKey = scopedRequestKey(
+      selectedThreadShell.environmentId,
+      activePendingUserInput.requestId,
+    );
+    const existing = appAtomRegistry.get(userInputDraftsByRequestKeyAtom);
+    const drafts = existing[requestKey] ?? {};
+    const seeded = seedUserInputDraftAnswers(activePendingUserInput.questions, drafts);
+    if (seeded !== drafts) {
+      appAtomRegistry.set(userInputDraftsByRequestKeyAtom, { ...existing, [requestKey]: seeded });
+    }
+  }, [activePendingUserInput, selectedThreadShell]);
   const questionServerConfigs = useServerConfigs();
   const attachmentDrafts = useAtomValue(composerDraftsAtom);
   const preparationCounts = useAtomValue(questionAttachmentPreparationAtom);
   const uploadStates = useAtomValue(composerAttachmentUploadsAtom);
   useEffect(() => {
-    if (!selectedThreadShell || !selectedThread) return;
+    if (!selectedThreadShell || !pendingRequests) return;
     const prefix = questionAttachmentDraftPrefix(
       selectedThreadShell.environmentId,
       selectedThreadShell.id,
@@ -138,7 +175,7 @@ export function useSelectedThreadRequests() {
       }
     }
     if (changed) appAtomRegistry.set(questionAttachmentPreparationAtom, counts);
-  }, [activePendingUserInputs, attachmentDrafts, selectedThread, selectedThreadShell]);
+  }, [activePendingUserInputs, attachmentDrafts, pendingRequests, selectedThreadShell]);
   const activePendingUserInputDrafts =
     activePendingUserInput && selectedThreadShell
       ? Object.fromEntries(
@@ -214,7 +251,16 @@ export function useSelectedThreadRequests() {
 
   const onRespondToApproval = useCallback(
     async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
-      if (!selectedThreadShell) {
+      if (
+        !selectedThreadShell ||
+        !readEnvironmentScope(selectedThreadShell.environmentId, AuthOrchestrationOperateScope)
+      ) {
+        return;
+      }
+      if (
+        activePendingApprovals.find((approval) => approval.requestId === requestId)
+          ?.responseCapability !== "live"
+      ) {
         return;
       }
 
@@ -223,18 +269,24 @@ export function useSelectedThreadRequests() {
         environmentId: selectedThreadShell.environmentId,
         input: {
           threadId: selectedThreadShell.id,
-          requestId,
+          requestId: RuntimeRequestId.make(requestId),
           decision,
         },
       });
       setRespondingApprovalId((current) => (current === requestId ? null : current));
       return result;
     },
-    [respondToApproval, selectedThreadShell],
+    [activePendingApprovals, respondToApproval, selectedThreadShell],
   );
 
   const onSubmitUserInput = useCallback(async () => {
-    if (!selectedThreadShell || !activePendingUserInput || !activePendingUserInputAnswers) {
+    if (
+      !selectedThreadShell ||
+      !activePendingUserInput ||
+      activePendingUserInput.responseCapability === "not_resumable" ||
+      !activePendingUserInputAnswers ||
+      !readEnvironmentScope(selectedThreadShell.environmentId, AuthOrchestrationOperateScope)
+    ) {
       return;
     }
 
@@ -289,7 +341,7 @@ export function useSelectedThreadRequests() {
       environmentId: selectedThreadShell.environmentId,
       input: {
         threadId: selectedThreadShell.id,
-        requestId: activePendingUserInput.requestId,
+        requestId: RuntimeRequestId.make(activePendingUserInput.requestId),
         answers: activePendingUserInputAnswers,
         ...(attachmentsByQuestionId.size > 0
           ? { attachmentsByQuestionId: Object.fromEntries(attachmentsByQuestionId) }
@@ -308,9 +360,12 @@ export function useSelectedThreadRequests() {
     selectedThreadShell,
   ]);
 
-  // Closes an async question without messaging the agent.
   const onDismissUserInput = useCallback(async () => {
-    if (!selectedThreadShell || !activePendingUserInput) {
+    if (
+      !selectedThreadShell ||
+      !activePendingUserInput ||
+      !readEnvironmentScope(selectedThreadShell.environmentId, AuthOrchestrationOperateScope)
+    ) {
       return;
     }
 
@@ -319,7 +374,7 @@ export function useSelectedThreadRequests() {
       environmentId: selectedThreadShell.environmentId,
       input: {
         threadId: selectedThreadShell.id,
-        requestId: activePendingUserInput.requestId,
+        requestId: RuntimeRequestId.make(activePendingUserInput.requestId),
       },
     });
     setRespondingUserInputId((current) =>

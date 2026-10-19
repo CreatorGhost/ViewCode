@@ -20,8 +20,9 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../config.ts";
-import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ReviewActivityStore from "../review/ReviewActivityStoreV2.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ReviewThreadContext from "../review/ReviewThreadContextV2.ts";
 
 /** How many of the project's latest rated findings a review is shown. */
 const RATED_FINDINGS_LIMIT = 30;
@@ -45,20 +46,28 @@ export class ReviewFindingRatings extends Context.Service<
 >()("t3/review/ReviewFindingRatings") {}
 
 const make = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngine.OrchestrationEngineService;
-  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const activities = yield* ReviewActivityStore.ReviewActivityStoreV2;
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const readThread = (
+    threadId: import("@t3tools/contracts").ThreadId,
+    options?: { readonly activityKinds?: ReadonlyArray<string>; readonly allActivities?: boolean },
+  ) =>
+    ReviewThreadContext.read(threadId, options?.activityKinds).pipe(
+      Effect.provideService(ProjectionStore.ProjectionStoreV2, projections),
+      Effect.provideService(ReviewActivityStore.ReviewActivityStoreV2, activities),
+    );
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
-  const uuid = crypto.randomUUIDv4.pipe(Effect.orDie);
+  const uuid = crypto.randomUUIDv4().pipe(Effect.orDie);
 
   const rate = Effect.fn("ReviewFindingRatings.rate")(function* (input: ReviewRateFindingInput) {
-    const thread = yield* snapshots
-      .getThreadDetailById(input.reviewThreadId, { activityKinds: [REVIEW_FINDINGS_ACTIVITY_KIND] })
-      .pipe(
-        Effect.mapError((cause) => new ReviewRateFindingError({ stage: "review-thread", cause })),
-      );
+    const thread = yield* readThread(input.reviewThreadId, {
+      activityKinds: [REVIEW_FINDINGS_ACTIVITY_KIND],
+    }).pipe(
+      Effect.mapError((cause) => new ReviewRateFindingError({ stage: "review-thread", cause })),
+    );
     if (Option.isNone(thread)) {
       return yield* new ReviewRateFindingError({ stage: "review-thread" });
     }
@@ -83,9 +92,8 @@ const make = Effect.gen(function* () {
       },
     };
     const createdAt = DateTime.formatIso(yield* DateTime.now);
-    yield* engine
-      .dispatch({
-        type: "thread.activity.append",
+    yield* activities
+      .append({
         commandId: CommandId.make(`server:review-rating:${thread.value.id}:${yield* uuid}`),
         threadId: thread.value.id,
         activity: {
@@ -98,15 +106,14 @@ const make = Effect.gen(function* () {
           turnId: null,
           createdAt,
         },
-        createdAt,
       })
       .pipe(Effect.mapError((cause) => new ReviewRateFindingError({ stage: "record", cause })));
   });
 
   const writeRatedFindingsFile = (projectId: ProjectId) =>
     Effect.gen(function* () {
-      const activities = yield* snapshots.listActivitiesByKind(REVIEW_FINDING_RATING_ACTIVITY_KIND);
-      const rated = recentRatedReviewFindings(activities, projectId, RATED_FINDINGS_LIMIT);
+      const records = yield* activities.listByKind(REVIEW_FINDING_RATING_ACTIVITY_KIND);
+      const rated = recentRatedReviewFindings(records, projectId, RATED_FINDINGS_LIMIT);
       if (rated.length === 0) return null;
       const dir = path.join(config.stateDir, RATED_FINDINGS_DIR);
       const target = path.join(dir, `${projectId}.json`);

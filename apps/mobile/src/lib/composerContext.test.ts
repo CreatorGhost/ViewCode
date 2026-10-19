@@ -1,11 +1,6 @@
 import { upgradeLegacyContextMessage } from "@t3tools/shared/composerContextLegacy";
 import { buildProjectThreadStartTurnInput } from "./projectThreadStartTurn";
-import {
-  ProjectId,
-  ProviderInstanceId,
-  ComposerContextId,
-  type OrchestrationMessageContext,
-} from "@t3tools/contracts";
+import { ProjectId, ProviderInstanceId, ComposerContextId, type OrchestrationMessageContext } from "@t3tools/contracts";
 import { collectComposerInlineTokens } from "@t3tools/shared/composerInlineTokens";
 import {
   ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,

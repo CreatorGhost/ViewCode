@@ -1,4 +1,4 @@
-import type { OrchestrationThreadShell } from "@t3tools/contracts";
+import type { OrchestrationThreadShell } from "../viewcodeThread.ts";
 
 import { isChildAgentRunning, resolveSpawnedAgentRowStatus } from "./childAgents.ts";
 import type { SidebarThreadRowEntry, SidebarThreadTreeNode } from "./threadTree.ts";

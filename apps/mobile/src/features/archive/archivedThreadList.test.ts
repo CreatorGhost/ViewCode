@@ -1,5 +1,9 @@
+import type { OrchestrationV2ThreadShell as OrchestrationThreadShell } from "@t3tools/contracts";
+import { v2ThreadShell } from "../../../../../packages/client-runtime/src/state/orchestrationV2TestFixtures.ts";
+import * as DateTime from "effect/DateTime";
+
 import type { ArchivedSnapshotEntry } from "@t3tools/client-runtime/state/threads";
-import type { OrchestrationProjectShell, OrchestrationThreadShell } from "@t3tools/contracts";
+import type { OrchestrationProjectShell } from "@t3tools/contracts";
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -26,24 +30,9 @@ function makeThread(
     Pick<OrchestrationThreadShell, "id" | "projectId" | "title">,
 ): OrchestrationThreadShell {
   return {
-    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
-    runtimeMode: "full-access",
-    interactionMode: "default",
-    branch: null,
-    worktreePath: null,
-    pullRequests: [],
-    latestTurn: null,
-    createdAt: "2026-06-01T00:00:00.000Z",
-    updatedAt: "2026-06-01T00:00:00.000Z",
-    archivedAt: "2026-06-02T00:00:00.000Z",
-    session: null,
-    latestUserMessageAt: null,
-    hasPendingApprovals: false,
-    hasPendingUserInput: false,
-    hasActionableProposedPlan: false,
+    ...v2ThreadShell,
+    archivedAt: DateTime.makeUnsafe("2026-06-02T00:00:00.000Z"),
     ...input,
-    settledOverride: input.settledOverride ?? null,
-    settledAt: input.settledAt ?? null,
   };
 }
 
@@ -55,10 +44,10 @@ function makeSnapshot(
   return {
     environmentId: targetEnvironmentId,
     snapshot: {
+      schemaVersion: 2,
       snapshotSequence: 1,
       projects,
       threads,
-      updatedAt: "2026-06-04T00:00:00.000Z",
     },
   };
 }
@@ -72,7 +61,7 @@ describe("buildArchivedThreadGroups", () => {
       title: "Older",
     });
     const newer = makeThread({
-      archivedAt: "2026-06-03T00:00:00.000Z",
+      archivedAt: DateTime.makeUnsafe("2026-06-03T00:00:00.000Z"),
       id: ThreadId.make("thread-newer"),
       projectId: project.id,
       title: "Newer",

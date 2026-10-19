@@ -2,7 +2,7 @@ import { Host, Switch as ComposeSwitch } from "@expo/ui/jetpack-compose";
 import { View } from "react-native";
 import type { ThemedSwitchProps } from "./MaterialSwitch.types";
 
-import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
+import { useAppearancePreferences } from "../lib/appearancePreferencesContext";
 
 /** Material's native switch, with the same palette and accessibility contract as our RN controls. */
 export function MaterialSwitch(props: ThemedSwitchProps) {

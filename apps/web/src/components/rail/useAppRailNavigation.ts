@@ -1,5 +1,4 @@
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { useCallback } from "react";
 
 export function useAppSettingsRoute() {
   const navigate = useNavigate();
@@ -7,6 +6,6 @@ export function useAppSettingsRoute() {
     select: (location) =>
       location.pathname === "/settings" || location.pathname.startsWith("/settings/"),
   });
-  const openSettings = useCallback(() => void navigate({ to: "/settings" }), [navigate]);
+  const openSettings = () => void navigate({ to: "/settings" });
   return { onSettings, openSettings };
 }

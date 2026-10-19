@@ -63,7 +63,7 @@ export function isAgentMessagingToolCallWithCard(
     "label" | "toolTitle" | "toolData" | "toolLifecycleStatus" | "tone" | "itemType"
   >,
 ): boolean {
-  if (entry.itemType !== "mcp_tool_call") return false;
+  if (entry.itemType !== "dynamic_tool") return false;
   if (entry.tone === "error" || entry.toolLifecycleStatus === "failed") return false;
   const name = resolveAgentToolkitToolName(entry);
   return name === "spawn_agent" || name === "send_message";
@@ -75,7 +75,7 @@ export function isAgentMessagingToolCallWithCard(
  */
 export function agentToolkitLabel(
   entry: Pick<WorkLogEntry, "label" | "toolTitle" | "toolData" | "toolLifecycleStatus">,
-  fallbackStatus?: "inProgress" | "completed",
+  fallbackStatus?: WorkLogEntry["toolLifecycleStatus"],
 ): string | null {
   const name = resolveAgentToolkitToolName(entry);
   if (!name) return null;

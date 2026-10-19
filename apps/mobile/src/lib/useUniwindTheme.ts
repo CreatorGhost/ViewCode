@@ -1,4 +1,4 @@
-import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
+import { useAppearancePreferences } from "./appearancePreferencesContext";
 import type { MobileThemeVariables } from "./mobileTheme";
 
 /**

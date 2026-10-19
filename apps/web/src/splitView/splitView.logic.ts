@@ -61,10 +61,16 @@ export function pickSplitCompanion<
     id: string;
     archivedAt: string | null;
     kind?: string | null | undefined;
+    source?: { readonly kind?: string | null | undefined } | undefined;
   },
 >(threadsNewestFirst: ReadonlyArray<T>, current: ScopedThreadRef | null): T | null {
   for (const thread of threadsNewestFirst) {
-    if (thread.archivedAt !== null || thread.kind === "sidechat") continue;
+    if (
+      thread.archivedAt !== null ||
+      thread.kind === "sidechat" ||
+      thread.source?.kind === "sidechat"
+    )
+      continue;
     if (
       current !== null &&
       thread.environmentId === current.environmentId &&

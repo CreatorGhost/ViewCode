@@ -7,7 +7,7 @@
  * is a normal terminal opened with `providerInstanceId`, which applies the
  * instance's CODEX_HOME / CLAUDE_CONFIG_DIR (`terminal/Manager.ts`).
  */
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
   ClaudeSettings,
   CodexSettings,
@@ -34,10 +34,11 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import { expandHomePath } from "../pathExpansion.ts";
+import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { materializeCodexShadowHome, resolveCodexHomeLayout } from "./Drivers/CodexHomeLayout.ts";
 import { resolveClaudeHomePath } from "./Drivers/ClaudeHome.ts";
-import { deriveProviderInstanceConfigMap } from "./Layers/ProviderInstanceRegistryHydration.ts";
+import { deriveProviderInstanceConfigMap } from "./ProviderInstanceRegistryHydration.ts";
+import { AdminProviderPolicyRef } from "./AdminProviderPolicy.ts";
 
 const decodeCodexSettings = Schema.decodeUnknownOption(CodexSettings);
 const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
@@ -119,7 +120,10 @@ export const addProviderAccount = Effect.fn("providerAccounts.add")(function* (i
     patch: Pick<ServerSettings, "providerInstances">,
   ) => Effect.Effect<unknown, ServerSettingsError>;
 }) {
-  const platform = yield* HostProcessPlatform;
+  if ((yield* AdminProviderPolicyRef).blockedDrivers.includes(input.account.driver)) {
+    return yield* fail("add", "Blocked by your organization.");
+  }
+  const platform = yield* HostProcess.Platform;
   const { patch, result } = yield* Effect.try({
     try: () =>
       addAccountSettingsPatch({
@@ -154,12 +158,15 @@ export const prepareProviderAccountSignIn = Effect.fn("providerAccounts.prepareS
     readonly stateDir: string;
   }) {
     const path = yield* Path.Path;
-    const platform = yield* HostProcessPlatform;
+    const platform = yield* HostProcess.Platform;
     const instance = deriveProviderInstanceConfigMap(input.settings)[input.instanceId];
     if (instance === undefined) {
       return yield* fail("prepareSignIn", `No provider instance '${input.instanceId}'.`);
     }
     const driver = String(instance.driver);
+    if ((yield* AdminProviderPolicyRef).blockedDrivers.includes(driver)) {
+      return yield* fail("prepareSignIn", "Blocked by your organization.");
+    }
     if (!isAccountDriver(driver)) {
       return yield* fail("prepareSignIn", "Sign in from Settings supports Codex and Claude.");
     }
@@ -202,7 +209,7 @@ export const prepareProviderAccountSignIn = Effect.fn("providerAccounts.prepareS
     yield* makePrivateDirectory(cwd);
     const plan: ProviderAccountSignInPlan = {
       instanceId: input.instanceId,
-      cwd: path.resolve(expandHomePath(cwd)),
+      cwd: path.resolve(expandHomePath(cwd, yield* HostProcess.HomeDirectory)),
       command: accountLoginCommand({
         driver,
         binaryPath,

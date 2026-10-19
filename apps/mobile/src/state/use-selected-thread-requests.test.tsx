@@ -54,23 +54,24 @@ vi.mock("./use-thread-selection", () => ({
     selectedThread: { environmentId: "environment-1", id: "thread-1" },
   }),
 }));
+vi.mock("./session", () => ({ readEnvironmentScope: () => true }));
 vi.mock("./use-thread-detail", () => ({
-  useSelectedThreadDetail: () => ({
-    activities: [
+  useSelectedThreadPendingRequests: () => ({
+    approvals: [],
+    userInputs: [
       {
-        id: "request-activity",
-        kind: "user-input.requested",
+        requestId: "request-1",
         createdAt: "2026-09-08T00:00:00Z",
-        payload: {
-          requestId: "request-1",
-          questions: ["first", "second"].map((id) => ({
-            id,
-            header: id,
-            question: `Attach ${id} file`,
-            options: [],
-            allowCustomAnswer: true,
-          })),
-        },
+        responseCapability: "live",
+        dismissible: false,
+        questions: ["first", "second"].map((id) => ({
+          id,
+          header: id,
+          question: `Attach ${id} file`,
+          options: [],
+          allowCustomAnswer: true,
+          multiSelect: false,
+        })),
       },
     ],
   }),

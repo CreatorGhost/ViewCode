@@ -79,6 +79,172 @@ html[data-theme-id] [data-chat-header] [data-slot="group"] [data-slot="separator
   display: none;
 }
 
+/* Header toolbar: related controls sit in one pill each (open-in with its
+   editor menu; terminal, side chat and review; the pane toggles), with hairline
+   dividers between them. Controls inside a pill are borderless and muted;
+   hover and pressed only lift them. Beats index.css, which paints every
+   header button with the toolbar surface. */
+html[data-theme-id]
+  :is(
+    [data-chat-header-actions] > [data-slot="group"],
+    [data-chat-header-actions] > [data-header-actions-group],
+    [data-chat-header-actions] > [data-panel-layout-controls],
+    [data-workspace-titlebar-controls]:has(> * + *),
+    [data-workspace-titlebar-controls]:not(:has(> * + *)) > [data-panel-layout-controls]
+  ) {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: 2rem;
+  padding: 0 3px;
+  border-radius: 9999px;
+  background-color: color-mix(in srgb, var(--foreground) 5.5%, transparent);
+}
+html[data-theme-id]
+  :is(
+    [data-chat-header-actions] > [data-slot="group"],
+    [data-chat-header-actions] > [data-header-actions-group],
+    [data-chat-header-actions] > [data-panel-layout-controls],
+    [data-workspace-titlebar-controls]:has(> * + *),
+    [data-workspace-titlebar-controls]:not(:has(> * + *)) > [data-panel-layout-controls]
+  )
+  > * {
+  position: relative;
+}
+/* The titlebar host is as tall as the top bar; as a 2rem pill it centres itself
+   in that bar instead of hanging from its top. */
+html[data-theme-id] [data-workspace-titlebar-controls]:has(> * + *) {
+  translate: 0 calc((var(--workspace-topbar-height) - 2rem) / 2);
+}
+/* ViewCode's inset sheet has a 1px top border the fixed host sits above. */
+@media (min-width: 768px) {
+  html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+    [data-workspace-titlebar-controls]:has(> * + *) {
+    translate: 0 calc((var(--workspace-topbar-height) - 2rem) / 2 + 1px);
+  }
+}
+/* A pane-toggle group nested in a titlebar pill joins it, not a pill of its own. */
+html[data-theme-id]
+  [data-workspace-titlebar-controls]:has(> * + *)
+  :is(div, [data-panel-layout-controls]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: auto;
+  padding: 0;
+  background: none;
+}
+/* Hairline between neighbours. ::after, because Button draws on ::before. */
+html[data-theme-id]
+  :is(
+    [data-chat-header-actions] > [data-slot="group"],
+    [data-chat-header-actions] > [data-header-actions-group],
+    [data-chat-header-actions] > [data-panel-layout-controls],
+    [data-workspace-titlebar-controls]:has(> * + *),
+    [data-workspace-titlebar-controls]:not(:has(> * + *)) > [data-panel-layout-controls]
+  )
+  > *
+  + *::after {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 30%;
+  bottom: 30%;
+  width: 1px;
+  background-color: color-mix(in srgb, var(--foreground) 12%, transparent);
+  pointer-events: none;
+}
+html[data-theme-id]
+  :is([data-chat-header], [data-workspace-titlebar-controls])
+  :is(
+    [data-slot="button"],
+    [data-slot="menu-trigger"],
+    [data-slot="toggle"],
+    button[data-slot="tooltip-trigger"]
+  ):not(.vc-chip) {
+  --control-icon-color: currentColor;
+  height: 1.75rem;
+  min-width: 1.75rem;
+  padding-inline: 0.4375rem;
+  gap: 0.375rem;
+  border-color: transparent;
+  border-radius: 9999px;
+  box-shadow: none;
+  background-color: transparent;
+  color: color-mix(in srgb, var(--foreground) 72%, transparent);
+  font-size: 0.8125rem;
+}
+html[data-theme-id]
+  :is([data-chat-header], [data-workspace-titlebar-controls])
+  :is(
+    [data-slot="button"],
+    [data-slot="menu-trigger"],
+    [data-slot="toggle"],
+    button[data-slot="tooltip-trigger"]
+  ):not(.vc-chip)::before {
+  box-shadow: none;
+  border-radius: 9999px;
+}
+html[data-theme-id]
+  :is([data-chat-header], [data-workspace-titlebar-controls])
+  :is(
+    [data-slot="button"],
+    [data-slot="menu-trigger"],
+    [data-slot="toggle"],
+    button[data-slot="tooltip-trigger"]
+  ):not(.vc-chip).size-9 {
+  width: 1.75rem;
+  padding-inline: 0;
+}
+html[data-theme-id]
+  :is([data-chat-header], [data-workspace-titlebar-controls])
+  :is(
+    [data-slot="button"],
+    [data-slot="menu-trigger"],
+    [data-slot="toggle"],
+    button[data-slot="tooltip-trigger"]
+  ):not(.vc-chip)
+  svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+/* Same sizes as the core app: 14px action icons, 16px panel toggles, 28px buttons. */
+html[data-theme-id]
+  :is(
+    [data-panel-layout-controls]
+      :is([data-slot="button"], [data-slot="toggle"], button[data-slot="tooltip-trigger"]),
+    [data-panel-maximize]
+  ):not(.vc-chip)
+  svg {
+  width: 1rem;
+  height: 1rem;
+}
+html[data-theme-id]
+  :is([data-chat-header], [data-workspace-titlebar-controls])
+  :is(
+    [data-slot="button"],
+    [data-slot="menu-trigger"],
+    [data-slot="toggle"],
+    button[data-slot="tooltip-trigger"]
+  ):not(.vc-chip):is(:hover, [data-pressed], [data-popup-open], [aria-pressed="true"]) {
+  background-color: color-mix(in srgb, var(--foreground) 9%, transparent);
+  color: var(--foreground);
+}
+/* The editor menu chevron is a narrow tail on the open-in button. */
+html[data-theme-id] [data-chat-header-actions] > [data-slot="group"] > [data-slot="menu-trigger"] {
+  min-width: 1.25rem;
+  width: 1.25rem;
+  padding-inline: 0;
+}
+html[data-theme-id]
+  [data-chat-header-actions]
+  > [data-slot="group"]
+  > [data-slot="menu-trigger"]
+  svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
 /* Composer: borderless-feeling shell, 1px low-contrast edge, soft diffuse
    shadow, larger radius. Focus only strengthens the edge a little. */
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"] {
@@ -443,4 +609,12 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   clip-path: none;
   clip: auto;
   white-space: nowrap;
+}
+
+/* A narrow header (right panel open on a small window) keeps the thread title readable: the
+   open-in-editor group goes first, since the command palette and its shortcut still reach it. */
+@container header-actions (max-width: 26rem) {
+  html[data-theme-id] [data-chat-header] [data-chat-header-actions] > [data-slot="group"] {
+    display: none;
+  }
 }

@@ -126,6 +126,8 @@ interface PlatformGraph {
   readonly files: ReadonlyArray<string>;
   /** Static (type or value) import edges keyed by source file. */
   readonly staticEdges: ReadonlyMap<string, ReadonlyArray<string>>;
+  readonly allEdges: ReadonlyMap<string, ReadonlyArray<string>>;
+  readonly reachableFiles: ReadonlySet<string>;
   /** Unique cross-layer edges, static and dynamic, as "fromRel -> toRel". */
   readonly crossLayerEdges: ReadonlySet<string>;
 }
@@ -136,9 +138,11 @@ function buildPlatformGraph(platform: Platform): PlatformGraph {
     .filter((file) => isRelevantForPlatform(file, platform))
     .sort();
   const staticEdges = new Map<string, string[]>();
+  const allEdges = new Map<string, string[]>();
   const crossLayerEdges = new Set<string>();
   for (const file of files) {
     const targets = new Set<string>();
+    const allTargets = new Set<string>();
     for (const { specifier, isDynamic } of parseImports(NodeFS.readFileSync(file, "utf8"))) {
       const resolved = resolveRelative(file, specifier, extensionOrder);
       if (resolved === null || resolved === file) {
@@ -160,10 +164,24 @@ function buildPlatformGraph(platform: Platform): PlatformGraph {
       if (!isDynamic) {
         targets.add(resolved);
       }
+      allTargets.add(resolved);
     }
     staticEdges.set(file, [...targets]);
+    allEdges.set(file, [...allTargets]);
   }
-  return { platform, files, staticEdges, crossLayerEdges };
+  const entrypoint = NodePath.join(SOURCE_ROOT, "../index.ts");
+  const pending = parseImports(NodeFS.readFileSync(entrypoint, "utf8")).flatMap(({ specifier }) => {
+    const resolved = resolveRelative(entrypoint, specifier, extensionOrder);
+    return resolved === null ? [] : [resolved];
+  });
+  const reachableFiles = new Set<string>();
+  while (pending.length > 0) {
+    const file = pending.pop()!;
+    if (reachableFiles.has(file)) continue;
+    reachableFiles.add(file);
+    pending.push(...(allEdges.get(file) ?? []));
+  }
+  return { platform, files, staticEdges, allEdges, reachableFiles, crossLayerEdges };
 }
 
 /** Tarjan strongly-connected components, iterative to bound stack depth. */
@@ -241,6 +259,23 @@ function upwardEdges(): string[] {
 }
 
 describe("mobile dependency graph", () => {
+  it.each(PLATFORMS)(
+    "traces the native entrypoint and lazy imports under %s resolution",
+    (platform) => {
+      const graph = graphs.find((candidate) => candidate.platform === platform)!;
+      expect(graph.reachableFiles.has(NodePath.join(SOURCE_ROOT, "App.tsx"))).toBe(true);
+      expect(graph.reachableFiles.has(NodePath.join(SOURCE_ROOT, "Stack.tsx"))).toBe(true);
+      expect(graph.reachableFiles.size).toBeGreaterThan(200);
+      const lazyTargets = [...graph.allEdges].flatMap(([source, targets]) =>
+        graph.reachableFiles.has(source)
+          ? targets.filter((target) => !graph.staticEdges.get(source)?.includes(target))
+          : [],
+      );
+      expect(lazyTargets.length).toBeGreaterThan(0);
+      for (const target of lazyTargets) expect(graph.reachableFiles.has(target)).toBe(true);
+    },
+  );
+
   it.each(PLATFORMS)("has no circular imports under %s resolution", (platform) => {
     const graph = graphs.find((candidate) => candidate.platform === platform)!;
     // The graph must see real files; a resolution regression here would make
@@ -264,14 +299,13 @@ describe("mobile dependency graph", () => {
       // (legacy-plan-mode was pure model logic and moved into state/.)
       ["state", "features", 6, "state must not add imports from features"],
       // lib -> features: lib/runtime.ts is the app composition root and
-      // legitimately wires cloud/observability features; the appearance
-      // helpers and terminal preferences still need untangling.
-      ["lib", "features", 7, "lib must not add imports from features"],
-      // components -> features: mostly the appearance preferences provider
-      // and the layout toolbar bridges.
-      ["components", "features", 33, "components must not add imports from features"],
-      // native -> features: native glue reading appearance/keyboard/review features.
-      ["native", "features", 8, "native must not add imports from features"],
+      // legitimately wires observability; appearance model defaults still
+      // depend on terminal preferences.
+      ["lib", "features", 2, "lib must not add imports from features"],
+      // components -> features: composer context surfaces and layout toolbar bridges.
+      ["components", "features", 10, "components must not add imports from features"],
+      // native -> features: keyboard commands and review syntax highlighting.
+      ["native", "features", 5, "native must not add imports from features"],
       // lib -> state: attachment/session plumbing that predates the cycle
       // cleanup; each remaining edge needs a real owner-side seam.
       ["lib", "state", 11, "lib must not add imports from state"],

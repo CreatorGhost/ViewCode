@@ -1,25 +1,34 @@
-import type { DetectedProvider, EnvironmentId, ProviderDriverKind } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import {
+  AuthProvidersManageScope,
+  type DetectedProvider,
+  type EnvironmentId,
+  type ProviderDriverKind,
+} from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import {
   buildProviderPickerRows,
   providerPickerPatch,
+  selectedProviderPickerDrivers,
   type ProviderPickerRow,
 } from "../../onboarding/onboardingAgents.logic";
+import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { getDriverOption } from "../settings/providerDriverMeta";
+import { providerClients } from "../settings/providerDriverMeta";
+import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 
 function providerDisplayName(driver: ProviderDriverKind): string {
-  return driver === "claudeAgent" ? "Claude Code" : (getDriverOption(driver)?.label ?? driver);
+  return driver === "claudeAgent" ? "Claude Code" : (providerClients.get(driver)?.label ?? driver);
 }
 
 /**
@@ -51,7 +60,11 @@ export function ProviderPicker({ environmentId }: { readonly environmentId: Envi
     };
   }, [detectProviders, environmentId]);
 
-  const rows = useMemo(() => buildProviderPickerRows(detected), [detected]);
+  const canManage = useEnvironmentScope(environmentId, AuthProvidersManageScope);
+  const config = useAtomValue(serverEnvironment.configValueAtom(environmentId));
+  const blockedDrivers = config?.adminBlockedProviderDrivers ?? [];
+  const rows = buildProviderPickerRows(detected, blockedDrivers);
+  const selected = selectedProviderPickerDrivers(rows, picked);
 
   const toggle = (driver: ProviderDriverKind, on: boolean) =>
     setPicked((current) => {
@@ -62,11 +75,19 @@ export function ProviderPicker({ environmentId }: { readonly environmentId: Envi
     });
 
   const turnOn = async () => {
+    if (
+      !config ||
+      selected.size === 0 ||
+      !readEnvironmentScope(environmentId, AuthProvidersManageScope)
+    )
+      return;
     setSaving(true);
     setError(null);
     const result = await updateSettings({
       environmentId,
-      input: { patch: providerPickerPatch(picked) },
+      input: {
+        patch: providerPickerPatch(selected, config.settings.providerInstances, blockedDrivers),
+      },
     });
     setSaving(false);
     if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
@@ -87,24 +108,33 @@ export function ProviderPicker({ environmentId }: { readonly environmentId: Envi
           <ProviderPickerRowView
             key={row.driver}
             row={row}
-            checked={picked.has(row.driver)}
-            disabled={saving}
+            checked={!row.blockedByAdmin && picked.has(row.driver)}
+            disabled={saving || !canManage || config === null || row.blockedByAdmin === true}
             onCheckedChange={(on) => toggle(row.driver, on)}
           />
         ))}
       </div>
+      {!canManage ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          This connection cannot change providers.
+        </p>
+      ) : null}
       {error ? (
         <Alert variant="error" className="mt-3">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
       <div className="mt-3 flex justify-end">
-        <Button size="sm" onClick={() => void turnOn()} disabled={picked.size === 0 || saving}>
+        <Button
+          size="sm"
+          onClick={() => void turnOn()}
+          disabled={selected.size === 0 || saving || !canManage || config === null}
+        >
           {saving
             ? "Turning on..."
-            : picked.size === 1
+            : selected.size === 1
               ? "Turn on 1 tool"
-              : `Turn on ${picked.size} tools`}
+              : `Turn on ${selected.size} tools`}
         </Button>
       </div>
     </div>
@@ -122,7 +152,6 @@ function ProviderPickerRowView({
   readonly disabled: boolean;
   readonly onCheckedChange: (checked: boolean) => void;
 }) {
-  const Icon = getDriverOption(row.driver)?.icon;
   const name = providerDisplayName(row.driver);
   return (
     <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5">
@@ -132,11 +161,11 @@ function ProviderPickerRowView({
         onCheckedChange={(next) => onCheckedChange(next === true)}
         aria-label={`Let ViewCode start ${name}`}
       />
-      {Icon ? (
-        <Icon
-          className={cn("size-4.5 shrink-0", row.driver !== "claudeAgent" && "fill-foreground")}
-        />
-      ) : null}
+      <ProviderInstanceIcon
+        driverKind={row.driver}
+        displayName={name}
+        className="size-4.5 shrink-0"
+      />
       <span className="min-w-0 flex-1 truncate text-sm text-foreground">{name}</span>
       <span
         className={cn(
@@ -144,7 +173,13 @@ function ProviderPickerRowView({
           row.found ? "text-success-foreground" : "text-muted-foreground",
         )}
       >
-        {row.found === null ? "Checking..." : row.found ? "Found on this computer" : "Not found"}
+        {row.blockedByAdmin
+          ? "Blocked by your organization"
+          : row.found === null
+            ? "Checking..."
+            : row.found
+              ? "Found on this computer"
+              : "Not found"}
       </span>
     </label>
   );

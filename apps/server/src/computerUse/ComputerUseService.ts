@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - opaque local identifiers use Node UUIDs.
 /**
  * The server-side gate for computer use. Every `viewcode-computer` call lands
  * here through `POST /api/computer-use`, already bound to the thread its
@@ -7,7 +8,7 @@
  * sends raw requests itself: nothing here trusts the CLI's own checks.
  *
  * State is in memory and per thread: window ids, element refs, a routine-input
- * grant for the current turn, and pending approvals. `ProviderService` clears
+ * grant for the current turn, and pending approvals. `ComputerUseV2Bridge` clears
  * it when a turn ends or the session stops; a server restart forgets it.
  */
 import * as NodeCrypto from "node:crypto";
@@ -15,7 +16,6 @@ import * as NodeCrypto from "node:crypto";
 import {
   COMPUTER_USE_DEFAULT_SCREENSHOT_SIZE,
   EventId,
-  isProviderDriverKind,
   RuntimeRequestId,
   type ComputerUseActivityEntry,
   type ComputerUseApprovals,
@@ -50,10 +50,10 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerConfig from "../config.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ComputerUseThreadState } from "./ComputerUseThreadState.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { ServerProcessAncestry } from "./computerUseAncestry.ts";
 import {
@@ -114,8 +114,8 @@ export interface ComputerUseServiceShape {
    */
   readonly recentActivity: Effect.Effect<ReadonlyArray<ComputerUseActivityEntry>>;
   /**
-   * Where approval requests are published. `ProviderService` attaches its
-   * runtime event bus so every client renders them like provider approvals.
+   * The native bridge records these local requests as v2 runtime requests
+   * and approval cards, shared by every client.
    */
   readonly attachRuntimeEventPublisher: (
     publish: (event: ProviderRuntimeEvent) => Effect.Effect<void>,
@@ -131,6 +131,13 @@ export interface ComputerUseServiceShape {
   readonly releaseThread: (threadId: ThreadId) => Effect.Effect<void>;
   readonly releaseAll: Effect.Effect<void>;
   /** Records provider requests before clients see them, without waiting for projection. */
+  readonly trackNativeApproval: (input: {
+    readonly threadId: ThreadId;
+    readonly requestId: string;
+    readonly turnId?: TurnId;
+    readonly pending: boolean;
+    readonly userInput: boolean;
+  }) => Effect.Effect<void>;
   readonly trackProviderApproval: (event: ProviderRuntimeEvent) => Effect.Effect<void>;
 }
 
@@ -153,10 +160,11 @@ export const pendingApprovalsLayer = Layer.effect(
     return ComputerUsePendingApprovals.of({
       anyPending: sql<{ readonly pending: number }>`
         SELECT 1 AS pending
-        FROM projection_pending_approvals AS approvals
-        JOIN projection_threads AS threads ON threads.thread_id = approvals.thread_id
+        FROM orchestration_v2_projection_runtime_requests AS approvals
+        JOIN orchestration_v2_projection_threads AS threads ON threads.thread_id = approvals.thread_id
         WHERE approvals.status = 'pending'
-          AND approvals.request_id NOT LIKE ${`${REQUEST_ID_PREFIX}%`}
+          AND approvals.kind NOT IN ('user_input', 'auth_refresh')
+          AND approvals.runtime_request_id NOT LIKE ${`${REQUEST_ID_PREFIX}%`}
           AND threads.archived_at IS NULL
           AND threads.deleted_at IS NULL
         LIMIT 1
@@ -276,7 +284,7 @@ export const make = Effect.gen(function* () {
   const driver = yield* ComputerDriver;
   const showCursor = yield* ComputerUseCursor;
   const settings = yield* ServerSettings.ServerSettingsService;
-  const projection = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const threadState = yield* ComputerUseThreadState;
   const config = yield* ServerConfig.ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -358,33 +366,11 @@ export const make = Effect.gen(function* () {
 
   /** The thread's running turn as orchestration sees it, or undefined. */
   const runningTurn = (caller: ComputerUseCaller) =>
-    projection.getThreadShellById(caller.threadId).pipe(
-      Effect.map(Option.getOrUndefined),
-      Effect.orElseSucceed(() => undefined),
-      Effect.map((thread): TurnContext | undefined => {
-        const session = thread?.session;
-        if (!thread || !session || session.status !== "running" || !session.activeTurnId) {
-          return undefined;
-        }
-        // A credential minted for an earlier provider instance must not act
-        // inside the turn of whatever replaced it.
-        if (
-          session.providerInstanceId !== undefined &&
-          session.providerInstanceId !== caller.providerInstanceId
-        ) {
-          return undefined;
-        }
-        if (!isProviderDriverKind(session.providerName)) return undefined;
-        if (endedTurns.get(caller.threadId) === session.activeTurnId) return undefined;
-        lastRunningTurn.set(caller.threadId, session.activeTurnId);
-        return {
-          title: thread.title,
-          turnId: session.activeTurnId,
-          provider: session.providerName,
-          // The thread's mode can change mid-session while the provider keeps
-          // the old one until it restarts; auto-allow only when both agree.
-          fullAccess: thread.runtimeMode === "full-access" && session.runtimeMode === "full-access",
-        };
+    threadState.running(caller).pipe(
+      Effect.map((turn) => {
+        if (turn === undefined || endedTurns.get(caller.threadId) === turn.turnId) return undefined;
+        lastRunningTurn.set(caller.threadId, turn.turnId);
+        return turn;
       }),
     );
 
@@ -594,9 +580,10 @@ export const make = Effect.gen(function* () {
         });
         return ok({ kind: "windows", windows });
       }),
-      Effect.catchTag("ComputerDriverError", (error) =>
-        Effect.succeed(refused(driverErrorToComputerUseError(error, { input: false }))),
-      ),
+      Effect.catchTags({
+        ComputerDriverError: (error) =>
+          Effect.succeed(refused(driverErrorToComputerUseError(error, { input: false }))),
+      }),
     );
 
   /** Re-reads titles and handles before acting on a window; a driver failure is the response. */
@@ -606,9 +593,10 @@ export const make = Effect.gen(function* () {
         targetsFor(caller.threadId).recordWindows(listed);
         return undefined;
       }),
-      Effect.catchTag("ComputerDriverError", (error) =>
-        Effect.succeed(refused(driverErrorToComputerUseError(error, { input: false }))),
-      ),
+      Effect.catchTags({
+        ComputerDriverError: (error) =>
+          Effect.succeed(refused(driverErrorToComputerUseError(error, { input: false }))),
+      }),
     );
 
   const observe = (caller: ComputerUseCaller, windowId: number, query: string | undefined) =>
@@ -626,9 +614,9 @@ export const make = Effect.gen(function* () {
         })
         .pipe(
           Effect.map((value) => ({ _tag: "Observed" as const, value })),
-          Effect.catchTag("ComputerDriverError", (error) =>
-            Effect.succeed({ _tag: "Failed" as const, error }),
-          ),
+          Effect.catchTags({
+            ComputerDriverError: (error) => Effect.succeed({ _tag: "Failed" as const, error }),
+          }),
         );
       if (observed._tag === "Failed") {
         return observed.error.kind === "stale"
@@ -726,26 +714,26 @@ export const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const overlaid = yield* protectedOverlay(window).pipe(
         Effect.map((value) => ({ _tag: "Checked" as const, value })),
-        Effect.catchTag("ComputerDriverError", (error) =>
-          Effect.succeed({ _tag: "Failed" as const, error }),
-        ),
+        Effect.catchTags({
+          ComputerDriverError: (error) => Effect.succeed({ _tag: "Failed" as const, error }),
+        }),
       );
       if (overlaid._tag === "Failed") return overlaid;
       if (overlaid.value) return { _tag: "Overlaid" as const };
       const target = yield* nextScreenshotPath(caller.threadId);
       const captured = yield* driver.screenshot(window.handle, target.file, { maxSize }).pipe(
         Effect.map((value) => ({ _tag: "Captured" as const, value })),
-        Effect.catchTag("ComputerDriverError", (error) =>
-          Effect.succeed({ _tag: "Failed" as const, error }),
-        ),
+        Effect.catchTags({
+          ComputerDriverError: (error) => Effect.succeed({ _tag: "Failed" as const, error }),
+        }),
       );
       if (captured._tag === "Failed") return captured;
       // A protected window may have appeared while the capture ran.
       const after = yield* protectedOverlay(window).pipe(
         Effect.map((overlaid) => (overlaid ? { _tag: "Overlaid" as const } : undefined)),
-        Effect.catchTag("ComputerDriverError", (error) =>
-          Effect.succeed({ _tag: "Failed" as const, error }),
-        ),
+        Effect.catchTags({
+          ComputerDriverError: (error) => Effect.succeed({ _tag: "Failed" as const, error }),
+        }),
       );
       if (after) {
         yield* fs.remove(target.file, { force: true }).pipe(Effect.ignore);
@@ -1236,11 +1224,12 @@ export const make = Effect.gen(function* () {
       };
       return yield* dispatchInput(request, resolved).pipe(
         Effect.provideService(ComputerDriverDispatchCheck, decide),
-        Effect.catchTag("ComputerDriverError", (error) =>
-          (lastNative && cursorShown ? cursor(lastNative, "error") : Effect.succeed(true)).pipe(
-            Effect.as(inputFailure(caller, resolved, error)),
-          ),
-        ),
+        Effect.catchTags({
+          ComputerDriverError: (error) =>
+            (lastNative && cursorShown ? cursor(lastNative, "error") : Effect.succeed(true)).pipe(
+              Effect.as(inputFailure(caller, resolved, error)),
+            ),
+        }),
       );
     });
 
@@ -1446,6 +1435,19 @@ export const make = Effect.gen(function* () {
     handle,
     status,
     recentActivity,
+    trackNativeApproval: (input) => {
+      if (input.requestId.startsWith(REQUEST_ID_PREFIX)) return Effect.void;
+      const key = `${input.threadId}:${input.requestId}`;
+      return input.pending && !input.userInput
+        ? dispatchLock.withPermits(1)(
+            Effect.sync(() => {
+              liveProviderApprovals.set(key, { threadId: input.threadId, turnId: input.turnId });
+            }),
+          )
+        : Effect.sync(() => {
+            liveProviderApprovals.delete(key);
+          });
+    },
     trackProviderApproval: (event) => {
       if (!event.requestId || event.requestId.startsWith(REQUEST_ID_PREFIX)) return Effect.void;
       const key = `${event.threadId}:${event.requestId}`;
@@ -1479,6 +1481,11 @@ export const make = Effect.gen(function* () {
         if (!requestId.startsWith(REQUEST_ID_PREFIX)) return "not-owned";
         const entry = pending.get(requestId);
         if (!entry || entry.threadId !== threadId) return "stale";
+        const turn = yield* runningTurn({ threadId, providerInstanceId: entry.providerInstanceId });
+        if (turn?.turnId !== entry.turnId) {
+          yield* settle(requestId, "cancel");
+          return "stale";
+        }
         yield* settle(requestId, decision);
         return "handled";
       }),
@@ -1486,12 +1493,7 @@ export const make = Effect.gen(function* () {
       Effect.gen(function* () {
         // No id (an interrupt): the turn the projection shows as running.
         const ended =
-          turnId ??
-          (yield* projection.getThreadShellById(threadId).pipe(
-            Effect.map((thread) => Option.getOrUndefined(thread)?.session?.activeTurnId),
-            Effect.orElseSucceed(() => undefined),
-          )) ??
-          lastRunningTurn.get(threadId);
+          turnId ?? (yield* threadState.activeTurn(threadId)) ?? lastRunningTurn.get(threadId);
         if (ended) endedTurns.set(threadId, ended);
         // A provider request still tracked for an ended turn will never be answered.
         for (const [key, owner] of liveProviderApprovals)

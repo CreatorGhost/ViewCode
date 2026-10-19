@@ -16,18 +16,18 @@ import { SidechatHost } from "./SidechatHost";
 const thread = {
   environmentId: EnvironmentId.make("env"),
   id: ThreadId.make("parent"),
-  kind: null,
+  source: { kind: null },
 } as unknown as EnvironmentThreadShell;
 const parentRef = scopeThreadRef(thread.environmentId, thread.id);
 
 let renderer: ReactTestRenderer | null = null;
 
-function mount(focused: boolean) {
+function mount(focused: boolean, target: EnvironmentThreadShell | null = thread) {
   act(() => {
     renderer = create(
       <SplitPaneContext value={{ focused, onSwap: () => {}, onClose: () => {} }}>
         <SidechatHost
-          thread={thread}
+          thread={target}
           keybindings={DEFAULT_RESOLVED_KEYBINDINGS}
           markdownCwd={undefined}
         />
@@ -70,6 +70,16 @@ afterEach(() => {
 });
 
 describe("SidechatHost in split view", () => {
+  it("does not open nested side chats or a dock for a draft", () => {
+    mount(true, { ...thread, source: { ...thread.source, kind: "sidechat" } });
+    pressSidechatShortcut();
+    expect(dockOpen()).toBe(false);
+    act(() => renderer?.unmount());
+    mount(true, null);
+    pressSidechatShortcut();
+    expect(dockOpen()).toBe(false);
+  });
+
   it("only the focused pane answers the side chat shortcut", () => {
     mount(false);
     pressSidechatShortcut();

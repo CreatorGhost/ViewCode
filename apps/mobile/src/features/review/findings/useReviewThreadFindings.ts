@@ -1,3 +1,5 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { useAtomValue } from "@effect/atom-react";
 import {
   latestReviewFindingsSource,
@@ -7,12 +9,8 @@ import {
   reviewStartedRecord,
   type ReviewStartedRecord,
 } from "@t3tools/client-runtime/review-findings";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import type {
-  OrchestrationThreadActivity,
-  ReviewFindingRating,
-  ScopedThreadRef,
-} from "@t3tools/contracts";
+
+import type { OrchestrationThreadActivity, ReviewFindingRating, ScopedThreadRef } from "@t3tools/contracts";
 import {
   type PostedReviewFinding,
   postedReviewFindings,

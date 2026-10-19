@@ -87,6 +87,8 @@ describe("recycled PR list rows", () => {
     { viewerReviewRequested: true },
     { isDraft: true },
     { state: "closed" as const },
+    { mergeability: "conflicting" as const },
+    { baseBranch: "release" },
     { author: { login: "another", name: null, avatarUrl: null } },
     { author: { login: "octocat", name: null, avatarUrl: "https://example.com/avatar.png" } },
     { labels: [{ name: "bug", color: "ff0000" }] },
@@ -433,4 +435,36 @@ describe("groupPullRequestListByProject", () => {
       "#1",
     ]);
   });
+});
+
+it("retains the repository viewer on continued rows when the host's active account is personal", () => {
+  const work = entry(91, {
+    viewerLogin: "work-user",
+    author: { login: "work-user", name: null, avatarUrl: null },
+  });
+  const viewers = { "github.com": "personal-user" };
+  expect(
+    filterPullRequestList(
+      [work],
+      { ...DEFAULT_PR_LIST_CONTROLS, involvement: "authored" },
+      viewers,
+      "",
+      new Set(),
+    ).map((row) => row.number),
+  ).toEqual([91]);
+  expect(
+    filterPullRequestList(
+      [work],
+      { ...DEFAULT_PR_LIST_CONTROLS, filters: { author: "me" } },
+      viewers,
+      "",
+      new Set(),
+    ).map((row) => row.number),
+  ).toEqual([91]);
+  expect(
+    pullRequestListRowsAreEqual(
+      { ...work, environmentId: EnvironmentId.make("cups") },
+      { ...work, environmentId: EnvironmentId.make("cups"), viewerLogin: "personal-user" },
+    ),
+  ).toBe(false);
 });

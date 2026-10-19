@@ -1,5 +1,6 @@
+import { readThreadShell } from "../../state/entities";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { useCallback } from "react";
 import { create } from "zustand";
 
 import {
@@ -37,22 +38,37 @@ export function useUpdateThreadGoalState() {
   const updateMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
-  return useCallback(
-    (environmentId: EnvironmentId, threadId: ThreadId, change: ThreadGoalStateChange) => {
-      void updateMetadata({ environmentId, input: { threadId, ...change } }).then((result) => {
-        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add({
-            type: "error",
-            title:
-              change.debugMode === undefined
-                ? "Couldn't update the goal"
-                : "Couldn't change debug mode",
-            description: error instanceof Error ? error.message : "An error occurred.",
-          });
-        }
-      });
-    },
-    [updateMetadata],
-  );
+  return (environmentId: EnvironmentId, threadId: ThreadId, change: ThreadGoalStateChange) => {
+    const current =
+      readThreadShell(scopeThreadRef(environmentId, threadId))?.source.viewcodeGoal ?? null;
+    const updatedAt = new Date().toISOString();
+    const viewcodeGoal =
+      change.goal !== undefined
+        ? change.goal === null || change.goal.trim() === ""
+          ? null
+          : { objective: change.goal.trim(), pausedAt: null, updatedAt }
+        : change.goalPaused !== undefined && current !== null
+          ? { ...current, pausedAt: change.goalPaused ? updatedAt : null, updatedAt }
+          : undefined;
+    void updateMetadata({
+      environmentId,
+      input: {
+        threadId,
+        ...(viewcodeGoal === undefined ? {} : { viewcodeGoal }),
+        ...(change.debugMode === undefined ? {} : { debugMode: change.debugMode }),
+      },
+    }).then((result) => {
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add({
+          type: "error",
+          title:
+            change.debugMode === undefined
+              ? "Couldn't update the goal"
+              : "Couldn't change debug mode",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+    });
+  };
 }

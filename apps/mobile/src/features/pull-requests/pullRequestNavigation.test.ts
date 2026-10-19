@@ -14,6 +14,15 @@ describe("native PR entry points", () => {
       nativePullRequestDestination("http://forgejo.test:3000/org/repo/pulls/3", context)?.host,
     ).toBe("forgejo.test:3000");
   });
+  it("keeps the source chat for agent reviews opened from a list badge", () => {
+    const source = { ...context, threadId: "source-thread" };
+    expect(nativePullRequestDestination("https://github.com/org/repo/pull/12", source)).toEqual({
+      ...source,
+      host: "github.com",
+      repository: "org/repo",
+      number: 12,
+    });
+  });
   it("leaves issues, unknown sites, and unscoped links to the external opener", () => {
     expect(
       nativePullRequestDestination("https://github.com/org/repo/issues/12", context),

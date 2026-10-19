@@ -1,9 +1,5 @@
-import {
-  USAGE_RESUME_ACTIVITY_KIND,
-  UsageResumePayload,
-  type OrchestrationLatestTurn,
-  type OrchestrationThreadActivity,
-} from "@t3tools/contracts";
+import type { OrchestrationLatestTurn } from "./viewcodeThread.ts";
+import { USAGE_RESUME_ACTIVITY_KIND, UsageResumePayload, type OrchestrationThreadActivity } from "@t3tools/contracts";
 import { formatResumeAt, formatResumeTime } from "@t3tools/shared/usageLimit";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";

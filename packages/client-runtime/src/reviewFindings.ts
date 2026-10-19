@@ -1,3 +1,4 @@
+import type { ViewCodeThreadShell as OrchestrationThreadShell } from "./viewcodeThread.ts";
 import {
   type AgentReviewMode,
   type LocalReviewScope,
@@ -7,7 +8,6 @@ import {
   ReviewFixStartedActivityPayload,
   ReviewStartedActivityPayload,
   type OrchestrationThreadActivity,
-  type OrchestrationThreadShell,
   type ProjectId,
   type PullRequestRef,
   type ReviewBasedOnInput,

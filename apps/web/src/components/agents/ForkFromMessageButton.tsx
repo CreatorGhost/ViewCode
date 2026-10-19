@@ -3,14 +3,20 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { MessageId, ScopedThreadRef } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  CommandId,
+  type MessageId,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { GitForkIcon } from "lucide-react";
-import { useCallback } from "react";
+import { useState } from "react";
 
-import { newThreadId } from "~/lib/utils";
+import { newThreadId, randomUUID } from "~/lib/utils";
 import { readThreadShell } from "../../state/entities";
-import { threadEnvironment } from "../../state/threads";
+import { orchestrationEnvironment } from "../../state/orchestration";
+import { useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -24,57 +30,60 @@ import { waitForThreadShell } from "./useCreateChildAgent";
  */
 export function useForkThreadFromMessage() {
   const navigate = useNavigate();
-  const createThread = useAtomCommand(threadEnvironment.create, { reportFailure: false });
+  const createThread = useAtomCommand(orchestrationEnvironment.v2.dispatchCommand, {
+    reportFailure: false,
+  });
 
-  return useCallback(
-    async (source: ScopedThreadRef, messageId: MessageId) => {
-      const shell = readThreadShell(source);
-      if (shell === null) return;
-      const threadId = newThreadId();
-      const result = await createThread({
-        environmentId: source.environmentId,
-        input: {
-          threadId,
-          projectId: shell.projectId,
-          title: forkThreadTitle(shell.title),
-          modelSelection: shell.modelSelection,
-          runtimeMode: shell.runtimeMode,
-          interactionMode: shell.interactionMode,
-          branch: shell.branch,
-          worktreePath: shell.worktreePath,
-          forkFrom: { threadId: source.threadId, messageId },
-        },
-      });
-      if (result._tag === "Failure") {
-        if (!isAtomCommandInterrupted(result)) {
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not fork thread",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        }
-        return;
+  return async (source: ScopedThreadRef, messageId: MessageId) => {
+    const shell = readThreadShell(source);
+    if (shell === null) return;
+    const threadId = newThreadId();
+    const result = await createThread({
+      environmentId: source.environmentId,
+      input: {
+        type: "thread.fork",
+        commandId: CommandId.make(randomUUID()),
+        sourceThreadId: source.threadId,
+        targetThreadId: threadId,
+        sourcePoint: { type: "latest_stable" },
+        sourceMessageId: messageId,
+        title: forkThreadTitle(shell.title),
+        createdBy: "user",
+        creationSource: "web",
+      },
+    });
+    if (result._tag === "Failure") {
+      if (!isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not fork thread",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
       }
-      await waitForThreadShell(scopeThreadRef(source.environmentId, threadId));
-      await navigate({
-        to: "/$environmentId/$threadId",
-        params: { environmentId: source.environmentId, threadId },
-      });
-    },
-    [createThread, navigate],
-  );
+      return;
+    }
+    await waitForThreadShell(scopeThreadRef(source.environmentId, threadId));
+    await navigate({
+      to: "/$environmentId/$threadId",
+      params: { environmentId: source.environmentId, threadId },
+    });
+  };
 }
 
 export function ForkFromMessageButton({
   threadRef,
   messageId,
+  disabled = false,
 }: {
   threadRef: ScopedThreadRef;
   messageId: MessageId;
+  disabled?: boolean;
 }) {
+  const canOperate = useEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope);
+  const [busy, setBusy] = useState(false);
   const fork = useForkThreadFromMessage();
   return (
     <Tooltip>
@@ -84,7 +93,11 @@ export function ForkFromMessageButton({
             aria-label="Fork from here"
             size="xs"
             variant="ghost"
-            onClick={() => void fork(threadRef, messageId)}
+            disabled={disabled || busy || !canOperate}
+            onClick={() => {
+              setBusy(true);
+              void fork(threadRef, messageId).finally(() => setBusy(false));
+            }}
           >
             <GitForkIcon />
           </Button>

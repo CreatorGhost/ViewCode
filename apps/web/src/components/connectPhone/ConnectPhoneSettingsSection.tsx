@@ -1,6 +1,5 @@
 import { SmartphoneIcon } from "lucide-react";
 
-import { hasCloudPublicConfig } from "~/cloud/publicConfig";
 import { useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
@@ -17,7 +16,6 @@ import { useTailscalePhoneAccess } from "./useTailscalePhoneAccess";
 /** Top of Settings → Connections: the one-step way to pair the mobile app. */
 export function ConnectPhoneSettingsSection() {
   const tailscale = useTailscalePhoneAccess();
-  const cloudConfigured = hasCloudPublicConfig();
   const quickView = resolveQuickConnectView(useViewCodeRelayState());
   const quickSetup = useViewCodeRelaySetupState();
   const updateSettings = useUpdatePrimarySettings();
@@ -31,11 +29,7 @@ export function ConnectPhoneSettingsSection() {
     >
       <SettingsRow
         title="Connect phone"
-        description={
-          cloudConfigured
-            ? "Scan a code with the T3 Code mobile app. No account needed on the phone."
-            : "Scan a code with the T3 Code mobile app. T3 Connect (anywhere) is off: add the values in docs/operations/connect-setup.md and rebuild."
-        }
+        description="Scan a pairing code with the ViewCode phone app. No account needed on the phone."
         control={
           <Button size="sm" onClick={() => openConnectPhoneDialog()}>
             Connect phone

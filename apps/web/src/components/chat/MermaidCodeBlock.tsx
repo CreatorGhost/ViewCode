@@ -1,9 +1,10 @@
 import { CodeIcon, Maximize2Icon, WorkflowIcon } from "lucide-react";
-import { type ReactNode, Suspense, useState } from "react";
+import { type ReactNode, Suspense, use, useState } from "react";
 
 import { RenderErrorBoundary } from "../RenderErrorBoundary";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { MarkdownFindContext, findRevealRef } from "./markdownFindContext";
 import { MermaidDiagram } from "./MermaidDiagram";
 
 export interface MermaidCodeBlockFrame {
@@ -62,6 +63,8 @@ export function MermaidCodeBlock({
   children: (frame: MermaidCodeBlockFrame) => ReactNode;
 }) {
   const [showSource, setShowSource] = useState(false);
+  const searching = use(MarkdownFindContext);
+  const revealSourceRef = findRevealRef(() => setShowSource(true));
   const [expanded, setExpanded] = useState(false);
   // Keyed by source, so an edited fence gets a fresh attempt.
   const [failedCode, setFailedCode] = useState<string | null>(null);
@@ -91,23 +94,30 @@ export function MermaidCodeBlock({
       ) : null,
     canWrap: !showDiagram || failed,
     body: showDiagram ? (
-      <RenderErrorBoundary resetKeys={[code]} fallback={source}>
-        <Suspense
-          fallback={
-            <div className="flex min-h-36 items-center justify-center text-xs text-muted-foreground">
-              Rendering diagram
-            </div>
-          }
-        >
-          <MermaidDiagram
-            source={code}
-            fallback={source}
-            expanded={expanded}
-            onExpandedChange={setExpanded}
-            onFailedChange={(nextFailed) => setFailedCode(nextFailed ? code : null)}
-          />
-        </Suspense>
-      </RenderErrorBoundary>
+      <>
+        <RenderErrorBoundary resetKeys={[code]} fallback={source}>
+          <Suspense
+            fallback={
+              <div className="flex min-h-36 items-center justify-center text-xs text-muted-foreground">
+                Rendering diagram
+              </div>
+            }
+          >
+            <MermaidDiagram
+              source={code}
+              fallback={source}
+              expanded={expanded}
+              onExpandedChange={setExpanded}
+              onFailedChange={(nextFailed) => setFailedCode(nextFailed ? code : null)}
+            />
+          </Suspense>
+        </RenderErrorBoundary>
+        {searching ? (
+          <pre ref={revealSourceRef} hidden>
+            {code}
+          </pre>
+        ) : null}
+      </>
     ) : (
       source
     ),

@@ -34,38 +34,29 @@ export function useAgentControlActions() {
   const discard = useAtomCommand(agentControlEnvironment.discard, { reportFailure: false });
 
   return {
-    stop: useCallback(
-      async (ref: ScopedThreadRef, scope: AgentControlScope) =>
-        reportFailure(
-          await stop({
-            environmentId: ref.environmentId,
-            input: { threadId: ref.threadId, scope },
-          }),
-          "Could not stop the agents",
-        ),
-      [stop],
-    ),
-    resume: useCallback(
-      async (ref: ScopedThreadRef, scope: AgentControlScope) =>
-        reportFailure(
-          await resume({
-            environmentId: ref.environmentId,
-            input: { threadId: ref.threadId, scope },
-          }),
-          "Could not resume",
-        ),
-      [resume],
-    ),
-    discard: useCallback(
-      async (ref: ScopedThreadRef, scope: AgentControlScope) =>
-        reportFailure(
-          await discard({
-            environmentId: ref.environmentId,
-            input: { threadId: ref.threadId, scope },
-          }),
-          "Could not discard the held messages",
-        ),
-      [discard],
-    ),
+    stop: async (ref: ScopedThreadRef, scope: AgentControlScope) =>
+      reportFailure(
+        await stop({
+          environmentId: ref.environmentId,
+          input: { threadId: ref.threadId, scope },
+        }),
+        "Could not stop the agents",
+      ),
+    resume: async (ref: ScopedThreadRef, scope: AgentControlScope) =>
+      reportFailure(
+        await resume({
+          environmentId: ref.environmentId,
+          input: { threadId: ref.threadId, scope },
+        }),
+        "Could not resume",
+      ),
+    discard: async (ref: ScopedThreadRef, scope: AgentControlScope) =>
+      reportFailure(
+        await discard({
+          environmentId: ref.environmentId,
+          input: { threadId: ref.threadId, scope },
+        }),
+        "Could not discard the held messages",
+      ),
   };
 }

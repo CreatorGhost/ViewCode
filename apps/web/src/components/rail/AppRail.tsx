@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { FolderIcon, SettingsIcon, SmartphoneIcon } from "lucide-react";
-import { memo, useMemo } from "react";
+import { memo } from "react";
 
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 
@@ -158,10 +158,7 @@ const RailProjectSwitcher = memo(function RailProjectSwitcher() {
   const threads = useThreadShells();
   const scopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const switchProject = useSwitchProjectScope();
-  const activityByProject = useMemo(
-    () => buildRailProjectActivity(projectGroups, threads),
-    [projectGroups, threads],
-  );
+  const activityByProject = (() => buildRailProjectActivity(projectGroups, threads))();
   if (projectGroups.length === 0) return null;
   // A scope whose project is gone reads as All until the sidebar clears it.
   const selectedKey = projectGroups.some((group) => group.projectKey === scopeKey)
@@ -214,15 +211,12 @@ const RailUsageRings = memo(function RailUsageRings(props: { environmentId: Envi
     useAtomValue(serverEnvironment.providersValueAtom(props.environmentId)) ??
     EMPTY_SERVER_PROVIDERS;
   const settings = useEnvironmentSettings(props.environmentId);
-  const rings = useMemo(
-    () =>
-      buildRailUsageRings(
-        sortProviderInstanceEntries(
-          applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings),
-        ),
+  const rings = (() =>
+    buildRailUsageRings(
+      sortProviderInstanceEntries(
+        applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings, null),
       ),
-    [providers, settings],
-  );
+    ))();
   return rings.map((ring) => (
     <RailUsageRingButton
       key={`${props.environmentId}:${ring.entry.instanceId}`}

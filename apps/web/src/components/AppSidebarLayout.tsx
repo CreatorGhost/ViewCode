@@ -2,7 +2,6 @@ import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
   useEffect,
-  useMemo,
   useState,
   useSyncExternalStore,
   type ComponentProps,
@@ -319,10 +318,8 @@ function useActiveProjectTint() {
   const projectGroups = useSidebarProjectGroups();
   const scopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const followProjectColor = useClientSettings((settings) => settings.projectColorTint);
-  const scopedGroup = useMemo(
-    () => projectGroups.find((group) => group.projectKey === scopeKey) ?? null,
-    [projectGroups, scopeKey],
-  );
+  const scopedGroup = (() =>
+    projectGroups.find((group) => group.projectKey === scopeKey) ?? null)();
   const color = resolveShellTintColor({
     projectColor: scopedGroup ? resolveProjectGroupColor(scopedGroup) : null,
     followProjectColor,
@@ -364,20 +361,16 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
     }
     setSidebarWidth(resolveInitialThreadSidebarWidth(null, viewportWidth));
   };
-  // Memoized: Sidebar re-clamps the stored width whenever this object changes.
-  const resizable = useMemo<NonNullable<ComponentProps<typeof Sidebar>["resizable"]>>(
-    () => ({
-      maxWidth: sidebarMaximumWidth,
-      minWidth: THREAD_SIDEBAR_MIN_WIDTH,
-      // The wrapper spans the rail too, so main gets what is left after both.
-      shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
-        nextWidth <= currentWidth ||
-        wrapper.clientWidth - APP_RAIL_WIDTH - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
-      storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
-      onResize: setSidebarWidth,
-    }),
-    [sidebarMaximumWidth],
-  );
+  const resizable = {
+    maxWidth: sidebarMaximumWidth,
+    minWidth: THREAD_SIDEBAR_MIN_WIDTH,
+    // The wrapper spans the rail too, so main gets what is left after both.
+    shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
+      nextWidth <= currentWidth ||
+      wrapper.clientWidth - APP_RAIL_WIDTH - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
+    storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+    onResize: setSidebarWidth,
+  } satisfies NonNullable<ComponentProps<typeof Sidebar>["resizable"]>;
   const sidebarProviderStyle = {
     // Clamped at render so a narrowed window never squeezes main; the saved width is kept.
     "--sidebar-width": `${Math.min(sidebarWidth, sidebarMaximumWidth)}px`,

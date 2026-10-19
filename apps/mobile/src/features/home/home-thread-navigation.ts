@@ -1,4 +1,6 @@
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
+
 import {
   CommonActions,
   StackActions,

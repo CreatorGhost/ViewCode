@@ -1,15 +1,7 @@
 import { serializeLegacyContextMessage } from "@t3tools/shared/composerContextLegacySend";
 import { filePreviewKind } from "@t3tools/shared/filePreview";
 import { videoMimeType } from "@t3tools/shared/video";
-import {
-  COMPOSER_CONTEXT_MAX_RECORDS,
-  COMPOSER_CONTEXT_REVIEW_TEXT_MAX_CHARS,
-  ComposerContextId,
-  type ComposerContextRecord,
-  OrchestrationMessageContext,
-  type PullRequestContextMetadata,
-  type ReviewCommentContextRecord,
-} from "@t3tools/contracts";
+import { COMPOSER_CONTEXT_MAX_RECORDS, COMPOSER_CONTEXT_REVIEW_TEXT_MAX_CHARS, ComposerContextId, type ComposerContextRecord, OrchestrationMessageContext, type PullRequestContextMetadata, type ReviewCommentContextRecord } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import {
   ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,

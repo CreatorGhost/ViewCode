@@ -1,11 +1,6 @@
 import { EnvironmentRegistry } from "@t3tools/client-runtime/connection";
 import { EnvironmentRpcSubscriptionObserver, request } from "@t3tools/client-runtime/rpc";
-import {
-  type BackgroundScope,
-  type ClientActivityReportInput,
-  type EnvironmentId,
-  WS_METHODS,
-} from "@t3tools/contracts";
+import { type BackgroundScope, type ClientActivityReportInput, type EnvironmentId, WS_METHODS } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -45,7 +40,7 @@ export const mobileBackgroundActivityObserverLayer = Layer.succeed(
 
 export const mobileBackgroundActivityReporterLayer = Layer.effectDiscard(
   Effect.gen(function* () {
-    const registry = yield* EnvironmentRegistry;
+    const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
     const storage = yield* MobileStorage.MobileStorage;
     const clientId = yield* storage.loadOrCreateAgentAwarenessDeviceId.pipe(
       Effect.map((deviceId) => `mobile-${deviceId}`),

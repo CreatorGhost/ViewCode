@@ -1,13 +1,4 @@
-import {
-  CommandId,
-  MessageId,
-  ThreadId,
-  type ModelSelection,
-  type OrchestrationMessageContext,
-  type ProjectId,
-  type ProviderInteractionMode,
-  type RuntimeMode,
-} from "@t3tools/contracts";
+import { CommandId, MessageId, ThreadId, type ModelSelection, type OrchestrationMessageContext, type ProjectId, type ProviderInteractionMode, type RuntimeMode } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 

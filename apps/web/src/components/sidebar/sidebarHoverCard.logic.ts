@@ -1,7 +1,9 @@
 import type { SidebarThreadStatus } from "../Sidebar.logic";
 
-const STATUS_LABEL: Record<SidebarThreadStatus, string> = {
+const STATUS_LABEL: Record<SidebarThreadStatus | "monitoring", string> = {
   working: "Working",
+  waiting: "Waiting",
+  limited: "Usage limit",
   monitoring: "Monitoring background work",
   approval: "Waiting for approval",
   input: "Waiting for your answer",

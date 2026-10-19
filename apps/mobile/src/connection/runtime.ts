@@ -1,9 +1,12 @@
 import { Connection } from "@t3tools/client-runtime/connection";
-import { pullRequestDiffLoaderLayer } from "@t3tools/client-runtime/state/pull-requests";
-import { shellSnapshotLoaderLayer } from "@t3tools/client-runtime/state/shell";
-import { threadSnapshotLoaderLayer } from "@t3tools/client-runtime/state/threads";
+import { PullRequestDiffLoader } from "@t3tools/client-runtime/state/pull-requests";
+import { ShellSnapshotLoader } from "@t3tools/client-runtime/state/shell";
+import {
+  BoundedThreadSnapshotLoader,
+  ThreadHistoryController,
+} from "@t3tools/client-runtime/state/threads";
 import * as Layer from "effect/Layer";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 
 import type { FoundationHotModule } from "../lib/foundation-fast-refresh";
 import { hotSwappableAtomRuntime } from "../lib/hot-swappable-atom-runtime";
@@ -22,9 +25,10 @@ const providedConnectionPlatformLayer = connectionPlatformLayer.pipe(
 );
 
 const snapshotLoaderLayer = Layer.mergeAll(
-  threadSnapshotLoaderLayer,
-  shellSnapshotLoaderLayer,
-  pullRequestDiffLoaderLayer,
+  BoundedThreadSnapshotLoader.layer,
+  ThreadHistoryController.layer,
+  ShellSnapshotLoader.layer,
+  PullRequestDiffLoader.layer,
 );
 
 type ConnectionLayerSource =

@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { createLinkedReviewThreadsAtomFamily } from "@t3tools/client-runtime/state/review-findings";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 
 import { environmentAgentControlAtom } from "./agentControl";
 import { appAtomRegistry } from "./atom-registry";
@@ -12,7 +12,7 @@ import { environmentThreadDetails, environmentThreadShells } from "./threads";
  * work stands, queued agent messages counted (`agents.control`).
  */
 export const linkedReviewThreadsAtom = createLinkedReviewThreadsAtomFamily({
-  threadShellsAtom: environmentThreadShells.threadShellsAtom,
+  threadShellsAtom: environmentThreadShells.nativeThreadShellsAtom,
   activitiesAtom: environmentThreadDetails.activitiesAtom,
   agentControlAtom: environmentAgentControlAtom,
   label: "mobile-linked-reviews",

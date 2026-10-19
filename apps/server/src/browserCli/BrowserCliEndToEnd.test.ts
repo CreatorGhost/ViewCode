@@ -12,15 +12,17 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import { NodeHttpServer } from "@effect/platform-node";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { HttpRouter, HttpServer } from "effect/http";
 
 import * as ServerConfig from "../config.ts";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
@@ -51,7 +53,7 @@ const makeStack = (listen: "unix" | "tcp") =>
         getEnvironmentId: Effect.succeed(EnvironmentId.make("environment")),
         getDescriptor: Effect.die("unused"),
       }),
-      Effect.provide(NodeServices.layer),
+      Effect.provide(Layer.merge(NodeServices.layer, NodeCrypto.layer)),
     );
     const broker = Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({
       invoke: (input) =>
@@ -59,7 +61,14 @@ const makeStack = (listen: "unix" | "tcp") =>
           invoked.push(input);
           return (
             input.operation === "status"
-              ? { available: true, visible: true, tabId: "tab-1", url: "https://example.com/" }
+              ? {
+                  available: true,
+                  visible: true,
+                  title: "Example",
+                  loading: false,
+                  tabId: "tab-1",
+                  url: "https://example.com/",
+                }
               : {}
           ) as never;
         }),
@@ -69,8 +78,21 @@ const makeStack = (listen: "unix" | "tcp") =>
         Layer.provide(Layer.succeed(McpSessionRegistry.McpSessionRegistry, registry)),
         Layer.provide(broker),
         Layer.provide(
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            getThreadShell: () =>
+              Effect.succeed({
+                deletedAt: null,
+                runtimeMode: "full-access",
+                interactionMode: "default",
+                archivedAt: null,
+                activeRunId: "run",
+                providerInstanceId,
+              } as never),
+          }),
+        ),
+        Layer.provide(
           ServerConfig.layerTest(process.cwd(), { prefix: "t3-browser-e2e-" }).pipe(
-            Layer.provideMerge(NodeServices.layer),
+            Layer.provideMerge(Layer.merge(NodeServices.layer, NodeCrypto.layer)),
           ),
         ),
       ),
@@ -87,18 +109,30 @@ const makeStack = (listen: "unix" | "tcp") =>
 const startCli = (
   config: { readonly browserEndpoint?: string; readonly authorizationHeader: string },
   argv: ReadonlyArray<string>,
+  entry: "source" | "dispatch" = "source",
 ) =>
   Effect.promise<{ code: number | null; json: any }>(
     () =>
       new Promise((resolve, reject) => {
-        const child = NodeChildProcess.spawn(process.execPath, [CLI_ENTRY, ...argv], {
-          env: {
-            PATH: process.env.PATH ?? "",
-            VIEWCODE_BROWSER_ENDPOINT: config.browserEndpoint ?? "",
-            VIEWCODE_BROWSER_AUTH: config.authorizationHeader,
+        const child = NodeChildProcess.spawn(
+          process.execPath,
+          entry === "source"
+            ? [CLI_ENTRY, ...argv]
+            : [
+                NodePath.join(import.meta.dirname, "..", "bin.ts"),
+                "__viewcode-browser",
+                "--",
+                ...argv,
+              ],
+          {
+            env: {
+              PATH: process.env.PATH ?? "",
+              VIEWCODE_BROWSER_ENDPOINT: config.browserEndpoint ?? "",
+              VIEWCODE_BROWSER_AUTH: config.authorizationHeader,
+            },
+            stdio: ["pipe", "pipe", "pipe"],
           },
-          stdio: ["pipe", "pipe", "pipe"],
-        });
+        );
         let stdout = "";
         let stderr = "";
         child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
@@ -116,10 +150,9 @@ const startCli = (
   );
 
 describe("viewcode-browser end to end", () => {
-  for (const listen of ["unix", "tcp"] as const) {
-    it.effect(
-      `drives the browser for the credential's thread over ${listen}`,
-      () =>
+  it.effect.each(["unix", "tcp"] as const)(
+      "drives the browser for the credential's thread over %s",
+      (listen) =>
         Effect.gen(function* () {
           const stack = yield* makeStack(listen);
           const config = yield* stack.issue(["preview"]);
@@ -128,6 +161,13 @@ describe("viewcode-browser end to end", () => {
           );
 
           const status = yield* startCli(config, ["status"]);
+          expect(status.json.error).toBeUndefined();
+          const dispatch = yield* startCli(config, ["status"], "dispatch");
+          expect(dispatch).toMatchObject({
+            code: 0,
+            json: { ok: true, result: { tabId: "tab-1" } },
+          });
+          stack.invoked.splice(1);
           expect(status).toMatchObject({ code: 0, json: { ok: true, result: { tabId: "tab-1" } } });
 
           const click = yield* startCli(config, ["click", "--locator", "text=Continue"]);
@@ -139,12 +179,11 @@ describe("viewcode-browser end to end", () => {
           ]);
           expect(stack.invoked[1]).toMatchObject({
             input: { locator: "text=Continue" },
-            scope: { threadId },
+            scope: { thread: { threadId } },
           });
         }).pipe(Effect.scoped),
       TEST_TIMEOUT,
     );
-  }
 
   it.effect(
     "a session without browser access gets the MCP tools' refusal, and nothing reaches the browser",

@@ -1,8 +1,8 @@
 import {
   type AuthSessionId,
   type EnvironmentId,
-  type OrchestrationEvent,
-  type OrchestrationThreadShell,
+  type OrchestrationV2DomainEvent,
+  type OrchestrationV2ThreadShell,
   PushNotificationCategories,
   PushNotificationError,
   type PushRegisterInput,
@@ -11,7 +11,7 @@ import {
   USAGE_RESUME_ACTIVITY_KIND,
   UsageResumePayload,
 } from "@t3tools/contracts";
-import { projectThreadAwareness } from "@t3tools/shared/agentAwareness";
+import { projectThreadAwarenessV2 } from "@t3tools/shared/agentAwareness";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -26,20 +26,18 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest";
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
+import * as HttpClient from "effect/http/HttpClient";
+import * as HttpClientRequest from "effect/http/HttpClientRequest";
+import * as HttpClientResponse from "effect/http/HttpClientResponse";
 
-import { isChildAgent } from "../agents/AgentMessaging.ts";
-import { USAGE_RESUME_AUTO_SUMMARY } from "../agents/UsageResume.ts";
-import { writeFileStringAtomically } from "../atomicWrite.ts";
+import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
 import * as SessionStore from "../auth/SessionStore.ts";
 import { ServerConfig } from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { eventThreadId, shouldPublishAgentAwarenessEvent } from "../relay/AgentAwarenessRelay.ts";
+import * as EventSink from "../orchestration-v2/EventSink.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import { shouldPublishAgentAwarenessEvent } from "../relay/AgentAwarenessRelay.ts";
 import { forkParked } from "../serverActivation.ts";
 import {
   PUSH_EVENT_CATEGORY,
@@ -62,6 +60,8 @@ import {
  * message text or errors. Expo forwards to FCM with the credentials uploaded
  * to the app's EAS project; nothing here holds a Google or Apple key.
  */
+
+const USAGE_RESUME_AUTO_SUMMARY = "Trying to continue after the usage limit…";
 
 export const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 /** The Android channel the app creates for agent alerts. */
@@ -216,25 +216,30 @@ type Job =
     };
 
 /** What an orchestration event means for phone notifications, if anything. */
-export function pushJobForEvent(event: OrchestrationEvent): Job | null {
-  if (event.metadata?.historyImport === true) return null;
-  if (event.type === "thread.activity-appended") {
-    const { threadId, activity } = event.payload;
-    if (activity.kind === USAGE_RESUME_ACTIVITY_KIND) {
+export function pushJobForEvent(event: OrchestrationV2DomainEvent): Job | null {
+  if (event.id.startsWith("migration:v1:")) return null;
+  if (event.type === "turn-item.updated" && event.payload.type === "system_notice") {
+    const activity = event.payload.viewcodeActivity;
+    if (activity?.kind === USAGE_RESUME_ACTIVITY_KIND) {
       const payload = decodeUsageResumePayload(activity.payload);
       return Option.isSome(payload)
-        ? { kind: "usage-resume", threadId, payload: payload.value, summary: activity.summary }
+        ? {
+            kind: "usage-resume",
+            threadId: event.threadId,
+            payload: payload.value,
+            summary: activity.summary,
+          }
         : null;
     }
   }
-  if (!shouldPublishAgentAwarenessEvent(event)) return null;
-  const threadId = eventThreadId(event);
-  return threadId === null ? null : { kind: "thread", threadId };
+  return shouldPublishAgentAwarenessEvent(event)
+    ? { kind: "thread", threadId: event.threadId }
+    : null;
 }
 
 const make = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngine.OrchestrationEngineService;
-  const projections = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const sink = yield* EventSink.EventSinkV2;
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const sessions = yield* SessionStore.SessionStore;
   const sender = yield* ExpoPushSender;
@@ -255,17 +260,14 @@ const make = Effect.gen(function* () {
 
   const persist = Effect.suspend(() =>
     writeFileStringAtomically({ filePath: file, contents: encodeDevices(devices) }),
-  )
-    .pipe(
-      Effect.provideService(FileSystem.FileSystem, fileSystem),
-      Effect.provideService(Path.Path, path),
-    )
-    .pipe(
-      Effect.mapError(
-        (cause) =>
-          new PushNotificationError({ detail: `Could not save the push device: ${String(cause)}` }),
-      ),
-    );
+  ).pipe(
+    Effect.provideService(FileSystem.FileSystem, fileSystem),
+    Effect.provideService(Path.Path, path),
+    Effect.mapError(
+      (cause) =>
+        new PushNotificationError({ detail: `Could not save the push device: ${String(cause)}` }),
+    ),
+  );
 
   /** Applies `update` to the current list and saves it; false when nothing changed. */
   const replaceDevices = (
@@ -316,19 +318,27 @@ const make = Effect.gen(function* () {
     );
 
   const threadShell = (threadId: ThreadId) =>
-    projections
-      .getThreadShellById(threadId)
-      .pipe(Effect.orElseSucceed(() => Option.none<OrchestrationThreadShell>()));
+    projections.getThreadShell(threadId).pipe(
+      Effect.map(Option.fromNullishOr),
+      Effect.orElseSucceed(() => Option.none<OrchestrationV2ThreadShell>()),
+    );
 
   /**
    * The top of an agent tree, for a child agent; null for a thread that has no
    * lead. A side chat is the top of its own tree, so its push is titled as itself.
    */
-  const leadOf = Effect.fnUntraced(function* (thread: OrchestrationThreadShell) {
+  const leadOf = Effect.fnUntraced(function* (thread: OrchestrationV2ThreadShell) {
     let current = thread;
-    for (let hop = 0; hop < MAX_LEAD_HOPS && isChildAgent(current); hop += 1) {
-      if (!current.parentThreadId) break;
-      const parent = yield* threadShell(current.parentThreadId);
+    for (
+      let hop = 0;
+      hop < MAX_LEAD_HOPS &&
+      current.kind !== "sidechat" &&
+      current.lineage.relationshipToParent === "subagent";
+      hop += 1
+    ) {
+      const parentThreadId = current.parentThreadId ?? current.lineage.parentThreadId;
+      if (!parentThreadId) break;
+      const parent = yield* threadShell(parentThreadId);
       if (Option.isNone(parent)) break;
       current = parent.value;
     }
@@ -337,7 +347,7 @@ const make = Effect.gen(function* () {
 
   const deliver = Effect.fnUntraced(function* (
     environmentId: EnvironmentId,
-    thread: OrchestrationThreadShell,
+    thread: OrchestrationV2ThreadShell,
     kind: PushEventKind,
     payload: UsageResumePayload | null,
   ) {
@@ -389,7 +399,7 @@ const make = Effect.gen(function* () {
     }
     const thread = shell.value;
     const environmentId = yield* environment.getEnvironmentId;
-    const turnId = thread.latestTurn?.turnId ?? thread.session?.activeTurnId ?? null;
+    const turnId = thread.activeRunId ?? thread.latestRunId;
     const previous = tracks.get(job.threadId);
     if (job.kind === "usage-resume") {
       const decision = decideUsageResumeNotification(
@@ -402,12 +412,16 @@ const make = Effect.gen(function* () {
       return;
     }
     const phase =
-      projectThreadAwareness({ environmentId, project: { title: "" }, thread })?.phase ?? null;
+      projectThreadAwarenessV2({
+        environmentId,
+        project: { title: "" },
+        thread: { ...thread, lineage: { ...thread.lineage, relationshipToParent: null } },
+      })?.phase ?? null;
     const decision = decideThreadNotification(previous, {
       phase,
       turnId,
-      turnState: thread.latestTurn?.state ?? null,
-      lastError: thread.session?.lastError ?? null,
+      turnState: thread.status,
+      lastError: thread.lastError ?? null,
     });
     tracks.set(job.threadId, decision.next);
     if (decision.kind) yield* deliver(environmentId, thread, decision.kind, null);
@@ -437,7 +451,11 @@ const make = Effect.gen(function* () {
   const start: PushNotificationsShape["start"] = Effect.fn("PushNotifications.start")(function* () {
     yield* load;
     yield* pruneRevoked;
-    const events = yield* engine.subscribeDomainEvents;
+    const sequence = yield* sink.latestSequence().pipe(Effect.option);
+    if (Option.isNone(sequence)) return;
+    const events = sink
+      .stream({ afterSequence: sequence.value })
+      .pipe(Stream.map((stored) => stored.event));
     yield* forkParked(
       Effect.all(
         [

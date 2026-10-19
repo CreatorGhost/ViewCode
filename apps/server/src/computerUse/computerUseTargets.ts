@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - opaque local identifiers use Node UUIDs.
 /**
  * Per-thread window ids and element refs. The agent only ever sees these
  * small integers; the driver's handles stay on the server.

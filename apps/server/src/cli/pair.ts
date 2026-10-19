@@ -1,22 +1,15 @@
-/**
- * `t3 pair` - mint a pairing token for an already-running server and print it
- * as a QR code, without restarting anything.
- *
- * Discovery reads the `server-runtime.json` a live server persists next to its
- * database, then confirms the process is actually answering by fetching its
- * public environment descriptor. Inside a linked git worktree the worktree's
- * own `.t3` is checked first (matching dev-runner precedence); otherwise the
- * shared T3 home. `--tailscale` publishes the server over Tailscale Serve
- * HTTPS and pairs through the tailnet URL instead.
- */
+import { withLocalServerTransport } from "./viewcodeLocalServerTransport.ts";
 import {
+  type AuthEnvironmentScope,
   AuthStandardClientScopes,
   ExecutionEnvironmentDescriptor,
   PortSchema,
 } from "@t3tools/contracts";
 import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
-import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import * as FileSystem from "effect/FileSystem";
+import { normalizeRelayOrigin } from "../relay/relayOrigin.ts";
+import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import {
   buildTailscaleHttpsBaseUrl,
@@ -29,21 +22,14 @@ import * as Console from "effect/Console";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
-import { Command, Flag, GlobalFlag } from "effect/unstable/cli";
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientRequest,
-  HttpClientResponse,
-} from "effect/unstable/http";
+import { Command, Flag, GlobalFlag } from "effect/cli";
+import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
-import { normalizeTunnelHttpBaseUrl } from "../cloud/config.ts";
 import * as ServerConfig from "../config.ts";
 import { resolveBaseDir } from "../os-jank.ts";
 import {
@@ -59,6 +45,7 @@ import {
   renderTerminalQrCode,
   resolveHeadlessConnectionString,
 } from "../startupAccess.ts";
+import { authScopesFlag } from "./authScopes.ts";
 import { baseDirFlag, DurationFromString } from "./config.ts";
 
 const WELL_KNOWN_ENVIRONMENT_PATH = "/.well-known/t3/environment";
@@ -74,20 +61,6 @@ export type PairStateVariant = "userdata" | "dev";
 // dev-vs-userdata state directory; the value itself is not used.
 const DEV_VARIANT_PLACEHOLDER_URL = new URL("http://localhost");
 
-export class LocalOnlyServerError extends Schema.TaggedError<LocalOnlyServerError>()(
-  "LocalOnlyServerError",
-  {
-    listenPath: Schema.String,
-  },
-) {
-  override get message(): string {
-    return [
-      `The running ViewCode server only accepts local connections (${this.listenPath}), so no device can pair with it.`,
-      "Turn on network access in the desktop app's Connections settings, then try again.",
-    ].join("\n");
-  }
-}
-
 export class NoRunningServerError extends Schema.TaggedError<NoRunningServerError>()(
   "NoRunningServerError",
   {
@@ -98,13 +71,11 @@ export class NoRunningServerError extends Schema.TaggedError<NoRunningServerErro
     return [
       "No running ViewCode server found.",
       ...this.checkedStatePaths.map((statePath) => `  checked ${statePath}`),
-      "Start one with `npx t3 serve`, or connect this machine with T3 Connect: `npx t3 connect`.",
+      "Start ViewCode, or run `viewcode serve`.",
     ].join("\n");
   }
 }
 
-// Each tailscale failure gets its own class (same reasoning as
-// scripts/lib/dev-share.ts): distinct caller-visible message, distinct remedy.
 export class TailscaleUnavailableError extends Schema.TaggedError<TailscaleUnavailableError>()(
   "TailscaleUnavailableError",
   { cause: Schema.Defect() },
@@ -150,9 +121,17 @@ export class ServePortOccupiedError extends Schema.TaggedError<ServePortOccupied
   }
 }
 
-/** The URL a browser or phone should pair through, absent Tailscale. */
 export const resolveDirectPairingBaseUrl = (state: PersistedServerRuntimeState): string =>
   state.devUrl ?? resolveHeadlessConnectionString(state.host, state.port);
+
+export class SocketServerNotNetworkAccessibleError extends Schema.TaggedError<SocketServerNotNetworkAccessibleError>()(
+  "SocketServerNotNetworkAccessibleError",
+  {},
+) {
+  override get message(): string {
+    return "This desktop server listens only on a local socket. Enable network access in Settings > Connections, or pair through Quick connect with --relay.";
+  }
+}
 
 export class RelayNotConfiguredError extends Schema.TaggedError<RelayNotConfiguredError>()(
   "RelayNotConfiguredError",
@@ -166,8 +145,6 @@ export class RelayNotConfiguredError extends Schema.TaggedError<RelayNotConfigur
     ].join("\n");
   }
 }
-
-/** Only the relay origin is read out of settings.json; the rest is ignored. */
 const RelaySettingsJson = fromLenientJson(
   Schema.Struct({
     viewcodeRelay: Schema.optional(Schema.Struct({ url: Schema.optional(Schema.String) })),
@@ -187,10 +164,9 @@ export class DevServerNotProxiableError extends Schema.TaggedError<DevServerNotP
 const isDevServerNotProxiableError = Schema.is(DevServerNotProxiableError);
 
 /**
- * The local endpoint Tailscale Serve should proxy to. Dev servers are
- * single-origin, so the web dev server's port is the one to publish; the
- * backend rides along behind Vite's proxy. Serve targets are always plain
- * HTTP, so an HTTPS dev URL cannot be proxied and is rejected.
+ * Dev servers are single-origin, so the web dev server's port is the one to publish; the
+ * backend rides along behind Vite's proxy. Serve targets are always plain HTTP, so an HTTPS dev
+ * URL cannot be proxied and is rejected.
  */
 export const resolveTailscaleLocalTarget = (
   state: PersistedServerRuntimeState,
@@ -205,8 +181,6 @@ export const resolveTailscaleLocalTarget = (
       ? { localPort }
       : { localPort, localHost: devUrl.hostname };
   }
-  // A server bound to one specific interface does not answer on loopback, so
-  // the proxy has to target that interface directly.
   if (state.host !== undefined && !isWildcardHost(state.host) && !isLoopbackHost(state.host)) {
     return { localPort: state.port, localHost: formatHostForUrl(state.host) };
   }
@@ -233,11 +207,6 @@ const formatPairOutput = (input: {
     "",
   ].join("\n");
 
-/**
- * Three outcomes, because they drive different decisions: a T3 descriptor
- * (pair with it), nothing answering (safe to configure Tailscale Serve), or
- * something answering that is not a T3 server (do NOT overwrite its mapping).
- */
 type EnvironmentProbeResult =
   | { readonly _tag: "descriptor"; readonly descriptor: ExecutionEnvironmentDescriptor }
   | { readonly _tag: "unreachable" }
@@ -251,7 +220,6 @@ const probeEnvironmentDescriptor = (
     const request = HttpClientRequest.get(new URL(WELL_KNOWN_ENVIRONMENT_PATH, baseUrl).toString());
     const response = yield* client.execute(request).pipe(
       Effect.timeout(PAIR_PROBE_TIMEOUT),
-      // Transport failure or timeout: nothing (reachable) is listening there.
       Effect.mapError(() => ({ _tag: "unreachable" }) as const),
     );
     // Bad-gateway family means a proxy (Tailscale Serve) answered for a
@@ -261,8 +229,6 @@ const probeEnvironmentDescriptor = (
     if (response.status === 502 || response.status === 503 || response.status === 504) {
       return { _tag: "unreachable" } as const;
     }
-    // Anything else that answered HTTP but not with a valid descriptor is
-    // some other service.
     const descriptor = yield* HttpClientResponse.filterStatusOk(response).pipe(
       Effect.flatMap(HttpClientResponse.schemaBodyJson(ExecutionEnvironmentDescriptor)),
       Effect.mapError(() => ({ _tag: "not-a-t3-server" }) as const),
@@ -315,10 +281,9 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
       if (!isProcessAlive(state.value.pid)) {
         continue;
       }
-      if (state.value.listenPath !== undefined) {
-        return yield* new LocalOnlyServerError({ listenPath: state.value.listenPath });
-      }
-      const probed = yield* probeEnvironmentDescriptor(state.value.origin);
+      const probed = yield* probeEnvironmentDescriptor(state.value.origin).pipe(
+        withLocalServerTransport(state.value),
+      );
       if (probed._tag !== "descriptor") {
         continue;
       }
@@ -334,38 +299,9 @@ const discoverPairTarget = Effect.fn("pair.discoverPairTarget")(function* (
 });
 
 /**
- * The Quick connect relay origin stored in the discovered server's
- * settings.json, so a CLI-minted token can be used off-network: the printed
- * URL is `https://<relay-origin>/pair#token=…`, which the phone reaches through
- * the user's own Cloudflare Worker. Fails clearly when the relay is not set up.
- */
-const resolveRelayPairingBase = Effect.fn("pair.resolveRelayPairingBase")(function* (
-  target: DiscoveredPairTarget,
-) {
-  const fs = yield* FileSystem.FileSystem;
-  const derivedPaths = yield* ServerConfig.deriveServerPaths(
-    target.baseDir,
-    target.variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
-    {},
-  );
-  const { settingsPath } = derivedPaths;
-  const origin = (yield* fs.exists(settingsPath))
-    ? yield* fs.readFileString(settingsPath).pipe(
-        Effect.flatMap(decodeRelaySettingsJson),
-        Effect.map((decoded) => normalizeTunnelHttpBaseUrl(decoded.viewcodeRelay?.url)),
-        Effect.orElseSucceed(() => null),
-      )
-    : null;
-  if (origin === null) return yield* new RelayNotConfiguredError({ settingsPath });
-  return origin;
-});
-
-/**
- * Server config pointed at the discovered server's state directory, so the
- * minted token lands in the database the running server reads from. Built by
- * hand rather than through `resolveServerConfig` to keep the dev-vs-userdata
- * choice pinned to where the runtime state was actually found, independent of
- * ambient environment variables.
+ * Built by hand rather than through `resolveServerConfig` to keep the dev-vs-userdata choice
+ * pinned to where the runtime state was actually found, independent of ambient environment
+ * variables.
  */
 const makePairServerConfig = Effect.fn(function* (input: {
   readonly target: DiscoveredPairTarget;
@@ -408,6 +344,8 @@ const makePairServerConfig = Effect.fn(function* (input: {
     startupPresentation: "headless",
     desktopBootstrapToken: undefined,
     desktopTelemetryFd: undefined,
+    desktopBrowserFd: undefined,
+    desktopBrowserControlFd: undefined,
     desktopTelemetryControlFd: undefined,
     resourceMonitorPath: undefined,
     autoBootstrapProjectFromCwd: false,
@@ -497,20 +435,21 @@ const resolveTailscalePairingBase = Effect.fn("pair.resolveTailscalePairingBase"
 
 const mintPairingLink = Effect.fn("pair.mintPairingLink")(function* (input: {
   readonly config: ServerConfig.ServerConfig["Service"];
+  readonly scopes: ReadonlyArray<AuthEnvironmentScope>;
   readonly ttl: Option.Option<Duration.Duration>;
   readonly label: Option.Option<string>;
 }) {
   return yield* Effect.gen(function* () {
     const environmentAuth = yield* EnvironmentAuth.EnvironmentAuth;
     return yield* environmentAuth.createPairingLink({
-      scopes: AuthStandardClientScopes,
+      scopes: input.scopes,
       subject: "one-time-token",
       label: Option.getOrElse(input.label, () => "t3 pair"),
       ...(Option.isSome(input.ttl) ? { ttl: input.ttl.value } : {}),
     });
   }).pipe(
     Effect.provide(
-      EnvironmentAuth.runtimeLayer.pipe(
+      EnvironmentAuth.layerRuntime.pipe(
         Layer.provide(ServerConfig.layer(input.config)),
         Layer.provide(Layer.succeed(References.MinimumLogLevel, input.config.logLevel)),
       ),
@@ -530,6 +469,27 @@ const labelFlag = Flag.String("label").pipe(
   Flag.withDescription("Optional label shown in the server's connections list."),
   Flag.optional,
 );
+
+const resolveRelayPairingBase = Effect.fn("pair.resolveRelayPairingBase")(function* (
+  target: DiscoveredPairTarget,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const derivedPaths = yield* ServerConfig.deriveServerPaths(
+    target.baseDir,
+    target.variant === "dev" ? DEV_VARIANT_PLACEHOLDER_URL : undefined,
+    {},
+  );
+  const { settingsPath } = derivedPaths;
+  const origin = (yield* fs.exists(settingsPath))
+    ? yield* fs.readFileString(settingsPath).pipe(
+        Effect.flatMap(decodeRelaySettingsJson),
+        Effect.map((decoded) => normalizeRelayOrigin(decoded.viewcodeRelay?.url)),
+        Effect.catch(() => Effect.succeed(null)),
+      )
+    : null;
+  if (origin === null) return yield* new RelayNotConfiguredError({ settingsPath });
+  return origin;
+});
 
 const tailscaleFlag = Flag.Boolean("tailscale").pipe(
   Flag.withDescription(
@@ -553,6 +513,7 @@ const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
 
 export const pairCommand = Command.make("pair", {
   baseDir: baseDirFlag,
+  scopes: authScopesFlag(AuthStandardClientScopes),
   ttl: ttlFlag,
   label: labelFlag,
   tailscale: tailscaleFlag,
@@ -565,17 +526,17 @@ export const pairCommand = Command.make("pair", {
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const cliLogLevel = yield* GlobalFlag.LogLevel;
-      // Default to Warn so storage/migration chatter cannot bury the QR code;
-      // an explicit --log-level still wins.
       const logLevel = Option.getOrElse(cliLogLevel, () => "Warn" as const);
 
-      if (flags.tailscale && flags.relay) {
+      if (flags.tailscale && flags.relay)
         return yield* Effect.die(
-          new Error("Pass only one of --tailscale or --relay; they choose different pairing URLs."),
+          "Pass only one of --tailscale or --relay; they choose different pairing URLs.",
         );
-      }
 
       const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
+      if (target.state.listenPath !== undefined && !flags.relay) {
+        return yield* new SocketServerNotNetworkAccessibleError();
+      }
 
       const notes: Array<string> = [];
       let pairingBaseUrl: string;
@@ -606,7 +567,12 @@ export const pairCommand = Command.make("pair", {
       }
 
       const config = yield* makePairServerConfig({ target, logLevel });
-      const issued = yield* mintPairingLink({ config, ttl: flags.ttl, label: flags.label });
+      const issued = yield* mintPairingLink({
+        config,
+        scopes: flags.scopes,
+        ttl: flags.ttl,
+        label: flags.label,
+      });
       const pairingUrl = buildPairingUrl(pairingBaseUrl, issued.credential);
 
       yield* Console.log(

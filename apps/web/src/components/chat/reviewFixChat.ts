@@ -3,6 +3,9 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
+import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
+import { scopeThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+import { CommandId } from "@t3tools/contracts";
 import { selectReviewFixChat } from "@t3tools/client-runtime/review-findings";
 import type {
   EnvironmentId,
@@ -13,13 +16,14 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { useCallback } from "react";
 
 import { useComposerDraftStore, type ComposerThreadTarget } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
-import { newMessageId } from "../../lib/utils";
-import { latestCompletedToolActivityId, useQueuedMessageStore } from "../../queuedMessageStore";
-import { readThread, readThreadShell, readThreadShells } from "../../state/entities";
+import { newMessageId, randomUUID } from "../../lib/utils";
+import { buildMessageContext } from "../../lib/composerContextRecords";
+import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { orchestrationEnvironment } from "../../state/orchestration";
+import { readThreadShell, readThreadShells } from "../../state/entities";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { useTimelineMessageFocusStore } from "../../timelineMessageFocusStore";
 import { toastManager } from "../ui/toast";
@@ -61,31 +65,35 @@ export function writeReviewFixToComposer(
  * the chat is idle, at its next stopping point while it works, as a message typed there would.
  * The chat's own model and modes send it. Resolves to the message, for linking to it.
  */
-export function sendReviewFixToChat(
+export async function sendReviewFixToChat(
   ref: ScopedThreadRef,
   title: string,
   request: ReviewFixRequest,
-): ReviewFixDestination | null {
+): Promise<ReviewFixDestination | null> {
   const thread = readThreadShell(ref);
   if (thread === null) return null;
   const messageId = newMessageId();
-  useQueuedMessageStore.getState().enqueue(scopedThreadKey(ref), {
-    messageId,
-    prompt: request.prompt,
-    images: [],
-    files: [],
-    terminalContexts: [],
-    previewAnnotations: [],
-    reviewComments: [...request.comments],
-    sendSettings: {
+  const sent = await runAtomCommand(appAtomRegistry, orchestrationEnvironment.v2.dispatchCommand, {
+    environmentId: ref.environmentId,
+    input: {
+      type: "message.dispatch",
+      commandId: CommandId.make(randomUUID()),
+      threadId: ref.threadId,
+      messageId,
+      text: request.prompt,
+      attachments: [],
+      context: buildMessageContext({
+        terminalContexts: [],
+        reviewComments: request.comments,
+        previewAnnotations: [],
+      }),
       modelSelection: thread.modelSelection,
-      runtimeMode: thread.runtimeMode,
-      interactionMode: thread.interactionMode,
-      promptEffort: null,
+      createdBy: "user",
+      creationSource: "web",
+      dispatchMode: { type: "queue_after_active" },
     },
-    queuedAfterToolActivityId: latestCompletedToolActivityId(readThread(ref)?.activities ?? []),
-    createdAt: new Date().toISOString(),
   });
+  if (sent._tag === "Failure") return null;
   return { threadId: ref.threadId, title, messageId };
 }
 
@@ -100,7 +108,9 @@ export function resolveReviewFixChat(input: {
     reviewThreadId: input.reviewThreadId,
     projectId: input.projectId,
     target: input.target,
-    threads: readThreadShells().filter((shell) => shell.environmentId === input.environmentId),
+    threads: readThreadShells()
+      .filter((shell) => shell.environmentId === input.environmentId)
+      .map((shell) => scopeThreadShell(shell.environmentId, shell.source)),
   });
   if (choice === null) return null;
   return choice.kind === "thread"
@@ -127,21 +137,18 @@ export function useRevealReviewFix(): (
 ) => void {
   const navigate = useNavigate();
   const router = useRouter();
-  return useCallback(
-    (environmentId, destination) => {
-      const ref = scopeThreadRef(environmentId, destination.threadId);
-      if (destination.messageId !== undefined) {
-        useTimelineMessageFocusStore.getState().focus(scopedThreadKey(ref), destination.messageId);
-      }
-      const onScreen = router.state.matches.some(
-        (match) => (match.params as { threadId?: string }).threadId === destination.threadId,
-      );
-      if (!onScreen) {
-        void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) });
-      }
-    },
-    [navigate, router],
-  );
+  return (environmentId, destination) => {
+    const ref = scopeThreadRef(environmentId, destination.threadId);
+    if (destination.messageId !== undefined) {
+      useTimelineMessageFocusStore.getState().focus(scopedThreadKey(ref), destination.messageId);
+    }
+    const onScreen = router.state.matches.some(
+      (match) => (match.params as { threadId?: string }).threadId === destination.threadId,
+    );
+    if (!onScreen) {
+      void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) });
+    }
+  };
 }
 
 /**
@@ -156,47 +163,44 @@ export function useSendReviewFixToChat(): (
 ) => Promise<ReviewFixDestination | null> {
   const newThread = useNewThreadHandler();
   const reveal = useRevealReviewFix();
-  return useCallback(
-    async (environmentId, chat, request) => {
-      if (chat.kind === "thread") {
-        const sent = sendReviewFixToChat(chat.ref, chat.title, request);
-        if (sent === null) {
-          toastManager.add({
-            type: "error",
-            title: "Could not send the fix",
-            description: `${chat.title} is not loaded. Open it, then try again.`,
-          });
-          return null;
-        }
-        toastManager.add({
-          type: "success",
-          title: `Sent to ${chat.title}`,
-          description: "It goes out now, or when the chat's current step ends.",
-          actionProps: { children: "View", onClick: () => reveal(environmentId, sent) },
-        });
-        return sent;
-      }
-      const opened = await newThread(chat.projectRef, {
-        branch: chat.branch,
-        worktreePath: chat.worktreePath,
-      }).catch(() => null);
-      if (opened === null) {
+  return async (environmentId, chat, request) => {
+    if (chat.kind === "thread") {
+      const sent = await sendReviewFixToChat(chat.ref, chat.title, request);
+      if (sent === null) {
         toastManager.add({
           type: "error",
-          title: "Could not open a chat for the fix",
-          description: "Open a chat on this project, then use Fix with agent again.",
+          title: "Could not send the fix",
+          description: `${chat.title} is not loaded. Open it, then try again.`,
         });
         return null;
       }
-      // A new chat has no thread to send to until its first message: the reader sends it.
-      writeReviewFixToComposer(opened.draftId, request);
       toastManager.add({
         type: "success",
-        title: "Opened a new chat with the fix",
-        description: "No chat was working on this change. Read the request over, then send.",
+        title: `Sent to ${chat.title}`,
+        description: "It goes out now, or when the chat's current step ends.",
+        actionProps: { children: "View", onClick: () => reveal(environmentId, sent) },
       });
-      return { threadId: opened.threadId, title: "the new chat" };
-    },
-    [newThread, reveal],
-  );
+      return sent;
+    }
+    const opened = await newThread(chat.projectRef, {
+      branch: chat.branch,
+      worktreePath: chat.worktreePath,
+    }).catch(() => null);
+    if (opened === null) {
+      toastManager.add({
+        type: "error",
+        title: "Could not open a chat for the fix",
+        description: "Open a chat on this project, then use Fix with agent again.",
+      });
+      return null;
+    }
+    // A new chat has no thread to send to until its first message: the reader sends it.
+    writeReviewFixToComposer(opened.draftId, request);
+    toastManager.add({
+      type: "success",
+      title: "Opened a new chat with the fix",
+      description: "No chat was working on this change. Read the request over, then send.",
+    });
+    return { threadId: opened.threadId, title: "the new chat" };
+  };
 }

@@ -9,8 +9,8 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import { McpProtocol, McpServer } from "effect/unstable/ai";
-import { HttpRouter } from "effect/unstable/http";
+import { McpProtocol, McpServer } from "effect/ai";
+import { HttpRouter } from "effect/http";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { parseMcpStdioBridgeArgs, runMcpStdioBridge, takeSseEvents } from "./McpStdioBridge.ts";

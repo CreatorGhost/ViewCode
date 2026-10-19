@@ -204,10 +204,7 @@ function ReviewFindingsViewContent({
   readerScrolled,
 }: ReviewFindingsViewProps) {
   const { findings } = source;
-  const reviewThreadRef = useMemo(
-    () => scopeThreadRef(environmentId, source.threadId),
-    [environmentId, source.threadId],
-  );
+  const reviewThreadRef = scopeThreadRef(environmentId, source.threadId);
   // The reader's marks belong to the review, by finding identity, so they hold when its next set
   // of findings arrives.
   const cardKey = reviewFindingsCardKey(environmentId, source.threadId);
@@ -219,10 +216,7 @@ function ReviewFindingsViewContent({
   const [pendingRatings, setPendingRatings] = useState(NO_PENDING_RATINGS);
   const unsettledRatings = unsettledReviewFindingRatings(serverRatings, pendingRatings);
   if (unsettledRatings !== pendingRatings) setPendingRatings(unsettledRatings);
-  const ratings = useMemo(
-    () => mergeReviewFindingRatings(serverRatings, unsettledRatings),
-    [serverRatings, unsettledRatings],
-  );
+  const ratings = mergeReviewFindingRatings(serverRatings, unsettledRatings);
   const [showDismissed, setShowDismissed] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<ReviewFindingKey>>(() => new Set());
   const [ticks, setTicks] = useState<ReadonlySet<ReviewFindingKey>>(() => new Set());
@@ -240,17 +234,13 @@ function ReviewFindingsViewContent({
     setTicks(new Set());
     setPendingRatings(NO_PENDING_RATINGS);
   }
-  const [viewer, setViewer] = useState<CodeViewHandle<FindingAnnotationGroup> | null>(null);
+  const [viewer, setViewer] = useState<CodeViewHandle<FindingAnnotationGroup, undefined> | null>(null);
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
   const capabilities = useServerConfigs().get(environmentId)?.environment.capabilities;
-  const rereview = useMemo(
-    () =>
-      startReview !== null && capabilities?.incrementalAgentReview === true
+  const rereview = startReview !== null && capabilities?.incrementalAgentReview === true
         ? reviewRereviewBasis(source, startReview.request)
-        : null,
-    [capabilities?.incrementalAgentReview, source, startReview],
-  );
+        : null;
   const rereviewSummary = reviewRereviewSummary(findings);
 
   const diff = useReviewDiff({
@@ -262,75 +252,46 @@ function ReviewFindingsViewContent({
   });
   // The diff came back empty: the findings have nothing to sit in, so they take the panel.
   const noDiff = !diff.pending && diff.error === null && diff.files.length === 0;
-  const entries = useMemo(() => reviewFindingEntries(findings), [findings]);
-  const sent = useMemo(
-    () => reviewFindingMarksByKey(entries, sentByIdentity),
-    [entries, sentByIdentity],
-  );
-  const dismissed = useMemo(
-    () => reviewFindingMarksByKey(entries, dismissedByIdentity),
-    [dismissedByIdentity, entries],
-  );
-  const currentKey = useMemo<ReviewFindingKey | null>(
-    () =>
-      currentIdentity === null
+  const entries = reviewFindingEntries(findings);
+  const sent = reviewFindingMarksByKey(entries, sentByIdentity);
+  const dismissed = reviewFindingMarksByKey(entries, dismissedByIdentity);
+  const currentKey = currentIdentity === null
         ? null
         : (entries.find((entry) => reviewFindingIdentity(entry.finding) === currentIdentity)?.key ??
-          null),
-    [currentIdentity, entries],
-  );
-  const identityOf = useCallback(
-    (key: ReviewFindingKey) => {
+          null);
+  const identityOf = (key: ReviewFindingKey) => {
       const entry = entries.find((candidate) => candidate.key === key);
       return entry === undefined ? key : reviewFindingIdentity(entry.finding);
-    },
-    [entries],
-  );
+    };
   const dismissedCount = entries.filter((entry) => dismissed[entry.key]).length;
-  const shown = useMemo(
-    () => (showDismissed ? entries : entries.filter((entry) => !dismissed[entry.key])),
-    [dismissed, entries, showDismissed],
-  );
-  const { general, placed } = useMemo(
-    () => placeReviewFindings(shown, diff.files),
-    [diff.files, shown],
-  );
+  const shown = (showDismissed ? entries : entries.filter((entry) => !dismissed[entry.key]));
+  const { general, placed } = placeReviewFindings(shown, diff.files);
   // Previous and Next walk what is on screen, in reading order.
-  const order = useMemo(() => reviewIssueOrder(general, placed), [general, placed]);
+  const order = reviewIssueOrder(general, placed);
   const openEntries = entries.filter((entry) => !dismissed[entry.key]);
   const currentIndex = currentKey === null ? -1 : order.indexOf(currentKey);
   // Before the reader steps, the counter stands on the first issue, which is already at the top.
   const shownIndex = Math.max(currentIndex, 0);
   const currentPlacement = placed.find((entry) => entry.entry.key === currentKey) ?? null;
 
-  const toggleExpanded = useCallback(
-    (key: ReviewFindingKey) =>
+  const toggleExpanded = (key: ReviewFindingKey) =>
       setExpanded((current) => {
         const next = new Set(current);
         if (!next.delete(key)) next.add(key);
         return next;
-      }),
-    [],
-  );
-  const tick = useCallback(
-    (key: ReviewFindingKey, value: boolean) =>
+      });
+  const tick = (key: ReviewFindingKey, value: boolean) =>
       setTicks((current) => {
         const next = new Set(current);
         if (value) next.add(key);
         else next.delete(key);
         return next;
-      }),
-    [],
-  );
+      });
   const setDismissedFor = useReviewFixSentStore((state) => state.setDismissed);
-  const dismiss = useCallback(
-    (key: ReviewFindingKey, value: boolean) => setDismissedFor(cardKey, identityOf(key), value),
-    [cardKey, identityOf, setDismissedFor],
-  );
+  const dismiss = (key: ReviewFindingKey, value: boolean) => setDismissedFor(cardKey, identityOf(key), value);
   const rateFinding = useAtomCommand(reviewEnvironment.rateFinding, { reportFailure: false });
   const canRate = capabilities?.reviewFindingRatings === true;
-  const rate = useCallback(
-    (key: ReviewFindingKey, rating: ReviewFindingRating | null) => {
+  const rate = (key: ReviewFindingKey, rating: ReviewFindingRating | null) => {
       setPendingRatings((current) => new Map(current).set(key, rating));
       void rateFinding({
         environmentId,
@@ -357,9 +318,7 @@ function ReviewFindingsViewContent({
           description: error instanceof Error ? error.message : "An error occurred.",
         });
       });
-    },
-    [environmentId, rateFinding, source.activityId, source.threadId],
-  );
+    };
 
   // Somebody else's pull request: findings are posted to it as review comments, not fixed.
   const pullRequestTarget = findings.target.kind === "pull-request" ? findings.target : null;
@@ -415,12 +374,9 @@ function ReviewFindingsViewContent({
     return true;
   };
   // The cards' action keeps one identity per set, so the memoized cards do not redraw for it.
-  const startPost = useCallback(
-    (keys: ReadonlyArray<string>) => {
+  const startPost = (keys: ReadonlyArray<string>) => {
       setPosting(entries.filter((entry) => keys.includes(entry.key)));
-    },
-    [entries, setPosting],
-  );
+    };
   // Fixing is a request in a chat's composer that the reader sends themselves, never another
   // session picked here: the chat beside the panel, or seen from the reviewer itself (reviewers do
   // not fix) the chat the review was started from (`resolveReviewFixChat`).
@@ -428,13 +384,9 @@ function ReviewFindingsViewContent({
   const panelThread = useThreadShell(threadRef);
   const markSent = useReviewFixSentStore((state) => state.markSent);
   const revealFix = useRevealReviewFix();
-  const openSent = useCallback(
-    (destination: ReviewFixDestination) => revealFix(environmentId, destination),
-    [environmentId, revealFix],
-  );
+  const openSent = (destination: ReviewFixDestination) => revealFix(environmentId, destination);
   const sendToChat = useSendReviewFixToChat();
-  const fix = useCallback(
-    async (selection: ReadonlyArray<ReviewFindingEntry>) => {
+  const fix = async (selection: ReadonlyArray<ReviewFindingEntry>) => {
       if (selection.length === 0) return;
       const request = reviewFindingsFixPrompt({
         activityId: source.activityId,
@@ -459,48 +411,25 @@ function ReviewFindingsViewContent({
       if (chat === null) return;
       const destination = await sendToChat(environmentId, chat, request);
       if (destination !== null) markSent(cardKey, keys.map(identityOf), destination);
-    },
-    [
-      cardKey,
-      environmentId,
-      findings.target,
-      fixInReviewThread,
-      identityOf,
-      markSent,
-      onFixInChat,
-      panelThread,
-      projectId,
-      sendToChat,
-      source.activityId,
-      source.threadId,
-      threadRef,
-    ],
-  );
-  const cardAction = useMemo<ReviewFindingAction>(
-    () =>
-      commentMode
+    };
+  const cardAction: ReviewFindingAction = commentMode
         ? { kind: "post", label: "Post comment", run: (key) => startPost([key]) }
         : {
             kind: "fix",
             label: "Fix with agent",
             run: (key) => void fix(entries.filter((candidate) => candidate.key === key)),
-          },
-    [commentMode, entries, fix, startPost],
-  );
+          };
 
-  const filesWithFindings = useMemo(() => new Set(placed.map((entry) => entry.fileKey)), [placed]);
+  const filesWithFindings = new Set(placed.map((entry) => entry.fileKey));
   // Files with findings open and the rest fold, until the reader says otherwise.
   const fileCollapsed = (fileKey: string) =>
     reviewFileCollapsed(fileKey, filesWithFindings, toggledFiles);
-  const toggleFile = useCallback(
-    (fileKey: string) =>
+  const toggleFile = (fileKey: string) =>
       setToggledFiles((current) => {
         const next = new Set(current);
         if (!next.delete(fileKey)) next.add(fileKey);
         return next;
-      }),
-    [],
-  );
+      });
 
   // Each step to a finding, the same one again included (Issue 1/1), scrolls to it and marks it.
   const [focusStep, setFocusStep] = useState(0);
@@ -517,13 +446,12 @@ function ReviewFindingsViewContent({
   };
   // Cards by key, to mark the one stepped to: the diff draws its cards wherever it likes.
   const cardElements = useRef(new Map<string, HTMLElement>());
-  const registerCard = useCallback((key: ReviewFindingKey, element: HTMLElement | null) => {
+  const registerCard = (key: ReviewFindingKey, element: HTMLElement | null) => {
     if (element === null) cardElements.current.delete(key);
     else cardElements.current.set(key, element);
-  }, []);
+  };
   /** Scrolls a finding into view and marks it once; false while its file is not drawn yet. */
-  const reveal = useCallback(
-    (key: ReviewFindingKey): boolean => {
+  const reveal = (key: ReviewFindingKey): boolean => {
       const placement = placed.find((entry) => entry.entry.key === key) ?? null;
       if (placement === null) {
         cardElements.current.get(key)?.scrollIntoView({ block: "nearest" });
@@ -535,17 +463,15 @@ function ReviewFindingsViewContent({
           range: {
             start: placement.startLine,
             end: placement.lineNumber,
-            side: "additions",
-            endSide: "additions",
+            side: "additions" as const,
+            endSide: "additions" as const,
           },
           align: "center",
         });
       }
       flashReviewFinding(() => cardElements.current.get(key));
       return true;
-    },
-    [placed, viewer],
-  );
+    };
   // Scrolls once the viewer has drawn the finding's file open.
   useEffect(() => {
     if (focusStep === 0 || currentKey === null) return;
@@ -580,9 +506,7 @@ function ReviewFindingsViewContent({
     if (first !== null && reveal(first)) autoRevealed.current = true;
   }, [diff.pending, order, readerScrolled, reveal]);
 
-  const items = useMemo<CodeViewDiffItem<FindingAnnotationGroup>[]>(
-    () =>
-      diff.files.map(({ fileKey, fileDiff }) => {
+  const items = diff.files.map(({ fileKey, fileDiff }) => {
         const inFile = placed.filter((entry) => entry.fileKey === fileKey);
         const byLine = new Map<number, PlacedReviewFinding[]>();
         for (const entry of inFile) {
@@ -590,7 +514,7 @@ function ReviewFindingsViewContent({
         }
         const annotations = [...byLine].map(
           ([lineNumber, group]): DiffLineAnnotation<FindingAnnotationGroup> => ({
-            side: "additions",
+            side: "additions" as const,
             lineNumber,
             metadata: { findings: group },
           }),
@@ -621,40 +545,19 @@ function ReviewFindingsViewContent({
           collapsed,
           version: fnv1a32(`${collapsed ? "1" : "0"}:${state}`),
         };
-      }),
-    [
-      busyKeys,
-      currentKey,
-      diff.files,
-      dismissed,
-      expanded,
-      failures,
-      filesWithFindings,
-      placed,
-      posted,
-      ratings,
-      sent,
-      ticks,
-      toggledFiles,
-    ],
-  );
-  const selectedLines = useMemo<{ id: string; range: SelectedLineRange } | null>(
-    () =>
-      currentPlacement === null
+      });
+  const selectedLines = currentPlacement === null
         ? null
         : {
             id: currentPlacement.fileKey,
             range: {
               start: currentPlacement.startLine,
               end: currentPlacement.lineNumber,
-              side: "additions",
-              endSide: "additions",
+              side: "additions" as const,
+              endSide: "additions" as const,
             },
-          },
-    [currentPlacement],
-  );
-  const diffViewOptions = useMemo(
-    () => ({
+          };
+  const diffViewOptions = ({
       diffStyle: "unified" as const,
       lineDiffType: "none" as const,
       overflow: settings.wordWrap ? ("wrap" as const) : ("scroll" as const),
@@ -663,9 +566,7 @@ function ReviewFindingsViewContent({
       themeType: resolvedTheme,
       stickyHeaders: true,
       ...(diff.loadDiffFiles ? { loadDiffFiles: diff.loadDiffFiles } : {}),
-    }),
-    [diff.loadDiffFiles, resolvedTheme, settings.wordWrap],
-  );
+    });
 
   const renderCard = (entry: ReviewFindingEntry, showLocation: boolean) => (
     <ReviewFindingCard
@@ -698,8 +599,7 @@ function ReviewFindingsViewContent({
       {annotation.metadata.findings.map((placement) => renderCard(placement.entry, false))}
     </div>
   );
-  const renderHeaderPrefix = useCallback(
-    (item: CodeViewItem<FindingAnnotationGroup>) => {
+  const renderHeaderPrefix = (item: CodeViewItem<FindingAnnotationGroup>) => {
       const collapsed = item.collapsed === true;
       return (
         <Button
@@ -720,9 +620,7 @@ function ReviewFindingsViewContent({
           )}
         </Button>
       );
-    },
-    [toggleFile],
-  );
+    };
 
   const tickedKeys = order.filter((key) => ticks.has(key) && !posted.has(key));
   const unposted = openEntries.filter((entry) => !posted.has(entry.key));

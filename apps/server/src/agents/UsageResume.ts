@@ -3,15 +3,11 @@ import {
   EventId,
   MessageId,
   type ModelSelection,
-  type OrchestrationEvent,
-  type OrchestrationSession,
-  type OrchestrationThreadShell,
   ThreadId,
   USAGE_RESUME_ACTIVITY_KIND,
   type UsageResumePayload,
 } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
-import { classifyLimitError } from "@t3tools/shared/usageLimit";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -28,14 +24,18 @@ import * as Schema from "effect/Schema";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
+import { ViewCodeUsageResumeEnabled } from "./UsageResumePolicy.ts";
 import { ServerConfig } from "../config.ts";
-import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
+import {
+  UsageResumeRuntime,
+  type UsageResumeEvent,
+  type UsageResumeThread,
+} from "./UsageResumeRuntime.ts";
+import { ProviderRegistry } from "../provider/ProviderRegistry.ts";
 import { DesktopTelemetryReceiver } from "../resourceTelemetry/DesktopTelemetryReceiver.ts";
 import { forkParked } from "../serverActivation.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
-import { AgentMessaging, AgentMessagingError, isChildAgent } from "./AgentMessaging.ts";
+import { AgentMessaging, AgentMessagingError } from "./AgentMessagingV2.ts";
 import {
   type RateLimitSignal,
   USAGE_RESET_MARGIN_MS,
@@ -116,6 +116,7 @@ type Job =
       readonly recorded: RateLimitSignal | undefined;
       /** The turn request that failed; every event of one failure shares it. */
       readonly request: string;
+      readonly usageLimit?: boolean;
     }
   | { readonly kind: "ready"; readonly threadId: ThreadId }
   | { readonly kind: "user-turn"; readonly threadId: ThreadId }
@@ -136,8 +137,7 @@ export class UsageResume extends Context.Service<UsageResume, UsageResumeShape>(
 ) {}
 
 const make = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngine.OrchestrationEngineService;
-  const projections = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const runtime = yield* UsageResumeRuntime;
   const registry = yield* ProviderRegistry;
   const settingsService = yield* ServerSettingsService;
   const messaging = yield* AgentMessaging;
@@ -166,7 +166,7 @@ const make = Effect.gen(function* () {
   const changed = yield* Queue.sliding<void>(1);
   let awakeHeld = false;
 
-  const uuid = crypto.randomUUIDv4.pipe(Effect.orDie);
+  const uuid = crypto.randomUUIDv4().pipe(Effect.orDie);
   const now = Clock.currentTimeMillis;
   const iso = (ms: number) => DateTime.formatIso(DateTime.makeUnsafe(ms));
   const wake = Queue.offer(changed, undefined).pipe(Effect.asVoid);
@@ -175,13 +175,7 @@ const make = Effect.gen(function* () {
       Effect.logWarning(message, { cause: Cause.pretty(cause) }),
     );
 
-  const shells = projections.getShellSnapshot().pipe(Effect.map((snapshot) => snapshot.threads));
-  const findThread = (threadId: ThreadId) =>
-    shells.pipe(
-      Effect.map((threads): OrchestrationThreadShell | undefined =>
-        threads.find((thread) => thread.id === threadId),
-      ),
-    );
+  const findThread = runtime.getThread;
 
   /** Tells the desktop whether to hold the no-suspend assertion. */
   const syncAwake = Effect.gen(function* () {
@@ -202,9 +196,8 @@ const make = Effect.gen(function* () {
     if (lastNote.get(threadId) === key) return;
     lastNote.set(threadId, key);
     const createdAt = iso(yield* now);
-    yield* engine
-      .dispatch({
-        type: "thread.activity.append",
+    yield* runtime
+      .append({
         commandId: CommandId.make(`server:usage-resume:${yield* uuid}`),
         threadId,
         activity: {
@@ -216,7 +209,6 @@ const make = Effect.gen(function* () {
           turnId: null,
           createdAt,
         },
-        createdAt,
       })
       .pipe(warn("failed to record the usage-limit resume state"));
   });
@@ -235,13 +227,13 @@ const make = Effect.gen(function* () {
 
   /** When the limit resets: the recorded signal, else the error text, else a recent spent usage window. */
   const resolveReset = Effect.fnUntraced(function* (
-    thread: OrchestrationThreadShell,
+    thread: UsageResumeThread,
     error: string,
     recorded: RateLimitSignal | undefined,
     nowMs: number,
   ) {
     const providers = yield* registry.getProviders;
-    const instanceId = thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
+    const instanceId = thread.providerInstanceId;
     const usage = providers.find((entry) => entry.instanceId === instanceId)?.usageLimits;
     const windows = freshUsageWindows(usage, nowMs);
     return pickResetTime({ recorded, text: error, windows, nowMs });
@@ -268,7 +260,7 @@ const make = Effect.gen(function* () {
   });
 
   const handleUsageLimit = Effect.fnUntraced(function* (
-    thread: OrchestrationThreadShell,
+    thread: UsageResumeThread,
     error: string,
     recorded: RateLimitSignal | undefined,
     nowMs: number,
@@ -277,7 +269,7 @@ const make = Effect.gen(function* () {
     const resetsAt = yield* resolveReset(thread, error, recorded, nowMs);
     // A child is left to its lead, who is told when it resets (see AgentMessaging).
     // The banner still says when, and Resume now still works.
-    const leftToLead = isChildAgent(thread);
+    const leftToLead = thread.child;
     if (resetsAt === null || resetsAt - nowMs > MAX_RESET_HORIZON_MS) {
       if (!leftToLead) yield* publishState(threadId, {});
       return yield* note(
@@ -313,12 +305,12 @@ const make = Effect.gen(function* () {
 
   /** A server or proxy throttled the turn: retry it shortly, a few times, then leave it to the user. */
   const handleTransient = Effect.fnUntraced(function* (
-    thread: OrchestrationThreadShell,
+    thread: UsageResumeThread,
     retryAt: number | null,
     nowMs: number,
   ) {
     const threadId = thread.id;
-    if (isChildAgent(thread)) return;
+    if (thread.child) return;
     const settings = yield* settingsService.getSettings;
     if (!settings.resumeAfterUsageLimit) return;
     const done = retries.get(threadId) ?? 0;
@@ -354,9 +346,11 @@ const make = Effect.gen(function* () {
     decided.set(threadId, job.request);
     if (schedules.has(threadId)) return;
     const thread = yield* findThread(threadId);
-    if (!thread || thread.archivedAt !== null) return;
+    if (!thread || thread.archived) return;
     const nowMs = yield* now;
-    const kind = limitKindOf(job.error, nowMs, job.recorded);
+    const kind = job.usageLimit
+      ? { kind: "usage" as const }
+      : limitKindOf(job.error, nowMs, job.recorded);
     if (kind === null) return;
     if (kind.kind === "transient") return yield* handleTransient(thread, kind.retryAt, nowMs);
     retries.delete(threadId);
@@ -512,68 +506,39 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  const isLiveStatus = (session: OrchestrationSession) =>
-    session.status === "running" || session.status === "starting";
-
-  const failed = (threadId: ThreadId, error: string) =>
-    worker.enqueue({
-      kind: "failed",
-      threadId,
-      error,
-      recorded: signals.get(threadId),
-      request: requests.get(threadId) ?? "",
-    });
-
-  const processEvent = (event: OrchestrationEvent) =>
+  const processEvent = (event: UsageResumeEvent) =>
     Effect.suspend(() => {
       switch (event.type) {
-        case "thread.session-set": {
-          const { threadId, session } = event.payload;
-          if (isLiveStatus(session)) return Effect.void;
-          if (session.status === "error" || session.status === "ready") {
-            if (classifyLimitError(session.lastError) !== null) {
-              return failed(threadId, session.lastError!);
-            }
-            if (session.status === "ready") return worker.enqueue({ kind: "ready", threadId });
-          }
+        case "failed":
+          return worker.enqueue({
+            kind: "failed",
+            threadId: event.threadId,
+            error: event.error,
+            recorded: event.recorded ?? signals.get(event.threadId),
+            request: event.request ?? requests.get(event.threadId) ?? "",
+            ...(event.usageLimit === undefined ? {} : { usageLimit: event.usageLimit }),
+          });
+        case "signal": {
+          const signal = mergeRateLimitSignal(signals.get(event.threadId), event.detail);
+          if (signal !== undefined) signals.set(event.threadId, signal);
           return Effect.void;
         }
-        case "thread.activity-appended": {
-          const { threadId, activity } = event.payload;
-          const detail = (activity.payload as { readonly detail?: unknown } | null)?.detail;
-          if (activity.kind === "runtime.warning") {
-            // A rejected usage window carries the provider's own reset time.
-            const signal = mergeRateLimitSignal(signals.get(threadId), detail);
-            if (signal !== undefined) signals.set(threadId, signal);
-            return Effect.void;
-          }
-          if (activity.kind !== "provider.turn.start.failed") return Effect.void;
-          return typeof detail === "string" && classifyLimitError(detail) !== null
-            ? failed(threadId, detail)
-            : Effect.void;
+        case "ready":
+          return worker.enqueue({ kind: "ready", threadId: event.threadId });
+        case "turn-start": {
+          signals.delete(event.threadId);
+          requests.set(event.threadId, event.messageId);
+          if (ours.delete(event.messageId)) return Effect.void;
+          return worker.enqueue({ kind: "user-turn", threadId: event.threadId });
         }
-        case "thread.turn-start-requested": {
-          const messageId = String(event.payload.messageId);
-          signals.delete(event.payload.threadId);
-          requests.set(event.payload.threadId, messageId);
-          if (ours.delete(messageId)) return Effect.void;
-          return worker.enqueue({ kind: "user-turn", threadId: event.payload.threadId });
-        }
-        case "thread.meta-updated": {
-          const selection = event.payload.modelSelection;
-          return selection
-            ? worker.enqueue({
-                kind: "model",
-                threadId: event.payload.threadId,
-                modelKey: modelKeyOf(selection),
-              })
-            : Effect.void;
-        }
-        case "thread.archived":
-        case "thread.deleted":
-          return worker.enqueue({ kind: "removed", threadId: event.payload.threadId });
-        default:
-          return Effect.void;
+        case "model":
+          return worker.enqueue({
+            kind: "model",
+            threadId: event.threadId,
+            modelKey: modelKeyOf(event.modelSelection),
+          });
+        case "removed":
+          return worker.enqueue({ kind: "removed", threadId: event.threadId });
       }
     });
 
@@ -582,7 +547,9 @@ const make = Effect.gen(function* () {
     while (true) {
       const nowMs = yield* now;
       let next: number | null = null;
-      for (const [threadId, schedule] of [...schedules]) {
+      // Firing may reinsert a busy schedule; each timer pass visits the initial set once.
+      const pending = Array.from(schedules);
+      for (const [threadId, schedule] of pending) {
         if (schedule.resumeAt <= nowMs) {
           yield* fire(ThreadId.make(threadId), false).pipe(
             Effect.catchCause((cause) =>
@@ -631,9 +598,10 @@ const make = Effect.gen(function* () {
   }).pipe(warn("failed to load usage-limit resume schedules"));
 
   const start: UsageResumeShape["start"] = Effect.fn("UsageResume.start")(function* () {
+    if (!(yield* ViewCodeUsageResumeEnabled)) return;
     yield* load;
     const settingsChanges = yield* settingsService.subscribeChanges;
-    const events = yield* engine.subscribeDomainEvents;
+    const events = yield* runtime.events;
     yield* syncAwake;
     yield* forkParked(
       Effect.all(

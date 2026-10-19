@@ -882,20 +882,22 @@ describe("accessibility actions run in the background", () => {
     (element) => ({ op: "typeText", element, expect: field, text: "t" }),
   ];
 
-  for (const request of requests) {
-    const op = request("e").op;
-    it(`${op} acts without taking focus or needing the front`, async () => {
-      const { app, options, phases, core } = background();
-      const [win] = await core.list();
-      const [ref] = await core.observe(win!.handle);
-      expect(await core.call(request(ref!.handle))).toEqual(inBackground);
-      expect(core.calls.activate).toBe(0);
-      expect(options.foreground).toBe(99);
-      expect(app.windows[0]!.active).toBe(false);
-      expect(phases).toEqual(["prepare", "dispatch"]);
-      expect(core.sent).toHaveLength(1);
-    });
-  }
+  it.each(
+    requests.map((request) => {
+      const op = request("e").op;
+      return { request, op };
+    }),
+  )("$op acts without taking focus or needing the front", async ({ request }) => {
+    const { app, options, phases, core } = background();
+    const [win] = await core.list();
+    const [ref] = await core.observe(win!.handle);
+    expect(await core.call(request(ref!.handle))).toEqual(inBackground);
+    expect(core.calls.activate).toBe(0);
+    expect(options.foreground).toBe(99);
+    expect(app.windows[0]!.active).toBe(false);
+    expect(phases).toEqual(["prepare", "dispatch"]);
+    expect(core.sent).toHaveLength(1);
+  });
 
   it("still refuses a background element that changed", async () => {
     const { app, core } = background();
@@ -1099,8 +1101,16 @@ describe("fallback input is authorized after its own preparation", () => {
     return { core, policy, preparing, resume, result };
   };
 
-  for (const { change, code } of policyChanges) {
-    it(`press sends no click when the ${change} during fallback activation`, async () => {
+  it.each(
+    policyChanges.map(({ change, code }) => {
+      return {
+        change,
+        code,
+      };
+    }),
+  )(
+    "press sends no click when the $change during fallback activation",
+    async ({ change, code }) => {
       const { core, policy, preparing, resume, result } = await pressFallback();
       await preparing.promise;
       policy.apply(change);
@@ -1110,20 +1120,27 @@ describe("fallback input is authorized after its own preparation", () => {
         error: { kind: "policy", code, dispatched: "no" },
       });
       expect(core.sent).toEqual([]);
-    });
+    },
+  );
 
-    it(`typeText types nothing when the ${change} during fallback focus`, async () => {
-      const { core, policy, preparing, resume, result } = await typeFallback();
-      await preparing.promise;
-      policy.apply(change);
-      resume.resolve();
-      expect(await result).toMatchObject({
-        ok: false,
-        error: { kind: "policy", code, dispatched: "no" },
-      });
-      expect(core.sent).toEqual([]);
+  it.each(
+    policyChanges.map(({ change, code }) => {
+      return {
+        change,
+        code,
+      };
+    }),
+  )("typeText types nothing when the $change during fallback focus", async ({ change, code }) => {
+    const { core, policy, preparing, resume, result } = await typeFallback();
+    await preparing.promise;
+    policy.apply(change);
+    resume.resolve();
+    expect(await result).toMatchObject({
+      ok: false,
+      error: { kind: "policy", code, dispatched: "no" },
     });
-  }
+    expect(core.sent).toEqual([]);
+  });
 
   it("still delivers both fallbacks while the policy holds", async () => {
     const press = await pressFallback();
@@ -1265,33 +1282,35 @@ describe("nothing is prepared or sent once the policy refuses", () => {
     }),
   ];
 
-  for (const request of requests) {
-    const op = request("w", "e").op;
-    it(`${op} does not activate its window after the turn ended`, async () => {
-      const app: FakeApp = {
-        name: "Notes",
-        pid: 5,
-        windows: [window("Note", { active: false, focused: false, children: [{ ...field }] })],
-      };
-      const phases: string[] = [];
-      const core = makeCore([app], {
-        foreground: 99,
-        authorize: (_target, phase) => {
-          phases.push(phase);
-          return { code: "CU-CON-006", message: "ended", effect: "not-dispatched" };
-        },
-      });
-      const [note] = await core.list();
-      const [ref] = await core.observe(note!.handle);
-      expect(await core.call(request(note!.handle, ref!.handle))).toMatchObject({
-        ok: false,
-        error: { kind: "policy", code: "CU-CON-006", dispatched: "no" },
-      });
-      expect(phases).toEqual(["prepare"]);
-      expect(core.calls.activate).toBe(0);
-      expect(core.sent).toEqual([]);
+  it.each(
+    requests.map((request) => {
+      const op = request("w", "e").op;
+      return { request, op };
+    }),
+  )("$op does not activate its window after the turn ended", async ({ request }) => {
+    const app: FakeApp = {
+      name: "Notes",
+      pid: 5,
+      windows: [window("Note", { active: false, focused: false, children: [{ ...field }] })],
+    };
+    const phases: string[] = [];
+    const core = makeCore([app], {
+      foreground: 99,
+      authorize: (_target, phase) => {
+        phases.push(phase);
+        return { code: "CU-CON-006", message: "ended", effect: "not-dispatched" };
+      },
     });
-  }
+    const [note] = await core.list();
+    const [ref] = await core.observe(note!.handle);
+    expect(await core.call(request(note!.handle, ref!.handle))).toMatchObject({
+      ok: false,
+      error: { kind: "policy", code: "CU-CON-006", dispatched: "no" },
+    });
+    expect(phases).toEqual(["prepare"]);
+    expect(core.calls.activate).toBe(0);
+    expect(core.sent).toEqual([]);
+  });
 
   it("reports a failure before the input as not dispatched", async () => {
     let fail = false;
@@ -1516,40 +1535,42 @@ describe("experimental background input", () => {
     pid: 1,
     windows: [window("Scratch", { active: false, focused: false })],
   });
-  for (const outcome of ["changed", "unchanged", "unreadable", "foreground"] as const) {
-    it(`verifies an AX press too, when its result is ${outcome}`, async () => {
-      const target = app();
-      const options: Parameters<typeof makeCore>[1] = {
-        background: true,
-        foreground: 2,
-        primaryDisplay: () => BOUNDS,
-      };
-      const button: Spec = {
-        role: "button",
-        name: "Apply",
-        value: "before",
-        onPress: () => {
-          if (outcome === "changed") button.value = "after";
-          if (outcome === "unreadable") target.windows[0]!.childrenReadFailure = true;
-          if (outcome === "foreground") options.foreground = 1;
-        },
-      };
-      target.windows[0]!.children = [button];
-      const core = makeCore([target], options);
-      const [w] = await core.list();
-      const [ref] = await core.observe(w!.handle);
-      const result = await core.call({
-        op: "press",
-        element: ref!.handle,
-        expect: { role: "button", label: "Apply" },
-      });
-      expect(result).toMatchObject(
-        outcome === "changed" ? inBackground : { ok: false, error: { dispatched: "unknown" } },
-      );
-      expect(core.calls.activate).toBe(0);
-      expect(core.sent).toEqual([["press", "Apply"]]);
+  it.each(
+    (["changed", "unchanged", "unreadable", "foreground"] as const).map((outcome) => {
+      return { outcome };
+    }),
+  )("verifies an AX press too, when its result is $outcome", async ({ outcome }) => {
+    const target = app();
+    const options: Parameters<typeof makeCore>[1] = {
+      background: true,
+      foreground: 2,
+      primaryDisplay: () => BOUNDS,
+    };
+    const button: Spec = {
+      role: "button",
+      name: "Apply",
+      value: "before",
+      onPress: () => {
+        if (outcome === "changed") button.value = "after";
+        if (outcome === "unreadable") target.windows[0]!.childrenReadFailure = true;
+        if (outcome === "foreground") options.foreground = 1;
+      },
+    };
+    target.windows[0]!.children = [button];
+    const core = makeCore([target], options);
+    const [w] = await core.list();
+    const [ref] = await core.observe(w!.handle);
+    const result = await core.call({
+      op: "press",
+      element: ref!.handle,
+      expect: { role: "button", label: "Apply" },
     });
-  }
+    expect(result).toMatchObject(
+      outcome === "changed" ? inBackground : { ok: false, error: { dispatched: "unknown" } },
+    );
+    expect(core.calls.activate).toBe(0);
+    expect(core.sent).toEqual([["press", "Apply"]]);
+  });
   it("posts to the background after policy checks without activating or using the real pointer", async () => {
     const phases: string[] = [];
     const posted: string[] = [];

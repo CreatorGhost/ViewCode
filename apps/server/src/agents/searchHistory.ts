@@ -1,4 +1,7 @@
-import type { OrchestrationThread } from "@t3tools/contracts";
+export interface HistoryRecord {
+  readonly messages: ReadonlyArray<{ readonly role: string; readonly createdAt: string; readonly text: string }>;
+  readonly activities: ReadonlyArray<{ readonly kind: string; readonly createdAt: string; readonly summary: string; readonly payload: unknown }>;
+}
 
 export interface HistoryMatch {
   readonly source: string;
@@ -32,7 +35,7 @@ function snippetAround(text: string, index: number): string {
  * recover details that were condensed out of its handoff.
  */
 export function searchThreadHistory(
-  thread: Pick<OrchestrationThread, "messages" | "activities">,
+  thread: HistoryRecord,
   query: string,
   limit: number,
 ): HistoryMatch[] {

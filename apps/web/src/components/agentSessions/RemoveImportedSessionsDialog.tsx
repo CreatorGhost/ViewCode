@@ -3,7 +3,7 @@ import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime"
 import { useMemo, useState } from "react";
 
 import { refreshArchivedThreadsForEnvironment } from "../../lib/archivedThreadsState";
-import { useThreadShells } from "../../state/entities";
+import { useViewCodeThreadShells as useThreadShells } from "../../state/viewcodeThreadShells";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -68,10 +68,7 @@ function RemoveImportedSessionsPopup({
 }) {
   const threads = useThreadShells();
   const archiveThread = useAtomCommand(threadEnvironment.archive, { reportFailure: false });
-  const entries = useMemo(
-    () => importedThreadsForCleanup(threads, target.projectRefs),
-    [threads, target.projectRefs],
-  );
+  const entries = importedThreadsForCleanup(threads, target.projectRefs);
   const [checked, setChecked] = useState<ReadonlySet<string>>(
     () =>
       new Set(

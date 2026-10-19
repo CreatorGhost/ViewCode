@@ -1,11 +1,13 @@
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
+
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import {
   resolveSettledThreadTimestamp,
   sortActiveThreadsByOrderKey,
   sortPinnedThreadsByOrderKey,
-} from "@t3tools/client-runtime/state/thread-sort";
+} from "@t3tools/client-runtime/viewcodeThreadSort";
 import {
   buildSidebarThreadTree,
   flattenSidebarThreadNode,
@@ -13,7 +15,7 @@ import {
   selectThreadTreeSearchMatches,
   type SidebarThreadTreeNode,
 } from "@t3tools/client-runtime/state/thread-tree";
-import { formatSubagentModelLabel } from "@t3tools/client-runtime/state/subagentRuntime";
+import { formatSubagentModelLabel } from "@t3tools/client-runtime/viewcodeThread";
 import {
   summarizeAgentTreeControl,
   type AgentTreeControlSummary,

@@ -21,6 +21,7 @@ import { Textarea } from "../ui/textarea";
 export function ThreadGoalDialog(props: {
   readonly goal: ThreadGoal | null;
   readonly canPause: boolean;
+  readonly disabled?: boolean;
   readonly onSave: (objective: string) => void;
   readonly onSetPaused: (paused: boolean) => void;
   readonly onClear: () => void;
@@ -43,7 +44,7 @@ export function ThreadGoalDialog(props: {
           className="flex min-h-0 flex-col"
           onSubmit={(event) => {
             event.preventDefault();
-            if (trimmed === "" || tooLong) return;
+            if (props.disabled || trimmed === "" || tooLong) return;
             if (trimmed !== props.goal?.objective) props.onSave(trimmed);
             props.onClose();
           }}
@@ -83,6 +84,7 @@ export function ThreadGoalDialog(props: {
               <Button
                 type="button"
                 variant="destructive-outline"
+                disabled={props.disabled}
                 onClick={() => {
                   props.onClear();
                   props.onClose();
@@ -95,6 +97,7 @@ export function ThreadGoalDialog(props: {
               <Button
                 type="button"
                 variant="outline"
+                disabled={props.disabled}
                 onClick={() => {
                   props.onSetPaused(!paused);
                   props.onClose();
@@ -103,7 +106,7 @@ export function ThreadGoalDialog(props: {
                 {paused ? "Resume" : "Pause"}
               </Button>
             ) : null}
-            <Button type="submit" disabled={trimmed === "" || tooLong}>
+            <Button type="submit" disabled={props.disabled || trimmed === "" || tooLong}>
               Save
             </Button>
           </DialogFooter>

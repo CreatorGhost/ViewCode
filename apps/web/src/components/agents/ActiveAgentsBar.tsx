@@ -1,5 +1,5 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import type { ViewCodeSidebarThread as EnvironmentThreadShell } from "../../state/viewcodeThreadShells";
 import type { AgentControlState, ScopedThreadRef, ServerProvider } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronDownIcon } from "lucide-react";
@@ -7,7 +7,7 @@ import { memo, useCallback, useMemo, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { useAgentControl } from "../../state/agentControl";
-import { useThreadShells } from "../../state/entities";
+import { useViewCodeThreadShells as useThreadShells } from "../../state/viewcodeThreadShells";
 import { ComposerBanner } from "../chat/ComposerBanner";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { Badge } from "../ui/badge";
@@ -64,7 +64,7 @@ export const ActiveAgentsBar = memo(function ActiveAgentsBar(props: {
   const { threadRef, providers } = props;
   const threads = useThreadShells();
   const control = useAgentControl(threadRef.environmentId);
-  const agents = useMemo(() => collectChildAgents(threads, threadRef), [threadRef, threads]);
+  const agents = collectChildAgents(threads, threadRef);
   const runningCount = countRunningChildAgents(agents);
   let pausedCount = 0;
   let queuedCount = 0;
@@ -87,21 +87,18 @@ export const ActiveAgentsBar = memo(function ActiveAgentsBar(props: {
   const navigate = useNavigate();
   const actions = useAgentControlActions();
 
-  const stopAll = useCallback(async () => {
+  const stopAll = async () => {
     if (runningKey === "") return;
     setStoppingKey(runningKey);
     if (!(await actions.stop(threadRef, "tree"))) setStoppingKey(null);
-  }, [actions, runningKey, threadRef]);
+  };
 
-  const openAgent = useCallback(
-    (thread: EnvironmentThreadShell) => {
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: { environmentId: thread.environmentId, threadId: thread.id },
-      });
-    },
-    [navigate],
-  );
+  const openAgent = (thread: EnvironmentThreadShell) => {
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: { environmentId: thread.environmentId, threadId: thread.id },
+    });
+  };
 
   const plural = agents.length > 1;
   const summary = [
@@ -115,7 +112,7 @@ export const ActiveAgentsBar = memo(function ActiveAgentsBar(props: {
       {selfState?.paused ? (
         <ComposerBanner.Attachment>
           <ComposerBanner.Root density="comfortable" data-agent-paused-notice="true">
-            <ComposerBanner.Row layout="wrap-actions-narrow">
+            <ComposerBanner.Row layout="wrap-actions">
               <ComposerBanner.Icon>
                 <ComposerBanner.Dot className="bg-warning" />
               </ComposerBanner.Icon>
@@ -155,7 +152,7 @@ export const ActiveAgentsBar = memo(function ActiveAgentsBar(props: {
       {agents.length > 0 ? (
         <ComposerBanner.Attachment>
           <ComposerBanner.Root density="comfortable" data-active-agents-bar="true">
-            <ComposerBanner.Row layout="wrap-actions-narrow">
+            <ComposerBanner.Row layout="wrap-actions">
               <ComposerBanner.Icon>
                 <ComposerBanner.Dot
                   className={

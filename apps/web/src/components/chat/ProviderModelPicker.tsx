@@ -1,10 +1,11 @@
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   type ProviderInstanceId,
+  type EnvironmentId,
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -26,41 +27,72 @@ import {
 import { useComposerMenuProps } from "./composerEventScope";
 import { shortcutLabelForCommand } from "../../keybindings";
 
-/** The selected model and the short title/label a model picker trigger shows for it. */
-export function resolveModelPickerTrigger(input: {
-  activeEntry: ProviderInstanceEntry | null;
+export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
+  environmentId: EnvironmentId | null;
+  activeInstanceId: ProviderInstanceId;
   model: string;
-  options: ReadonlyArray<ModelEsque>;
+  selectedModels?: ReadonlyArray<{ instanceId: ProviderInstanceId; model: string }>;
+  onToggleModel?: (instanceId: ProviderInstanceId, model: string) => void;
+  lockedProvider: ProviderDriverKind | null;
+  lockedContinuationGroupKey?: string | null;
+  instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
+  keybindings?: ResolvedKeybindingsConfig;
+  modelOptionsByInstance: ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>>;
+  activeProviderIconClassName?: string;
+  instanceIndicatorBackground?: string;
+  size?: ComposerControlSize;
+  compact?: boolean;
+  isComposerOwned?: boolean;
+  disabled?: boolean;
+  terminalOpen?: boolean;
+  open?: boolean;
+  triggerClassName?: string;
+  triggerLabel?: string;
+  triggerAriaLabel?: string;
+  onOpenChange?: (open: boolean) => void;
+  onOpenProviderSetup?: (instanceId: ProviderInstanceId) => void;
+  getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
+  onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
 }) {
-  const { activeEntry, model, options } = input;
-  // Account-specific catalogs must keep the selected model label while unavailable.
+  const composerFloatingLayerProps = useComposerMenuProps();
+  const [uncontrolledIsMenuOpen, setUncontrolledIsMenuOpen] = useState(false);
+  const isMenuOpen = props.open ?? uncontrolledIsMenuOpen;
+  const size = props.size ?? "sm";
+
+  const activeEntry =
+    props.instanceEntries.find((entry) => entry.instanceId === props.activeInstanceId) ?? null;
+
+  const activeInstanceId = props.activeInstanceId;
+  const selectedInstanceOptions = props.modelOptionsByInstance.get(activeInstanceId) ?? [];
   const selectedModel =
     resolveModelPickerSelectedModel({
       driverKind: activeEntry?.driverKind,
-      model,
-      options,
+      model: props.model,
+      options: selectedInstanceOptions,
     }) ??
     (activeEntry?.driverKind === "opencode" || activeEntry?.driverKind === "antigravity"
       ? undefined
-      : options[0]);
+      : selectedInstanceOptions[0]);
   const triggerTitle = selectedModel
     ? getTriggerDisplayModelName(selectedModel)
-    : model === ANTIGRAVITY_DEFAULT_MODEL
+    : props.model === ANTIGRAVITY_DEFAULT_MODEL
       ? "Choose model"
-      : model || "Choose model";
+      : props.model || "Choose model";
   const triggerLabel = selectedModel
     ? `${getTriggerDisplayModelLabel(selectedModel)}${selectedModel.isUnavailable ? " (Unavailable)" : ""}`
     : triggerTitle;
-  return { selectedModel, triggerTitle, triggerLabel };
-}
+  const showInstanceBadge =
+    activeEntry !== null && shouldShowInstanceBadge(activeEntry, props.instanceEntries);
 
-/**
- * While a model picker is open, keep wheel and touch scrolling inside its list
- * (`[data-model-picker-content]`) instead of scrolling the page behind it.
- */
-export function useModelPickerScrollLock(open: boolean) {
+  const setIsMenuOpen = (open: boolean) => {
+    props.onOpenChange?.(open);
+    if (props.open === undefined) {
+      setUncontrolledIsMenuOpen(open);
+    }
+  };
+
   useEffect(() => {
-    if (!open) {
+    if (!isMenuOpen) {
       return;
     }
 
@@ -105,73 +137,7 @@ export function useModelPickerScrollLock(open: boolean) {
       body.style.overflow = previousBodyOverflow;
       body.style.paddingRight = previousBodyPaddingRight;
     };
-  }, [open]);
-}
-
-export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
-  /**
-   * The instance currently selected in the composer. Drives the trigger
-   * icon, label and the default-highlighted combobox row.
-   */
-  activeInstanceId: ProviderInstanceId;
-  model: string;
-  selectedModels?: ReadonlyArray<{ instanceId: ProviderInstanceId; model: string }>;
-  onToggleModel?: (instanceId: ProviderInstanceId, model: string) => void;
-  lockedProvider: ProviderDriverKind | null;
-  lockedContinuationGroupKey?: string | null;
-  /** Continuation group of the thread's bound session; other groups hand context off. */
-  handoffFromContinuationGroupKey?: string | null;
-  /** Instance entries rendered in the sidebar + used to resolve display name. */
-  instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
-  keybindings?: ResolvedKeybindingsConfig;
-  modelOptionsByInstance: ReadonlyMap<ProviderInstanceId, ReadonlyArray<ModelEsque>>;
-  activeProviderIconClassName?: string;
-  instanceIndicatorBackground?: string;
-  size?: ComposerControlSize;
-  isComposerOwned?: boolean;
-  disabled?: boolean;
-  terminalOpen?: boolean;
-  open?: boolean;
-  triggerClassName?: string;
-  /** Aggregate settings can show a neutral value without claiming one provider is selected. */
-  triggerLabel?: string;
-  triggerAriaLabel?: string;
-  onOpenChange?: (open: boolean) => void;
-  onOpenProviderSetup?: (instanceId: ProviderInstanceId) => void;
-  getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
-  onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
-}) {
-  const composerFloatingLayerProps = useComposerMenuProps();
-  const [uncontrolledIsMenuOpen, setUncontrolledIsMenuOpen] = useState(false);
-  const isMenuOpen = props.open ?? uncontrolledIsMenuOpen;
-  const size = props.size ?? "sm";
-
-  // Resolve the active instance entry by exact routing key. The composer
-  // resolves fallbacks before rendering this component; if the selected
-  // instance disappears, do not infer a replacement from its driver kind.
-  const activeEntry = useMemo(() => {
-    return (
-      props.instanceEntries.find((entry) => entry.instanceId === props.activeInstanceId) ?? null
-    );
-  }, [props.activeInstanceId, props.instanceEntries]);
-
-  const activeInstanceId = props.activeInstanceId;
-  const { selectedModel, triggerTitle, triggerLabel } = resolveModelPickerTrigger({
-    activeEntry,
-    model: props.model,
-    options: props.modelOptionsByInstance.get(activeInstanceId) ?? [],
-  });
-  const showInstanceBadge =
-    activeEntry !== null && shouldShowInstanceBadge(activeEntry, props.instanceEntries);
-
-  const setIsMenuOpen = (open: boolean) => {
-    props.onOpenChange?.(open);
-    if (props.open === undefined) {
-      setUncontrolledIsMenuOpen(open);
-    }
-  };
-
-  useModelPickerScrollLock(isMenuOpen);
+  }, [isMenuOpen]);
 
   const handleInstanceModelChange = (instanceId: ProviderInstanceId, model: string) => {
     if (props.disabled) return;
@@ -233,7 +199,9 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             data-chat-provider-model-picker="true"
             className={cn(
               "min-w-0 shrink justify-between whitespace-nowrap",
-              !props.isComposerOwned && "max-w-48 sm:max-w-56",
+              props.compact
+                ? "max-w-42 shrink-0"
+                : !props.isComposerOwned && "max-w-48 sm:max-w-56",
               props.triggerClassName,
             )}
             disabled={props.disabled}
@@ -270,6 +238,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               driverKind={activeEntry.driverKind}
               displayName={activeEntry.displayName}
               accentColor={activeEntry.accentColor}
+              acpRegistryAgentId={activeEntry.acpRegistryAgentId}
+              acpRegistryIconUrl={activeEntry.acpRegistryIconUrl}
               showBadge={showInstanceBadge}
               className="size-4"
               iconClassName={cn("size-4", props.activeProviderIconClassName)}
@@ -308,8 +278,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         align="start"
         className="before:hidden"
         padding="none"
+        touchBackdrop
       >
         <ModelPickerContent
+          environmentId={props.environmentId}
           activeInstanceId={activeInstanceId}
           model={props.model}
           {...(props.selectedModels !== undefined ? { selectedModels: props.selectedModels } : {})}
@@ -322,7 +294,6 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             : {})}
           lockedProvider={props.lockedProvider}
           lockedContinuationGroupKey={props.lockedContinuationGroupKey ?? null}
-          handoffFromContinuationGroupKey={props.handoffFromContinuationGroupKey ?? null}
           instanceEntries={props.instanceEntries}
           {...(props.keybindings ? { keybindings: props.keybindings } : {})}
           modelOptionsByInstance={props.modelOptionsByInstance}

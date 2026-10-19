@@ -192,9 +192,7 @@ function combine<A>(parts: ReadonlyArray<Part<ReadonlyArray<A>>>): CursorRead<Re
   return worst ?? { _tag: "NotFound" };
 }
 
-// ---------------------------------------------------------------------------
 // CLI store
-// ---------------------------------------------------------------------------
 
 interface CliChat {
   readonly id: string;
@@ -393,9 +391,7 @@ function cliThreads(
   }
 }
 
-// ---------------------------------------------------------------------------
 // Editor store
-// ---------------------------------------------------------------------------
 
 /** Workspace storage id → folder path, from each `workspace.json`. Several ids may share a folder. */
 function readWorkspaceFolders(userDir: string): Map<string, string> {
@@ -530,9 +526,7 @@ function readEditor<A>(paths: CursorPaths, read: (userDir: string) => A): Part<A
   }
 }
 
-// ---------------------------------------------------------------------------
 // Public reads
-// ---------------------------------------------------------------------------
 
 function groupProjects(
   chats: ReadonlyArray<{ readonly workspaceRoot: string; readonly updatedMs: number }>,

@@ -46,7 +46,7 @@ const POSIX_FILE_ROOT_PREFIXES = [
   "/workspace/",
   "/workspaces/",
 ] as const;
-// `Name:digits` also matches `error:1`, `port:3000`, and `TODO:12`.
+// `Name:digits` also matches `error:1`, `port:3000`, and `note:12`.
 const EXTENSIONLESS_FILE_NAMES = new Set([
   "Makefile",
   "makefile",

@@ -1,4 +1,5 @@
 import type { ExpoConfig } from "expo/config";
+import { viewcodeProductPolicy } from "../../packages/shared/src/viewcodeProductPolicy.ts";
 
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
@@ -463,7 +464,7 @@ const config: ExpoConfig = {
     ...(!isIosPersonalTeamBuild ? ["./plugins/withWidgetLogoAsset.cjs", widgetsPlugin] : []),
     "./plugins/withAndroidCleartextTraffic.cjs",
     "./plugins/withAndroidGradleHeap.cjs",
-    "./plugins/withAndroidFbjniPin.cjs",
+    "./plugins/withAndroidFbjniVersion.cjs",
     "./plugins/withAndroidInputBackground.cjs",
     "./plugins/withAndroidModernPopupMenu.cjs",
     "./plugins/withAndroidModernAlertDialog.cjs",
@@ -482,6 +483,10 @@ const config: ExpoConfig = {
     ...(easProjectId ? { eas: { projectId: easProjectId } } : {}),
   },
   ...(easOwner ? { owner: easOwner } : {}),
+  experiments: {
+    // The retained ViewCode screens have not adopted upstream's compiler ratchet.
+    reactCompiler: viewcodeProductPolicy.upstreamMobileCompiler,
+  },
 };
 
 export default config;

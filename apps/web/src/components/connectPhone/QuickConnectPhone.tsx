@@ -12,7 +12,7 @@ import {
   GlobeIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useUpdatePrimarySettings } from "../../hooks/useSettings";
@@ -306,11 +306,11 @@ function SubdomainNeeded({
 }) {
   const armed = useRef(false);
   const { continueSetup } = actions;
-  const onFocus = useCallback(() => {
+  const onFocus = () => {
     if (!armed.current) return;
     armed.current = false;
     continueSetup();
-  }, [continueSetup]);
+  };
   useEffect(() => {
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);

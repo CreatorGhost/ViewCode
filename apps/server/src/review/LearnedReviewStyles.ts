@@ -21,7 +21,10 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../config.ts";
-import * as GitHubCli from "../sourceControl/GitHubCli.ts";
+import * as GitHubCredentials from "@t3tools/source-control-github/server/GitHubCredentials";
+import * as GitHubRequestPolicy from "@t3tools/source-control-github/server/GitHubRequestPolicy";
+import { collectUint8StreamText } from "@t3tools/provider-core/server/collectStreamText";
+import { HttpClient, HttpClientRequest } from "effect/http";
 import {
   LEARNED_REVIEW_STYLE_QUERY,
   parseLearnedReviewStyleAnswer,
@@ -125,7 +128,9 @@ export class LearnedReviewStyles extends Context.Service<
 >()("t3/review/LearnedReviewStyles") {}
 
 const make = Effect.gen(function* () {
-  const github = yield* GitHubCli.GitHubCli;
+  const credentials = yield* GitHubCredentials.GitHubCredentials;
+  const policy = yield* GitHubRequestPolicy.GitHubRequestPolicy;
+  const http = yield* HttpClient.HttpClient;
   const config = yield* ServerConfig.ServerConfig;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -147,31 +152,55 @@ const make = Effect.gen(function* () {
     account: LearnedReviewStyleAccount,
   ) {
     const host = account.host.toLowerCase();
-    const result = yield* github
-      .executeAsAccount({
-        cwd: config.stateDir,
-        host,
-        login: account.login,
-        args: ["api", "graphql", "--hostname", host, "-f", `query=${LEARNED_REVIEW_STYLE_QUERY}`],
-        maxOutputBytes: ANSWER_MAX_OUTPUT_BYTES,
-      })
+    const credential = yield* credentials
+      .get(host, account.login)
+      .pipe(Effect.mapError((cause) => new LearnedReviewStyleError({ stage: "account", cause })));
+    const result = yield* policy
+      .request(
+        { host, operation: "learnReviewStyle", resource: "graphql", allowReserve: true },
+        (headers) =>
+          Effect.gen(function* () {
+            const request = HttpClientRequest.post(
+              GitHubRequestPolicy.gitHubApiUrls(host).graphql,
+            ).pipe(
+              HttpClientRequest.setHeaders(headers),
+              HttpClientRequest.bodyJsonUnsafe({ query: LEARNED_REVIEW_STYLE_QUERY }),
+            );
+            const response = yield* http
+              .execute(request)
+              .pipe(Effect.provideService(HttpClient.TracerDisabledWhen, () => true));
+            const body = yield* collectUint8StreamText({
+              stream: response.stream,
+              maxBytes: ANSWER_MAX_OUTPUT_BYTES,
+            });
+            const meta = { status: response.status, headers: response.headers };
+            if (GitHubRequestPolicy.isRateLimited({ ...meta, body: body.text }))
+              return { ...meta, _tag: "RateLimited" as const };
+            if (response.status === 401) return { ...meta, _tag: "Unauthorized" as const };
+            if (response.status === 404) return { ...meta, _tag: "NotFound" as const };
+            if (response.status >= 200 && response.status < 300)
+              return { ...meta, _tag: "Ok" as const, value: body };
+            return { ...meta, _tag: "Failed" as const };
+          }),
+      )
       .pipe(
-        Effect.mapError((error) =>
-          error._tag === "GitHubCliAuthenticationError"
-            ? new LearnedReviewStyleError({ stage: "account", cause: error })
-            : new LearnedReviewStyleError({ stage: "fetch", detail: error.detail, cause: error }),
-        ),
+        Effect.provideService(GitHubRequestPolicy.PinnedGitHubCredential, {
+          host,
+          token: credential.token,
+          credentialFingerprint: credential.fingerprint,
+        }),
+        Effect.mapError((cause) => new LearnedReviewStyleError({ stage: "fetch", cause })),
       );
-    const answer = parseLearnedReviewStyleAnswer(result.stdout);
+    const answer = parseLearnedReviewStyleAnswer(result.text);
     if (answer === null) {
       return yield* new LearnedReviewStyleError({
         stage: "fetch",
-        detail: result.stdoutTruncated
+        detail: result.truncated
           ? "GitHub's answer was too long to read."
           : "GitHub's answer could not be read.",
       });
     }
-    // gh answers as GH_TOKEN when the server has one, whatever account is active.
+    // Explicit environment/settings tokens still win; their verified identity must match.
     if (answer.login.toLowerCase() !== account.login.toLowerCase()) {
       return yield* new LearnedReviewStyleError({ stage: "account" });
     }

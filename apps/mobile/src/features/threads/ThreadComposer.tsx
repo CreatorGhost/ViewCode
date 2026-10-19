@@ -1,3 +1,5 @@
+import type { OrchestrationThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
 import { isGlassEffectAPIAvailable } from "expo-glass-effect";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
@@ -11,7 +13,6 @@ import {
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
-  type OrchestrationThreadShell,
   type ProviderInteractionMode,
   type RuntimeMode,
   type ServerConfig as T3ServerConfig,
@@ -571,7 +572,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const currentRuntimeMode = props.selectedThread.runtimeMode;
   const modelUnavailable =
     props.connectionState === "connected" &&
-    isModelSelectionUnavailable(props.serverConfig, currentModelSelection);
+    isModelSelectionUnavailable(
+      props.serverConfig,
+      currentModelSelection,
+      props.selectedThread.projectId,
+    );
   const selectedProviderStatus = useMemo(() => {
     if (!props.serverConfig) return null;
     return (
@@ -783,8 +788,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
   // ── Model menu ───────────────────────────────────────────
   const modelOptions = useMemo(
-    () => buildModelOptions(props.serverConfig, currentModelSelection),
-    [props.serverConfig, currentModelSelection],
+    () =>
+      buildModelOptions(
+        props.serverConfig,
+        currentModelSelection,
+        undefined,
+        props.selectedThread.projectId,
+      ),
+    [props.serverConfig, currentModelSelection, props.selectedThread.projectId],
   );
   // ViewCode never locks a started thread to its provider (as on web): every
   // enabled provider is offered, and a model outside the native session's

@@ -21,7 +21,7 @@ import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as Undici from "@effect/platform-node/Undici";
 import { DESKTOP_LOCAL_BACKEND_SCHEME } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 
 /** The base URL the renderer uses for a socket-backed local instance. */
 export const localBackendHttpBaseUrl = (instanceId: string): URL =>

@@ -1,12 +1,17 @@
 import {
   EnvironmentId,
+  SourceControlProviderKind,
   ProjectId,
   ThreadId,
   type ScopedThreadRef,
   type PullRequestDetailView,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
-import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
+import {
+  DEFAULT_CLIENT_SETTINGS,
+  DEFAULT_UNIFIED_SETTINGS,
+  type UnifiedSettings,
+} from "@t3tools/contracts/settings";
 import { act, type ReactNode, type ReactElement, type ComponentProps } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -32,20 +37,33 @@ vi.mock("~/state/environments", () => ({
   usePrimaryEnvironmentId: () => EnvironmentId.make("env-1"),
 }));
 vi.mock("~/hooks/useSettings", () => ({
+  useEnvironmentSettings: (_: unknown, select: (settings: UnifiedSettings) => unknown) =>
+    select(DEFAULT_UNIFIED_SETTINGS),
   useClientSettings: (select: (settings: typeof DEFAULT_CLIENT_SETTINGS) => unknown) =>
     select(DEFAULT_CLIENT_SETTINGS),
 }));
 vi.mock("~/hooks/useLiveRefresh", () => ({ useLiveRefresh: () => {} }));
 vi.mock("~/hooks/useHandleNewThread", () => ({ useNewThreadHandler: () => newThread }));
 vi.mock("~/lib/sourceControlActions", () => ({
-  usePreparePullRequestThreadAction: () => ({ run: prepareThread }),
+  usePreparePullRequestThreadAction: () => ({ run: prepareThread, isAllowed: true }),
 }));
 vi.mock("~/state/use-atom-command", () => ({ useAtomCommand: () => vi.fn() }));
-vi.mock("~/state/pullRequests", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("~/state/pullRequests")>()),
-  pullRequestEnvironment: { detail: () => "detail", activity: () => "activity" },
-  usePullRequestTurnRefresh: () => 0,
-  useSharedPullRequestSummary: () => null,
+vi.mock("~/state/pullRequests", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("~/state/pullRequests")>();
+  return {
+    ...actual,
+    pullRequestEnvironment: {
+      ...actual.pullRequestEnvironment,
+      detail: () => "detail",
+      activity: () => "activity",
+    },
+    usePullRequestTurnRefresh: () => 0,
+    useSharedPullRequestSummary: () => null,
+  };
+});
+vi.mock("~/state/session", () => ({
+  readEnvironmentScope: () => true,
+  useEnvironmentScope: () => true,
 }));
 vi.mock("~/state/vcs", () => ({ vcsEnvironment: { listRefs: () => null } }));
 vi.mock("~/state/query", () => ({
@@ -100,7 +118,7 @@ vi.mock("~/browser/useOpenLink", () => ({ useOpenLink: () => vi.fn() }));
 vi.mock("./PullRequestThreadLinks", () => ({ PullRequestThreadLinks: () => null }));
 vi.mock("./PullRequestAgentReviewDialog", () => ({
   PullRequestAgentReviewDialog: () => null,
-  useReviewStartedHandler: () => vi.fn(),
+  createReviewStartedHandler: () => vi.fn(),
 }));
 vi.mock("../chat/useReviewFindingsSource", () => ({
   usePullRequestReviewFindings: () => ({
@@ -126,6 +144,8 @@ vi.mock("./PullRequestSummaryTab", () => ({
     </button>
   ),
 }));
+// This service test supplies its own Code tab; no browser worker is needed.
+vi.mock("../DiffWorkerPoolProvider", () => ({ DiffWorkerPoolProvider: Wrapper }));
 vi.mock("./PullRequestCodeTab", () => ({
   default: ({
     onAddToAgentSelection,
@@ -157,7 +177,7 @@ import { PullRequestDetailPanel } from "./PullRequestDetailPanel";
 import { pullRequestPanelContext } from "./pullRequestDetail.logic";
 
 const detail: PullRequestDetailView = {
-  provider: "github",
+  provider: SourceControlProviderKind.make("github"),
   projectId: ProjectId.make("project"),
   projectTitle: "Project",
   workspaceRoot: "/workspace",

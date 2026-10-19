@@ -79,13 +79,23 @@ export function PullRequestAgentReview(props: {
         target.input.projectId,
         project,
       ).settings.defaultModelSelection,
+      target.input.projectId,
     );
-    const sticky = resolveDefaultableModelSelection(serverConfig, stickyModelSelection);
+    const sticky = resolveDefaultableModelSelection(
+      serverConfig,
+      stickyModelSelection,
+      target.input.projectId,
+    );
     return resolveNewTaskModelSelection({
       draftSelection: null,
       projectDefaultSelection: projectDefault,
       stickySelection: sticky,
-      modelOptions: buildModelOptions(serverConfig, projectDefault ?? sticky),
+      modelOptions: buildModelOptions(
+        serverConfig,
+        projectDefault ?? sticky,
+        undefined,
+        target.input.projectId,
+      ),
     });
   }, [project, target.input.projectId, serverConfig, stickyModelSelection]);
   const startAgentReview = (mode: AgentReviewMode) => {

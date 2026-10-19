@@ -1,3 +1,6 @@
+import { PullRequestGlyph } from "../../pull-requests/pullRequestGlyphs";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import {
   type AgentReviewChoices,
@@ -29,7 +32,7 @@ import {
   SPAWNED_AGENT_STATUS_LABEL,
   spawnedAgentElapsedRange,
 } from "@t3tools/client-runtime/state/child-agents";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -105,7 +108,6 @@ const VERDICT_CHIP: Record<ReviewVerdict, { readonly className: string; readonly
     text: "text-adaptive-amber-700-300",
   },
 };
-
 
 function SummaryRow(props: {
   readonly icon: AppSymbolName;
@@ -479,7 +481,11 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
                   </>
                 )}
                 <SummaryRow
-                  icon={findings.target.kind === "pull-request" ? "arrow.triangle.pull" : "folder"}
+                  icon={
+                    findings.target.kind === "pull-request"
+                      ? PullRequestGlyph.pullRequest
+                      : "folder"
+                  }
                   label="Target"
                 >
                   <Text className="text-[15px] text-foreground" numberOfLines={1}>

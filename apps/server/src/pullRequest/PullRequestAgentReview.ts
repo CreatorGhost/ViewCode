@@ -10,7 +10,7 @@ import {
   type AgentReviewMode,
   type LocalReviewScope,
   type ModelSelection,
-  type OrchestrationCommand,
+  type OrchestrationV2Command,
   type ProjectId,
   type PullRequestRef,
   type RuntimeMode,
@@ -21,7 +21,6 @@ import {
   type ReviewFindingsActivityPayload,
   type ReviewFindingsMode,
   type ReviewStartedActivityPayload,
-  type SourceControlProviderKind,
   type ThreadPullRequestLinkSource,
 } from "@t3tools/contracts";
 import {
@@ -46,8 +45,11 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../config.ts";
-import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as ReviewActivityStore from "../review/ReviewActivityStoreV2.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ReviewThreadContext from "../review/ReviewThreadContextV2.ts";
 import { findLearnedReviewStyleFile } from "../review/LearnedReviewStyles.ts";
 import * as ReviewFindingRatings from "../review/ReviewFindingRatings.ts";
 import {
@@ -192,7 +194,7 @@ export class PullRequestAgentReview extends Context.Service<
   }
 >()("t3/pullRequest/PullRequestAgentReview") {}
 
-const HOST_LABELS: Record<SourceControlProviderKind, string> = {
+const HOST_LABELS: Record<string, string> = {
   github: "GitHub",
   gitlab: "GitLab",
   forgejo: "Forgejo",
@@ -413,14 +415,24 @@ const PREVIOUS_FINDINGS_DIR = "review-previous";
 const make = Effect.gen(function* () {
   const pullRequests = yield* PullRequestService.PullRequestService;
   const ratings = yield* ReviewFindingRatings.ReviewFindingRatings;
-  const engine = yield* OrchestrationEngine.OrchestrationEngineService;
-  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const threads = yield* ThreadManagement.ThreadManagementService;
+  const activities = yield* ReviewActivityStore.ReviewActivityStoreV2;
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const projects = yield* ProjectStore.ProjectStoreV2;
+  const readThread = (
+    threadId: import("@t3tools/contracts").ThreadId,
+    options?: { readonly activityKinds?: ReadonlyArray<string>; readonly allActivities?: boolean },
+  ) =>
+    ReviewThreadContext.read(threadId, options?.activityKinds).pipe(
+      Effect.provideService(ProjectionStore.ProjectionStoreV2, projections),
+      Effect.provideService(ReviewActivityStore.ReviewActivityStoreV2, activities),
+    );
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const config = yield* ServerConfig.ServerConfig;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
-  const uuid = crypto.randomUUIDv4.pipe(Effect.orDie);
+  const uuid = crypto.randomUUIDv4().pipe(Effect.orDie);
 
   // The detail names who opened it, who reads it and its head, and is usually cached from the
   // page the review started on. A host that cannot say leaves each unknown.
@@ -457,8 +469,7 @@ const make = Effect.gen(function* () {
     createdAt: string,
   ) =>
     Effect.gen(function* () {
-      yield* engine.dispatch({
-        type: "thread.activity.append",
+      yield* activities.append({
         commandId: CommandId.make(`server:review-started:${threadId}`),
         threadId,
         activity: {
@@ -470,7 +481,6 @@ const make = Effect.gen(function* () {
           turnId: null,
           createdAt,
         },
-        createdAt,
       });
     });
 
@@ -490,7 +500,7 @@ const make = Effect.gen(function* () {
     readonly branch: string | null;
     readonly worktreePath: string | null;
     readonly link?: Omit<
-      Extract<OrchestrationCommand, { type: "thread.pull-request.link" }>,
+      Extract<OrchestrationV2Command, { type: "thread.pull-request.link" }>,
       "type" | "commandId" | "threadId"
     >;
     readonly started: ReviewStartedActivityPayload;
@@ -503,7 +513,7 @@ const make = Effect.gen(function* () {
     const threadId = ThreadId.make(yield* uuid);
     const createdAt = DateTime.formatIso(yield* DateTime.now);
     const { modelSelection, runtimeMode } = input;
-    yield* engine
+    yield* threads
       .dispatch({
         type: "thread.create",
         commandId: CommandId.make(`server:pr-review:${threadId}`),
@@ -516,11 +526,12 @@ const make = Effect.gen(function* () {
         branch: input.branch,
         worktreePath: input.worktreePath,
         ...(input.parentThreadId === null ? {} : { parentThreadId: input.parentThreadId }),
-        createdAt,
+        createdBy: "user",
+        creationSource: "server",
       })
       .pipe(Effect.mapError(failure("create-thread")));
     if (input.link !== undefined) {
-      yield* engine
+      yield* threads
         .dispatch({
           type: "thread.pull-request.link",
           commandId: CommandId.make(`server:pr-review-link:${threadId}`),
@@ -533,18 +544,21 @@ const make = Effect.gen(function* () {
       Effect.mapError(failure("record-start")),
     );
     const messageId = MessageId.make(yield* uuid);
-    yield* engine
-      .dispatch({
-        type: "thread.turn.start",
+    yield* threads
+      .sendToThread({
         commandId: CommandId.make(`server:pr-review-turn:${threadId}`),
+        projectId: input.projectId,
         threadId,
-        message: { messageId, role: "user", text: input.text, attachments: [] },
+        messageId,
+        text: input.text,
+        attachments: [],
         modelSelection,
-        runtimeMode,
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        createdAt,
+        mode: "auto",
+        createdBy: "user",
+        creationSource: "server",
       })
       .pipe(Effect.mapError(failure("start-turn")));
+
     if (input.parentThreadId !== null) {
       // Nothing is sent back to the chat: the findings reach it through the Review panel.
       const spawned: AgentMessageSentPayload = {
@@ -558,9 +572,8 @@ const make = Effect.gen(function* () {
         delivery: "started",
         review: input.mode,
       };
-      yield* engine
-        .dispatch({
-          type: "thread.activity.append",
+      yield* activities
+        .append({
           commandId: CommandId.make(`server:review-spawned:${threadId}`),
           threadId: input.parentThreadId,
           activity: {
@@ -572,7 +585,6 @@ const make = Effect.gen(function* () {
             turnId: null,
             createdAt,
           },
-          createdAt,
         })
         .pipe(Effect.ignoreCause({ log: true }));
     }
@@ -589,8 +601,8 @@ const make = Effect.gen(function* () {
       (stage: PullRequestAgentReviewError["stage"]) =>
       (cause: unknown): PullRequestAgentReviewError =>
         new PullRequestAgentReviewError({ stage, projectId: input.projectId, cause });
-    const project = yield* snapshots
-      .getProjectShellById(input.projectId)
+    const project = yield* projects
+      .getShell(input.projectId)
       .pipe(Effect.mapError(failure("project")));
     if (Option.isNone(project)) {
       return yield* new PullRequestAgentReviewError({
@@ -631,9 +643,9 @@ const make = Effect.gen(function* () {
   ) {
     const failure = (cause?: unknown) =>
       new PullRequestAgentReviewError({ stage: "based-on", projectId, cause });
-    const thread = yield* snapshots
-      .getThreadDetailById(basedOn.threadId, { activityKinds: [REVIEW_FINDINGS_ACTIVITY_KIND] })
-      .pipe(Effect.mapError(failure));
+    const thread = yield* readThread(basedOn.threadId, {
+      activityKinds: [REVIEW_FINDINGS_ACTIVITY_KIND],
+    }).pipe(Effect.mapError(failure));
     const activity = Option.getOrUndefined(thread)?.activities.find(
       (entry) => entry.id === basedOn.activityId,
     );
@@ -679,13 +691,11 @@ const make = Effect.gen(function* () {
     sourceThreadId: ThreadId | undefined,
   ) {
     if (sourceThreadId === undefined) return null;
-    const source = yield* snapshots
-      .getThreadShellById(sourceThreadId)
-      .pipe(
-        Effect.mapError(
-          (cause) => new PullRequestAgentReviewError({ stage: "source-thread", projectId, cause }),
-        ),
-      );
+    const source = yield* readThread(sourceThreadId).pipe(
+      Effect.mapError(
+        (cause) => new PullRequestAgentReviewError({ stage: "source-thread", projectId, cause }),
+      ),
+    );
     if (Option.isNone(source) || source.value.projectId !== projectId) {
       return yield* new PullRequestAgentReviewError({ stage: "source-thread", projectId });
     }

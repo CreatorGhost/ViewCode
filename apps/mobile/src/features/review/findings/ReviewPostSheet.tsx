@@ -5,12 +5,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import {
-  EnvironmentId,
-  type PullRequestReviewVerdict,
-  REVIEW_POST_MAX_OVERALL_COMMENT_CHARS,
-  ThreadId,
-} from "@t3tools/contracts";
+import { EnvironmentId, type PullRequestReviewVerdict, REVIEW_POST_MAX_OVERALL_COMMENT_CHARS, ThreadId } from "@t3tools/contracts";
 import {
   reviewFindingCommentBody,
   reviewFindingLocation,

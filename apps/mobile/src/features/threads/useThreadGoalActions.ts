@@ -1,4 +1,6 @@
-import type { EnvironmentId, OrchestrationThreadShell } from "@t3tools/contracts";
+import type { OrchestrationThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
+import type { EnvironmentId } from "@t3tools/contracts";
 import {
   isThreadGoalPaused,
   parseGoalCommandArgs,
@@ -6,6 +8,7 @@ import {
   type GoalCommandAction,
 } from "@t3tools/client-runtime/threadGoal";
 import * as Cause from "effect/Cause";
+import * as DateTime from "effect/DateTime";
 import { useCallback } from "react";
 import { Alert, Platform, type AlertButton } from "react-native";
 
@@ -36,9 +39,24 @@ export function useThreadGoalActions(input: {
       readonly goalPaused?: boolean;
       readonly debugMode?: boolean;
     }) => {
+      const now = DateTime.formatIso(DateTime.nowUnsafe());
+      const nextGoal =
+        fields.goal === undefined
+          ? goal
+          : fields.goal === null
+            ? null
+            : { objective: fields.goal, pausedAt: null, updatedAt: now };
+      const viewcodeGoal =
+        fields.goalPaused === undefined || nextGoal === null
+          ? nextGoal
+          : { ...nextGoal, pausedAt: fields.goalPaused ? now : null, updatedAt: now };
       void updateThreadMetadata({
         environmentId,
-        input: { threadId: thread.id, ...fields },
+        input: {
+          threadId: thread.id,
+          ...(fields.goal !== undefined || fields.goalPaused !== undefined ? { viewcodeGoal } : {}),
+          ...(fields.debugMode === undefined ? {} : { debugMode: fields.debugMode }),
+        },
       }).then((result) => {
         if (result._tag === "Success") return;
         const error = Cause.squash(result.cause);
@@ -52,7 +70,7 @@ export function useThreadGoalActions(input: {
         );
       });
     },
-    [environmentId, thread.id, updateThreadMetadata],
+    [environmentId, thread.id, updateThreadMetadata, goal],
   );
 
   const editGoal = useCallback(() => {

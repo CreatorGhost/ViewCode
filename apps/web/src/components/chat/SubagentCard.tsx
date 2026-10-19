@@ -3,7 +3,7 @@ import { ChevronDownIcon } from "lucide-react";
 import {
   formatSubagentTokenCount,
   type RuntimeSubagent,
-} from "@t3tools/client-runtime/state/subagentRuntime";
+} from "./viewcodeSubagentLabels";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 import { cn } from "~/lib/utils";

@@ -1,11 +1,18 @@
-import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
+import {
+  PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ServerProvider,
+} from "@t3tools/contracts";
+import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   dedupeProviderSkillsByName,
-  formatProviderSkillDisplayName,
   getProviderSlashCommandsForSlashMenu,
   getProviderSkillsForSlashMenu,
+  hasCompleteProviderWorkspaceSnapshot,
+  hasCurrentProviderWorkspaceSnapshot,
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
   resolveProviderSkillSourceKind,
@@ -146,7 +153,6 @@ describe("getProviderSkillsForSlashMenu", () => {
         name: "deploy",
         path: "/Users/matt/.claude/skills/deploy/SKILL.md",
         enabled: true,
-        // Reserved for the user, not the agent: still a valid pick.
         userInvocationOnly: true,
       },
     ];
@@ -252,19 +258,48 @@ describe("workspace provider snapshots", () => {
     expect(resolveProviderSlashCommandsForCwd(provider, null)).toEqual(provider.slashCommands);
   });
 
-  it("uses a fetched cwd snapshot and falls back while it loads", () => {
-    const { workspaceSnapshots: _workspaceSnapshots, ...streamedProvider } = provider;
-    const fetchedSnapshot = provider.workspaceSnapshots[0]!;
+  it("uses partial workspace skills and commands while keeping discovery retryable", () => {
+    const partial = {
+      ...provider,
+      workspaceSnapshots: provider.workspaceSnapshots.map((snapshot) => ({
+        ...snapshot,
+        slashCommands: [{ name: "compact" }],
+        slashCommandsPending: true,
+      })),
+    } satisfies ServerProvider;
+    expect(resolveProviderSkillsForCwd(partial, "/workspace/project-a")).toEqual(
+      provider.workspaceSnapshots[0]?.skills,
+    );
+    expect(resolveProviderSlashCommandsForCwd(partial, "/workspace/project-a")).toEqual([
+      { name: "compact" },
+    ]);
+    expect(hasCompleteProviderWorkspaceSnapshot(partial, "/workspace/project-a")).toBe(false);
+    expect(hasCompleteProviderWorkspaceSnapshot(provider, "/workspace/project-a")).toBe(true);
+    expect(hasCompleteProviderWorkspaceSnapshot(provider, "/workspace/project-b")).toBe(false);
+    expect(hasCompleteProviderWorkspaceSnapshot(undefined, "/workspace/project-a")).toBe(false);
+    expect(hasCompleteProviderWorkspaceSnapshot(provider, null)).toBe(false);
+  });
+
+  it("asks for a rescan once the workspace snapshot outlives its TTL", () => {
+    const scannedAt = Date.parse("2026-01-01T00:01:00.000Z");
     const cwd = "/workspace/project-a";
-    expect(resolveProviderSkillsForCwd(streamedProvider, cwd)).toEqual(provider.skills);
-    expect(resolveProviderSlashCommandsForCwd(streamedProvider, cwd)).toEqual(
-      provider.slashCommands,
-    );
-    expect(resolveProviderSkillsForCwd(streamedProvider, cwd, fetchedSnapshot)).toEqual(
-      fetchedSnapshot.skills,
-    );
-    expect(resolveProviderSlashCommandsForCwd(streamedProvider, cwd, fetchedSnapshot)).toEqual(
-      fetchedSnapshot.slashCommands,
+    expect(hasCurrentProviderWorkspaceSnapshot(provider, cwd, scannedAt)).toBe(true);
+    expect(
+      hasCurrentProviderWorkspaceSnapshot(
+        provider,
+        cwd,
+        scannedAt + PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS - 1,
+      ),
+    ).toBe(true);
+    expect(
+      hasCurrentProviderWorkspaceSnapshot(
+        provider,
+        cwd,
+        scannedAt + PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS,
+      ),
+    ).toBe(false);
+    expect(hasCurrentProviderWorkspaceSnapshot(provider, "/workspace/project-b", scannedAt)).toBe(
+      false,
     );
   });
 });

@@ -1,31 +1,3 @@
-import { ProviderDriverKind } from "@t3tools/contracts";
-import {
-  AntigravityIcon,
-  ClaudeAI,
-  CommandCodeIcon,
-  CursorIcon,
-  DevinIcon,
-  DroidIcon,
-  GrokIcon,
-  Icon,
-  OpenAI,
-  OpenCodeIcon,
-  PiIcon,
-} from "../Icons";
-
-export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>> = {
-  [ProviderDriverKind.make("codex")]: OpenAI,
-  [ProviderDriverKind.make("claudeAgent")]: ClaudeAI,
-  [ProviderDriverKind.make("opencode")]: OpenCodeIcon,
-  [ProviderDriverKind.make("cursor")]: CursorIcon,
-  [ProviderDriverKind.make("grok")]: GrokIcon,
-  [ProviderDriverKind.make("antigravity")]: AntigravityIcon,
-  [ProviderDriverKind.make("commandCode")]: CommandCodeIcon,
-  [ProviderDriverKind.make("droid")]: DroidIcon,
-  [ProviderDriverKind.make("devin")]: DevinIcon,
-  [ProviderDriverKind.make("pi")]: PiIcon,
-};
-
 export type ModelEsque = {
   slug: string;
   name: string;
@@ -57,10 +29,22 @@ export function getDisplayModelName(
   options?: { preferShortName?: boolean },
 ): string {
   const name = options?.preferShortName && model.shortName ? model.shortName : model.name;
-  const display = stripLeadingQualifier(name, model.subProvider);
-  // Compact places name the provider beside the model, so "Claude Opus 5.5"
-  // reads as "Opus 5.5" there.
-  return options?.preferShortName ? stripLeadingQualifier(display, "Claude") : display;
+  return stripLeadingQualifier(name, model.subProvider);
+}
+
+export function getProviderRowLabel(
+  providerDisplayName: string,
+  subProvider: string | undefined,
+): string {
+  const provider = providerDisplayName.trim();
+  const sub = subProvider?.trim();
+  if (!sub) {
+    return providerDisplayName;
+  }
+  if (provider && new RegExp(`^${escapeRegExp(provider)}\\s+\\S`, "i").test(sub)) {
+    return sub;
+  }
+  return `${providerDisplayName} · ${sub}`;
 }
 
 export function getTriggerDisplayModelName(model: ModelEsque): string {

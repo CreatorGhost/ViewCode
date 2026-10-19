@@ -8,34 +8,18 @@ import * as NodeSqlite from "node:sqlite";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { afterAll, expect, it } from "@effect/vitest";
-import { CommandId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { CommandId, ProjectId, ProviderDriverKind, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
-import * as ServerConfig from "../config.ts";
-import { OrchestrationCommandReceiptRepositoryLive } from "../persistence/Layers/OrchestrationCommandReceipts.ts";
-import { OrchestrationEventStoreLive } from "../persistence/Layers/OrchestrationEventStore.ts";
-import {
-  makeSqlitePersistenceLive,
-  SqlitePersistenceMemory,
-} from "../persistence/Layers/Sqlite.ts";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as ProviderSessionRuntime from "../persistence/ProviderSessionRuntime.ts";
-import { OrchestrationEngineLive } from "../orchestration/Layers/OrchestrationEngine.ts";
-import { OrchestrationProjectionPipelineLive } from "../orchestration/Layers/ProjectionPipeline.ts";
-import { OrchestrationProjectionSnapshotQueryLive } from "../orchestration/Layers/ProjectionSnapshotQuery.ts";
-import * as ThreadBackgroundLiveness from "../orchestration/ThreadBackgroundLiveness.ts";
-import * as ThreadPlanProgress from "../orchestration/ThreadPlanProgress.ts";
-import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ProviderSessionDirectoryLive } from "../provider/Layers/ProviderSessionDirectory.ts";
-import * as ProviderSessionDirectory from "../provider/Services/ProviderSessionDirectory.ts";
-import * as ServerSettings from "../serverSettings.ts";
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
-import { importRecentAgentThreads, listImportableAgentSessions } from "./AgentSessionImporter.ts";
-import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
+import * as AgentSessionImporter from "./AgentSessionImporter.ts";
+import * as ImportHarness from "./testkit/AgentSessionImportHarness.ts";
 import * as T3CodeHistory from "./T3CodeHistory.ts";
 
 const FIXTURE_DIR = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "viewcode-t3-import-test-"));
@@ -143,11 +127,18 @@ const buildT3Database = (databasePath: string) =>
         ${encodeJson({ threadId: "t-claude", resume: CLAUDE_SESSION, resumeSessionAt: "msg-uuid", turnCount: 2 })})
     `;
   }).pipe(
-    // Fresh: inside a test layer the migration layer is already memoized
-    // against the in-memory database and would not run on this file.
-    Effect.provide(
-      Layer.fresh(makeSqlitePersistenceLive(databasePath).pipe(Layer.provide(NodeServices.layer))),
-    ),
+    Effect.provide(Layer.unwrap(Effect.sync(() => {
+      NodeFS.mkdirSync(NodePath.dirname(databasePath),{recursive:true});
+      const db = new NodeSqlite.DatabaseSync(databasePath);
+      db.exec(`
+        CREATE TABLE projection_projects(project_id TEXT,title TEXT,workspace_root TEXT,scripts_json TEXT,created_at TEXT,updated_at TEXT,deleted_at TEXT);
+        CREATE TABLE projection_threads(thread_id TEXT,project_id TEXT,title TEXT,model_selection_json TEXT,created_at TEXT,updated_at TEXT,deleted_at TEXT);
+        CREATE TABLE projection_thread_messages(message_id TEXT,thread_id TEXT,role TEXT,text TEXT,is_streaming INTEGER,created_at TEXT,updated_at TEXT,attachments_json TEXT);
+        CREATE TABLE provider_session_runtime(thread_id TEXT,provider_name TEXT,provider_instance_id TEXT,adapter_key TEXT,status TEXT,last_seen_at TEXT,resume_cursor_json TEXT);
+      `);
+      db.close();
+      return NodeSqliteClient.layer({filename:databasePath});
+    }))),
   );
 
 it.layer(NodeServices.layer)("T3CodeHistory", (it) => {
@@ -227,36 +218,7 @@ it.layer(NodeServices.layer)("T3CodeHistory", (it) => {
   });
 });
 
-const runtimeRepository = ProviderSessionRuntime.layer.pipe(Layer.provide(SqlitePersistenceMemory));
-const integrationLayer = Layer.mergeAll(
-  OrchestrationEngineLive.pipe(
-    Layer.provide(OrchestrationProjectionSnapshotQueryLive),
-    Layer.provide(OrchestrationProjectionPipelineLive),
-  ),
-  OrchestrationProjectionSnapshotQueryLive,
-  ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepository)),
-  AgentSessionScanner.layer.pipe(
-    Layer.provide(T3CodeHistory.layerFromDatabasePaths([T3_DB])),
-    Layer.provide(OrchestrationProjectionSnapshotQueryLive),
-    // Claude and Codex are off so the scan never reads this machine's homes.
-    Layer.provide(
-      ServerSettings.layerTest({
-        providers: { claudeAgent: { enabled: false }, codex: { enabled: false } },
-      }),
-    ),
-  ),
-).pipe(
-  Layer.provide(ThreadBackgroundLiveness.layer),
-  Layer.provide(ThreadPlanProgress.layer),
-  Layer.provide(OrchestrationEventStoreLive),
-  Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-  Layer.provide(RepositoryIdentityResolver.layer),
-  Layer.provide(SqlitePersistenceMemory),
-  Layer.provideMerge(
-    ServerConfig.layerTest(process.cwd(), { prefix: "viewcode-t3-import-config-" }),
-  ),
-  Layer.provideMerge(NodeServices.layer),
-);
+const integrationLayer = ImportHarness.layer(T3CodeHistory.layerFromDatabasePaths([T3_DB]));
 
 it.layer(integrationLayer)("T3 Code import", (it) => {
   it.effect("scans, lists and imports T3 Code threads once, reading the database only", () =>
@@ -264,9 +226,9 @@ it.layer(integrationLayer)("T3 Code import", (it) => {
       yield* buildT3Database(T3_DB);
       const before = sha256(T3_DB);
       const scanner = yield* AgentSessionScanner.AgentSessionScanner;
-      const engine = yield* OrchestrationEngine.OrchestrationEngineService;
-      const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      const harness = yield* ImportHarness.AgentSessionImportHarness;
+      const importer = yield* AgentSessionImporter.AgentSessionImporter;
+      const runtimes = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
 
       const scan = yield* scanner.scan;
       expect(scan.warning).toBeUndefined();
@@ -278,17 +240,9 @@ it.layer(integrationLayer)("T3 Code import", (it) => {
       );
 
       const projectId = ProjectId.make("project-from-t3");
-      yield* engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.make("create-project-from-t3"),
-        projectId,
-        title: "workspace",
-        workspaceRoot: WORKSPACE,
-        defaultModelSelection: null,
-        createdAt: "2026-03-01T00:00:00.000Z",
-      });
+      yield* harness.createProject({projectId,workspaceRoot:WORKSPACE});
 
-      const listed = yield* listImportableAgentSessions({ projectId });
+      const listed = yield* importer.listImportableAgentSessions({ projectId });
       expect(
         listed.sessions.map((session) => ({
           id: session.providerSessionId,
@@ -321,11 +275,11 @@ it.layer(integrationLayer)("T3 Code import", (it) => {
         providerInstanceId,
         providerSessionId,
       }));
-      const imported = yield* importRecentAgentThreads({ projectId, sessions: selection });
+      const imported = yield* importer.importRecentAgentThreads({ projectId, sessions: selection });
       expect(imported).toEqual({ importedCount: 2, skippedCount: 0 });
 
       const claudeThreadId = ThreadId.make("import:t3code:t-claude");
-      const claudeThread = Option.getOrThrow(yield* snapshots.getThreadDetailById(claudeThreadId));
+      const claudeThread = (yield* harness.thread(claudeThreadId));
       expect(claudeThread).toMatchObject({
         projectId,
         title: "Fix the login bug",
@@ -343,8 +297,8 @@ it.layer(integrationLayer)("T3 Code import", (it) => {
         ["user", "Please fix it and add a test for the expiry.", "2026-02-01T00:03:00.000Z"],
       ]);
       // T3's Claude session carries over, so the next message resumes it natively.
-      expect(Option.getOrThrow(yield* directory.getBinding(claudeThreadId))).toMatchObject({
-        provider: "claudeAgent",
+      expect(Option.getOrThrow(yield* runtimes.getByThreadId({threadId:claudeThreadId}))).toMatchObject({
+        providerName: "claudeAgent",
         providerInstanceId: "claudeAgent",
         resumeCursor: {
           threadId: claudeThreadId,
@@ -354,18 +308,51 @@ it.layer(integrationLayer)("T3 Code import", (it) => {
       });
       // A thread with no carried session continues with a recap instead.
       expect(
-        Option.getOrThrow(yield* directory.getBinding(ThreadId.make("import:t3code:t-cursor")))
+        Option.getOrThrow(yield* runtimes.getByThreadId({threadId:ThreadId.make("import:t3code:t-cursor")}))
           .resumeCursor,
       ).toBeNull();
 
-      const sequence = yield* engine.latestSequence;
-      const again = yield* importRecentAgentThreads({ projectId, sessions: selection });
+      const sequence = yield* harness.sequence;
+      const again = yield* importer.importRecentAgentThreads({ projectId, sessions: selection });
       expect(again.skippedCount).toBe(0);
-      expect(yield* engine.latestSequence).toBe(sequence);
-      const relisted = yield* listImportableAgentSessions({ projectId });
+      expect(yield* harness.sequence).toBe(sequence);
+      const relisted = yield* importer.listImportableAgentSessions({ projectId });
       expect(relisted.sessions.every((session) => session.alreadyImported)).toBe(true);
 
       expect(sha256(T3_DB)).toBe(before);
     }),
   );
+});
+
+it("reads current T3 Code v2 histories without changing its database and drops unsupported attachments", () => {
+  const path = NodePath.join(FIXTURE_DIR,"current-v2.sqlite");
+  const db = new NodeSqlite.DatabaseSync(path);
+  db.exec(`
+    CREATE TABLE projection_projects(project_id TEXT,title TEXT,workspace_root TEXT,deleted_at TEXT);
+    CREATE TABLE orchestration_v2_projection_threads(thread_id TEXT,project_id TEXT,title TEXT,created_at TEXT,updated_at TEXT,deleted_at TEXT,payload_json TEXT);
+    CREATE TABLE orchestration_v2_projection_messages(message_id TEXT,thread_id TEXT,role TEXT,created_at TEXT,payload_json TEXT);
+    CREATE TABLE provider_session_runtime(thread_id TEXT,provider_name TEXT,provider_instance_id TEXT,resume_cursor_json TEXT);
+  `);
+  db.prepare("INSERT INTO projection_projects VALUES (?,?,?,NULL)").run("p-v2","Current T3",WORKSPACE);
+  db.prepare("INSERT INTO orchestration_v2_projection_threads VALUES (?,?,?,?,?,NULL,?)").run("t-v2","p-v2","Current conversation","2026-10-01T10:00:00.000Z","2026-10-01T11:00:00.000Z",JSON.stringify({
+    providerInstanceId:"work-codex",modelSelection:{instanceId:"work-codex",model:"gpt-6"},lineage:{parentThreadId:"lead"},
+  }));
+  db.prepare("INSERT INTO orchestration_v2_projection_messages VALUES (?,?,?,?,?)").run("m1","t-v2","user","2026-10-01T10:00:00.000Z",JSON.stringify({text:"Explain this screenshot",attachments:[{type:"image"}]}));
+  db.prepare("INSERT INTO orchestration_v2_projection_messages VALUES (?,?,?,?,?)").run("m2","t-v2","assistant","2026-10-01T10:01:00.000Z",JSON.stringify({text:"A useful explanation"}));
+  db.prepare("INSERT INTO provider_session_runtime VALUES (?,?,?,?)").run("t-v2","codex","work-codex",JSON.stringify({threadId:"native-work-thread"}));
+  db.close();
+  const before = sha256(path);
+  const projects = T3CodeHistory.readT3CodeProjects(path);
+  expect(projects).toMatchObject({_tag:"Read",value:[{id:"p-v2",threadCount:1,workspaceRoot:WORKSPACE}]});
+  const read = T3CodeHistory.readT3CodeThreads(path,["p-v2"]);
+  expect(read._tag).toBe("Read");
+  if (read._tag !== "Read") return;
+  expect(read.value).toMatchObject([{id:"t-v2",instanceId:"work-codex",parentThreadId:"lead",messages:[{text:"Explain this screenshot\n\n[1 attachment was not imported from T3 Code]"},{text:"A useful explanation"}]}]);
+  const session = AgentSessionScanner.t3CodeThreadToAgentSession(read.value[0]!,{providerInstances:{
+    [ProviderInstanceId.make("work-codex")]:{driver: ProviderDriverKind.make("codex")},
+  }});
+  expect(session).toMatchObject({providerInstanceId:"work-codex",driver:"codex",resume:{provider:"codex",sessionId:"native-work-thread"},hiddenReason:"subagent"});
+  const otherAccount = AgentSessionScanner.t3CodeThreadToAgentSession({...read.value[0]!,binding:{providerName:"codex",providerInstanceId:"personal-codex",resumeCursor:{threadId:"private-personal-thread"}}},{providerInstances:{[ProviderInstanceId.make("work-codex")]:{driver:ProviderDriverKind.make("codex")}}});
+  expect(otherAccount?.resume).toBeUndefined();
+  expect(sha256(path)).toBe(before);
 });

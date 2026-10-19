@@ -1,17 +1,11 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { useAtomValue } from "@effect/atom-react";
 
 import { appAtomRegistry } from "./atom-registry";
-import type {
-  EnvironmentProject,
-  EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
-import type {
-  EnvironmentId,
-  ScopedProjectRef,
-  ScopedThreadRef,
-  ServerConfig,
-} from "@t3tools/contracts";
-import { Atom } from "effect/unstable/reactivity";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentId, ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
+import { Atom } from "effect/reactivity";
 
 import { environmentProjects } from "./projects";
 import { environmentServerConfigsAtom, serverEnvironment } from "./server";

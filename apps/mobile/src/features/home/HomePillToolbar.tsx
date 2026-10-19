@@ -1,3 +1,4 @@
+import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 import type { MenuAction } from "@react-native-menu/menu";
 import type { ComponentProps, ReactNode } from "react";
 import { Platform, Pressable, View } from "react-native";
@@ -181,7 +182,7 @@ export function HomeScopePills(props: HomeScopePillsProps) {
       {props.onOpenPullRequests ? (
         <HomePillIconButton
           accessibilityLabel="Open pull requests"
-          icon="arrow.triangle.pull"
+          icon={PullRequestGlyph.pullRequest}
           onPress={props.onOpenPullRequests}
         />
       ) : null}

@@ -172,7 +172,6 @@ export class LinuxCaptureConnection {
       });
       if (kde !== undefined && decodeKde(kde).Version.value >= 2) return "kde";
     }
-    // Sandboxed apps already have an identity. Host apps register before any portal calls.
     if (!process.env.FLATPAK_ID && !process.env.SNAP) {
       await this.call({
         destination: PORTAL,
@@ -297,7 +296,6 @@ export class LinuxCaptureConnection {
           }),
         );
       }
-      // Closing this dedicated connection also removes the signal match.
     }
   }
 
@@ -306,7 +304,7 @@ export class LinuxCaptureConnection {
       this.bus.requestName(`${appId}.SnapShot`, NameFlag.DO_NOT_QUEUE),
     );
     if (result !== RequestNameReply.PRIMARY_OWNER) {
-      throw new Error("Another T3 Code instance is capturing a window. Try again.");
+      throw new Error("Another ViewCode instance is capturing a window. Try again.");
     }
     const withFeedback = this.feedbackAvailable && options !== undefined;
     const reply = await this.call({

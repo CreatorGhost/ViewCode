@@ -21,7 +21,11 @@ import {
 import type { AgentMessageSentPayload } from "@t3tools/shared/agentMessages";
 import ChatMarkdown from "../ChatMarkdown";
 import { Button } from "../ui/button";
-import { useServerConfigs, useThreadShell, useThreadShells } from "../../state/entities";
+import {
+  useViewCodeThreadShell as useThreadShell,
+  useViewCodeThreadShells as useThreadShells,
+} from "../../state/viewcodeThreadShells";
+import { useEnvironmentProviders } from "../../state/environments";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { useAgentControl } from "../../state/agentControl";
 import { environmentThreadDetails } from "../../state/threads";
@@ -106,12 +110,9 @@ export function SpawnedAgentRows(props: {
 }
 
 function useSpawnedAgent(sent: AgentMessageSentPayload, context: AgentMessageRenderContext) {
-  const ref = useMemo(
-    () => scopeThreadRef(context.environmentId, ThreadId.make(sent.toThreadId)),
-    [context.environmentId, sent.toThreadId],
-  );
+  const ref = scopeThreadRef(context.environmentId, ThreadId.make(sent.toThreadId));
   const shell = useThreadShell(ref);
-  const providers = useServerConfigs().get(context.environmentId)?.providers;
+  const providers = useEnvironmentProviders().get(context.environmentId);
   const instanceId = shell?.session?.providerInstanceId ?? shell?.modelSelection.instanceId;
   const provider = providers?.find((candidate) => candidate.instanceId === instanceId);
   const model = provider?.models.find((entry) => entry.slug === shell?.modelSelection.model);
@@ -250,7 +251,7 @@ function ReviewAgentRow(props: {
   const threads = useThreadShells();
   const control = useAgentControl(context.environmentId);
   const activities = useAtomValue(environmentThreadDetails.activitiesAtom(ref));
-  const progress = useMemo(() => {
+  const progress = (() => {
     if (shell === null) return null;
     const agents = collectChildAgents(threads, {
       environmentId: context.environmentId,
@@ -261,7 +262,7 @@ function ReviewAgentRow(props: {
       latestReviewFindingsSource({ id: shell.id, title: shell.title, activities: activities ?? [] })
         ?.findings ?? null;
     return reviewProgress({ run: reviewRunState(shell, agents, queued), findings });
-  }, [activities, context.environmentId, control, shell, threads]);
+  })();
   const running = progress?.kind === "running";
   // The reviewer waits between turns for its agents' answers; it is still reviewing then. One that
   // sent its final findings is done, as its panel says, even if its session errored afterwards.
@@ -440,7 +441,7 @@ function GroupSummary(props: {
 }) {
   const { spawns, context } = props;
   const threads = useThreadShells();
-  const text = useMemo(() => {
+  const text = (() => {
     const wanted = new Map(spawns.map((sent) => [sent.toThreadId, sent.delivery] as const));
     const counts = new Map<SpawnedAgentRowStatus, number>();
     for (const thread of threads) {
@@ -454,7 +455,7 @@ function GroupSummary(props: {
       const count = counts.get(status);
       return count ? [`${count} ${SPAWNED_AGENT_STATUS_LABEL[status].toLowerCase()}`] : [];
     }).join(", ");
-  }, [context.environmentId, spawns, threads]);
+  })();
   return text ? <span className="text-muted-foreground"> · {text}</span> : null;
 }
 
@@ -465,7 +466,7 @@ function GroupSummary(props: {
 function AgentElapsed(props: { startMs: number; endMs: number | null; live: boolean }) {
   const { startMs, endMs, live } = props;
   const textRef = useRef<HTMLSpanElement>(null);
-  const text = formatAgentElapsed((endMs ?? Date.now()) - startMs);
+  const text = endMs === null ? "" : formatAgentElapsed(endMs - startMs);
   useEffect(() => {
     if (!live) return;
     const update = () => {

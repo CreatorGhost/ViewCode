@@ -3,7 +3,7 @@ import {
   isActiveSubagentStatus,
   type RuntimeSubagent,
   type SubagentActivityEntry,
-} from "@t3tools/client-runtime/state/subagentRuntime";
+} from "./viewcodeSubagentLabels";
 
 const STATUS_LABEL = {
   pending: "Starting",

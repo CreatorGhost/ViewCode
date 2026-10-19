@@ -1,3 +1,4 @@
+import { parseAgentMessage } from "@t3tools/shared/agentMessages";
 import type { MessagesTimelineRow } from "./MessagesTimeline.logic";
 
 export interface TimelineMinimapItem {
@@ -7,7 +8,6 @@ export interface TimelineMinimapItem {
   readonly assistantText: string | null;
 }
 
-/** Keep full source text untouched until a minimap preview is opened. */
 export function deriveTimelineMinimapItems(
   rows: ReadonlyArray<MessagesTimelineRow>,
 ): TimelineMinimapItem[] {
@@ -15,11 +15,9 @@ export function deriveTimelineMinimapItems(
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
     const userText =
-      row?.kind === "agent-message-in"
-        ? row.envelope.body
-        : row?.kind === "message" && row.message.role === "user"
-          ? row.message.text
-          : null;
+      row?.kind === "message" && row.message.role === "user"
+        ? parseAgentMessage(row.message.text)?.body ?? row.message.text
+        : null;
     if (row === undefined || userText === null) {
       continue;
     }
@@ -41,9 +39,6 @@ function resolveFinalAssistantTextForTurn(
   let finalAssistantText: string | null = null;
   for (let index = userRowIndex + 1; index < rows.length; index += 1) {
     const row = rows[index];
-    if (row?.kind === "agent-message-in") {
-      break;
-    }
     if (row?.kind !== "message") {
       continue;
     }

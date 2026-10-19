@@ -1,3 +1,5 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { useAtomValue } from "@effect/atom-react";
 import {
   type AgentReviewChoices,
@@ -21,20 +23,12 @@ import {
   type ChildAgentEntry,
   collectChildAgents,
 } from "@t3tools/client-runtime/state/child-agents";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import {
-  AGENT_REVIEW_MODES,
-  type AgentReviewMode,
-  type EnvironmentId,
-  type LocalReviewScope,
-  type ModelSelection,
-  type ScopedThreadRef,
-  type ThreadId,
-} from "@t3tools/contracts";
+import { AGENT_REVIEW_MODES, type AgentReviewMode, type EnvironmentId, type LocalReviewScope, type ModelSelection, type ScopedThreadRef, type ThreadId } from "@t3tools/contracts";
 import { postedReviewFindings } from "@t3tools/shared/reviewFindings";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

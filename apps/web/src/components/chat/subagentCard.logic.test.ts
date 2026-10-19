@@ -13,6 +13,7 @@ const now = Date.parse("2026-09-27T10:00:30.000Z");
 function agent(overrides: Partial<RuntimeSubagent> = {}): RuntimeSubagent {
   return {
     id: "audit",
+    childThreadId: null,
     kind: "subagent",
     title: "Code audit",
     role: null,
