@@ -9,8 +9,8 @@ own model catalog.
 Install the [Devin CLI](https://docs.devin.ai/cli) on the machine running your
 environment, then run `devin auth login` there. To use an API key instead, set
 `WINDSURF_API_KEY` in the provider instance's environment variables in
-**Settings > Providers**. Devin is turned on automatically when `devin` is on the
-server's `PATH`; otherwise enable it there and set **Binary path** if needed.
+**Settings > Providers**. Turn Devin on there, and set **Binary path** if
+`devin` is not on the server's `PATH`.
 
 The provider card shows whether Devin is signed in. A thread started without a login
 cannot get answers; sign in, then send the message again.

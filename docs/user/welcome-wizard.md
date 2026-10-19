@@ -28,9 +28,11 @@ unreadable settings with defaults.
 
 ## Connect your agents
 
-A new installation asks which providers you use. Its initial discovery only checks
-for installed executables; it does not launch them. Enable the providers you want
-there or later in **Settings → Providers**. An IT administrator's provider policy
+Every provider starts off, Codex and Claude included, and stays off until you turn
+it on; an off provider is never launched or checked. A new installation asks which
+providers you use. Its initial discovery only checks for installed executables; it
+does not launch them. Enable the providers you want there or later in
+**Settings → Providers**. An IT administrator's provider policy
 also applies here and takes precedence over your selection and project settings.
 
 The same question comes back in a chat whenever the computer it runs on has no
