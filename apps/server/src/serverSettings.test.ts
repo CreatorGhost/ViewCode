@@ -6,6 +6,7 @@ import {
   ProjectScript,
   ProviderDriverKind,
   ProviderInstanceId,
+  resolveProjectProviderInstanceEnabled,
   resolveProviderInstanceEnabled,
   ServerSettings,
   ServerSettingsPatch,
@@ -1117,16 +1118,16 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
       const settings = yield* serverSettings.getSettings;
 
-      assert.deepEqual(settings.providerInstances, {
-        [ProviderInstanceId.make("codex")]: {
-          driver: ProviderDriverKind.make("codex"),
-          config: { binaryPath: "/opt/guard/bin/codex" },
-        },
-        [ProviderInstanceId.make("claudeAgent")]: {
-          driver: ProviderDriverKind.make("claudeAgent"),
-          enabled: false,
-          config: {},
-        },
+      // A legacy entry with no `enabled` was never chosen, so it is recorded off.
+      assert.deepEqual(settings.providerInstances[ProviderInstanceId.make("codex")], {
+        driver: ProviderDriverKind.make("codex"),
+        config: { binaryPath: "/opt/guard/bin/codex" },
+        enabled: false,
+      });
+      assert.deepEqual(settings.providerInstances[ProviderInstanceId.make("claudeAgent")], {
+        driver: ProviderDriverKind.make("claudeAgent"),
+        enabled: false,
+        config: {},
       });
 
       const persisted = JSON.parse(yield* fileSystem.readFileString(serverConfig.settingsPath));
@@ -1135,6 +1136,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepEqual(persisted.providerInstances.codex, {
         driver: "codex",
         config: { binaryPath: "/opt/guard/bin/codex" },
+        enabled: false,
       });
     }).pipe(Effect.provide(layerServerSettings())),
   );
@@ -1239,7 +1241,11 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
       const settings = yield* serverSettings.getSettings;
 
-      assert.deepEqual(settings.providerInstances, {});
+      // History alone does not turn grok on; like every unchosen built-in, it stays off.
+      assert.deepEqual(settings.providerInstances[ProviderInstanceId.make("grok")], {
+        driver: ProviderDriverKind.make("grok"),
+        enabled: false,
+      });
     }).pipe(Effect.provide(layerServerSettings())),
   );
 
@@ -1271,6 +1277,28 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(layerServerSettings())),
   );
 
+  it.effect("keeps every built-in provider off on an existing install until it is turned on", () =>
+    Effect.gen(function* () {
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      const original =
+        '{"addProjectBaseDirectory":"~/Development","providerInstances":{"claudeAgent":{"driver":"claudeAgent","enabled":true,"config":{}}}}';
+      yield* fileSystem.writeFileString(serverConfig.settingsPath, original);
+
+      const settings = yield* serverSettings.getSettings;
+
+      const enabled = (instanceId: string) =>
+        resolveProjectProviderInstanceEnabled(settings, null, ProviderInstanceId.make(instanceId));
+      assert.isFalse(enabled("codex"));
+      assert.isFalse(enabled("cursor"));
+      assert.isFalse(enabled("droid"));
+      assert.isTrue(enabled("claudeAgent"));
+      // Applied on load, not written: the file is untouched until the next settings change.
+      assert.equal(yield* fileSystem.readFileString(serverConfig.settingsPath), original);
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
+
   it.effect("skips a disabled provider instance when picking the text generation fallback", () =>
     Effect.gen(function* () {
       const serverConfig = yield* ServerConfig.ServerConfig;
@@ -1278,7 +1306,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
       yield* fileSystem.writeFileString(
         serverConfig.settingsPath,
-        '{"providerInstances":{"codex":{"driver":"codex","enabled":false,"config":{}}}}',
+        '{"providerInstances":{"codex":{"driver":"codex","enabled":false,"config":{}},"claudeAgent":{"driver":"claudeAgent","enabled":true,"config":{}}}}',
       );
 
       const settings = yield* serverSettings.getSettings;
@@ -1341,6 +1369,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepEqual(settings.providerInstances[ProviderInstanceId.make("cursor")], {
         driver: ProviderDriverKind.make("cursor"),
         config: { enabled: "nope" },
+        enabled: false,
       });
     }).pipe(Effect.provide(layerServerSettings())),
   );

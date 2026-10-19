@@ -1,6 +1,9 @@
 import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 import { applyAdminProviderPolicy } from "./provider/AdminProviderPolicy.ts";
-import { disableFirstRunProviders } from "./provider/viewcode/firstRunProviders.ts";
+import {
+  disableFirstRunProviders,
+  keepUnchosenProvidersOff,
+} from "./provider/viewcode/firstRunProviders.ts";
 import {
   VIEWCODE_DEFAULT_RUNTIME_MODE,
   VIEWCODE_DEFAULT_SERVER_SETTINGS,
@@ -773,11 +776,16 @@ const make = Effect.gen(function* () {
             new ServerSettingsError({ settingsPath, operation: "read-provider-history", cause }),
         ),
       ));
-    const loaded = foldProviderInstanceEnabledFlags(
+    const foldedProviders = foldProviderInstanceEnabledFlags(
       legacyProviders === undefined
         ? settings
         : migrateLegacyProviderSettings(settings, legacyProviders, providerHistory),
     );
+    // Applied on every load rather than written: the next settings write records it.
+    const loaded =
+      brandNew || !settingsFileTrusted
+        ? foldedProviders
+        : keepUnchosenProvidersOff(foldedProviders);
     const gated = brandNew || !settingsFileTrusted ? disableFirstRunProviders(loaded) : loaded;
     const folded = settingsFileTrusted
       ? foldLegacyProjectSettings(gated, legacyProjectRows)

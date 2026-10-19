@@ -505,6 +505,11 @@ Unarchive stays available through the normal native path.
   Native provider-instance configuration and `provider/viewcode/firstRunProviders.ts`
   preserve existing choices. Project toggles remain subordinate to admin policy;
   CLI presence alone must not override an explicit off choice or launch a disabled provider.
+- Every built-in provider is off until the user turns it on, on existing installs too.
+  The contracts defaults (`resolveProviderInstanceEnabled`) still treat Codex and Claude
+  as on, because upstream code and most server tests build settings in memory and rely
+  on that. The ViewCode rule lives at settings load instead: `keepUnchosenProvidersOff`
+  records an unchosen built-in as off, in memory, without rewriting `settings.json`.
 - The wizard's done flag (`onboardingCompletedAt`) is per browser, so it cannot tell
   whether a server has a provider on. The chat asks the server instead
   (`components/onboarding/NoProviderPrompt.tsx`): per environment, it reopens the
