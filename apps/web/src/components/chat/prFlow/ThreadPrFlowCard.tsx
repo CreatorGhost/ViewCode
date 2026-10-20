@@ -61,6 +61,9 @@ export function ThreadPrCreatingCard({ threadRef }: { threadRef: ScopedThreadRef
   return <PrFlowCard flow={flow} />;
 }
 
+/** How long after the conversation got a pull request its card still arrives as news. */
+const PR_APPEAR_WINDOW_MS = 90_000;
+
 const FoldChoice = Schema.NullOr(Schema.Literals(["expanded", "collapsed"]));
 const foldStorageKey = (threadRef: ScopedThreadRef, pullRequestKey: string) =>
   `viewcode:pr-card-fold:${threadRef.environmentId}:${threadRef.threadId}:${pullRequestKey}`;
@@ -102,6 +105,12 @@ export function ThreadPrTimelineCard({
     const timer = window.setTimeout(() => setMergedMomentOver(true), PR_MERGED_MOMENT_MS);
     return () => window.clearTimeout(timer);
   }, [freshMerge]);
+  // A card the conversation got moments ago is news and opens in; one restored on a later
+  // visit is already there. Decided once, so a re-render never replays it. The minute clock is
+  // the component's only clock, so the window is wide enough to absorb its granularity.
+  const [appear] = useState(
+    () => link !== null && Date.parse(nowMinute) - Date.parse(link.linkedAt) < PR_APPEAR_WINDOW_MS,
+  );
   if (link === null) return null;
   const current = prFlowTimelinePullRequests(links).currentKey === pullRequestKey;
   const folded = prFlowFolded({ state, current, choice, mergedAgoMs, mergedMomentOver });
@@ -128,6 +137,7 @@ export function ThreadPrTimelineCard({
           threadRef={threadRef}
           pullRequestKey={pullRequestKey}
           live={current}
+          appear={appear}
           onOpen={onOpen}
           onCollapse={() => setChoice("collapsed")}
         />
@@ -141,12 +151,14 @@ function ThreadPrTimelineFullCard({
   threadRef,
   pullRequestKey,
   live,
+  appear,
   onOpen,
   onCollapse,
 }: {
   threadRef: ScopedThreadRef;
   pullRequestKey: string;
   live: boolean;
+  appear: boolean;
   onOpen: (url: string) => void;
   onCollapse: () => void;
 }) {
@@ -160,6 +172,7 @@ function ThreadPrTimelineFullCard({
     <PrFlowCard
       flow={flow}
       live={live}
+      appear={appear}
       onCollapse={onCollapse}
       onResolveConflicts={resolveConflicts}
       onMerge={merge}

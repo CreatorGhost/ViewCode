@@ -378,6 +378,13 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
 [data-chat-notice] [data-slot="alert"][data-variant="warning"] {
   background: color-mix(in srgb, var(--warning) 8%, transparent) !important;
 }
+/* The draft hero centres in the canvas; with a notice at the top and a short canvas (terminal
+   open, side chat, small window) the headline slid under the notice. Reserve the notice's height
+   so the hero centres in what is left. */
+[data-chat-workspace-drop-target="true"]:has(.chat-banner-lane [data-chat-notice])
+  [data-chat-composer-overlay="true"].inset-0 {
+  padding-top: 7rem;
+}
 
 /* Composer context row (workspace, PR, branch): a quiet borderless row on the
    composer's inner edges instead of a detached drawer strip. The shell glass
@@ -617,4 +624,11 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   html:root [data-chat-header] [data-chat-header-actions] > [data-slot="group"] {
     display: none;
   }
+}
+
+/* Side chat composer (SidechatDock): the text area has no handle of its own; the card is the
+   control. */
+[data-sidechat-composer] textarea {
+  resize: none;
+  min-height: 3.5rem;
 }
