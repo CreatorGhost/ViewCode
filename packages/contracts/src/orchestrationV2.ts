@@ -1852,6 +1852,14 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   pendingBackgroundTasks: Schema.optional(Schema.Array(OrchestrationV2PendingBackgroundTask)).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  /**
+   * Child threads this thread's provider session is running as subagents right now, during its
+   * own run or after. A provider-native subagent's own thread never gets a run, so this is where
+   * clients read that it is working.
+   */
+  runningSubagentThreadIds: Schema.optional(Schema.Array(ThreadId)).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   providerInstanceHistory: Schema.optional(Schema.Array(ProviderInstanceId)).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
