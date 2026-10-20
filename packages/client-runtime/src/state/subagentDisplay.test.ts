@@ -170,6 +170,16 @@ describe("subagentDetailPreview", () => {
     ).toBe("Last progress");
     expect(subagentDetailPreview({ status: "pending" })).toBeNull();
   });
+
+  it("shows a markdown report as plain text", () => {
+    expect(
+      subagentDetailPreview({
+        status: "completed",
+        result:
+          "## Review of `src/auth.ts`\n\n**File:** a four-line stub.\n\n- See [the spec](https://x.test) for *why*.",
+      }),
+    ).toBe("Review of src/auth.ts File: a four-line stub. See the spec for *why*.");
+  });
 });
 
 describe("spawned agent rows", () => {
