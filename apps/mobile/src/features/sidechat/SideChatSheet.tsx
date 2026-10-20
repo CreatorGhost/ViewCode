@@ -9,6 +9,8 @@ import { isChildAgentRunning } from "@t3tools/client-runtime/state/child-agents"
 import {
   FRESH_SIDECHAT,
   resolveActiveSidechat,
+  sidechatHasOlderMessages,
+  sidechatMessages,
   sidechatsOf,
   type SidechatPreference,
 } from "@t3tools/client-runtime/state/sidechat";
@@ -132,9 +134,7 @@ function SideChatContent({ route }: SideChatSheetProps) {
     () =>
       detail
         ? buildThreadFeed({
-            messages: detail.messages.filter(
-              (message) => message.role === "user" || message.role === "assistant",
-            ),
+            messages: sidechatMessages(detail.messages),
             activities: [],
           })
         : [],
@@ -305,7 +305,7 @@ function SideChatContent({ route }: SideChatSheetProps) {
             contentBottomInset={12}
             usesAutomaticContentInsets={false}
             loadEarlier={
-              threadHasOlderTurns(detailState)
+              sidechatHasOlderMessages(threadHasOlderTurns(detailState), detail?.messages ?? [])
                 ? {
                     loading: Option.isSome(detailState.page) && detailState.page.value.loadingOlder,
                     onLoadEarlier: () => requestOlderThreadTurns(environmentId, active.id),
