@@ -13,7 +13,7 @@ import { useMaterialToolbarLayout } from "../../components/useMaterialToolbarLay
 import { useWorkspaceState } from "../../state/workspace";
 import { HomePillIconButton, HomePillSurface } from "./HomePillButton";
 import { workspaceFleetSubtitle } from "./workspace-connection-status";
-import type { RockBotMenu } from "./useRockBotMenu";
+import type { RockBotMenu } from "../rockbot/useRockBotMenu";
 
 type MenuActionHandler = NonNullable<ComponentProps<typeof ControlPillMenu>["onPressAction"]>;
 

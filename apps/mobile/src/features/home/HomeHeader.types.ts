@@ -4,7 +4,7 @@ import type {
   HomeListFilterMenuProject,
 } from "./home-list-filter-menu";
 import type { HomeTerminalTarget } from "./homeTerminalTargets";
-import type { RockBotMenu } from "./useRockBotMenu";
+import type { RockBotMenu } from "../rockbot/useRockBotMenu";
 
 export type HomeHeaderEnvironment = HomeListFilterMenuEnvironment;
 

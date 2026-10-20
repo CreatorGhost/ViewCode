@@ -12,7 +12,7 @@ import { HomeFleetTitle } from "./HomePillToolbar";
 import { buildHomeListFilterMenu } from "./home-list-filter-menu";
 import { HOME_TERMINAL_MENU_LIMIT, homeTerminalButtonAccessibility } from "./homeTerminalTargets";
 import type { HomeHeaderProps } from "./HomeHeader.types";
-import type { RockBotMenu } from "./useRockBotMenu";
+import type { RockBotMenu } from "../rockbot/useRockBotMenu";
 
 export type { HomeHeaderEnvironment } from "./HomeHeader.types";
 

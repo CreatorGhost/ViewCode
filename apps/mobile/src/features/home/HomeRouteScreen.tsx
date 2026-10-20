@@ -30,7 +30,7 @@ import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
 import { HomeScopeFilters } from "./HomeScopeFilters";
 import type { HomeHeaderProps } from "./HomeHeader.types";
-import { useRockBotMenu } from "./useRockBotMenu";
+import { useRockBotMenu } from "../rockbot/useRockBotMenu";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 

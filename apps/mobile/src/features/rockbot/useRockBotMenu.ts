@@ -19,9 +19,28 @@ export interface RockBotMenu {
 }
 
 /**
- * Undefined while there is no environment or the user may not operate its threads,
- * so the header leaves RockBot out.
+ * Resolves the latest RockBot chat (creating the first) or, with `newChat`, a new one,
+ * and hands its id to `show`. Undefined while there is no environment or the user may
+ * not operate its threads, so callers leave RockBot out.
  */
+export function useOpenRockBotChat(
+  environmentId: EnvironmentId | null,
+  show: (threadId: string) => void,
+): ((options: { readonly newChat: boolean }) => void) | undefined {
+  const open = useAtomCommand(rockBotEnvironment.open, "Could not open RockBot");
+  const canOpen = useAtomValue(rockBotEnvironment.open.permissionAtom(environmentId));
+  if (environmentId === null || !canOpen) return undefined;
+  return ({ newChat }) => {
+    void open({
+      environmentId,
+      input: { creationSource: "mobile", ...(newChat ? { newChat: true } : {}) },
+    }).then((result) => {
+      if (result._tag === "Success") show(String(result.value.threadId));
+    });
+  };
+}
+
+/** Undefined where `useOpenRockBotChat` is, so the header leaves RockBot out. */
 export function useRockBotMenu(
   environmentId: EnvironmentId | null,
   threads: ReadonlyArray<{
@@ -34,25 +53,16 @@ export function useRockBotMenu(
   }>,
 ): RockBotMenu | undefined {
   const navigation = useNavigation();
-  const open = useAtomCommand(rockBotEnvironment.open, "Could not open RockBot");
-  const canOpen = useAtomValue(rockBotEnvironment.open.permissionAtom(environmentId));
-  if (environmentId === null || !canOpen) return undefined;
   const openChat = (threadId: string) =>
     navigation.navigate("Thread", { environmentId: String(environmentId), threadId });
-  const openFromServer = (newChat: boolean) => {
-    void open({
-      environmentId,
-      input: { creationSource: "mobile", ...(newChat ? { newChat: true } : {}) },
-    }).then((result) => {
-      if (result._tag === "Success") openChat(String(result.value.threadId));
-    });
-  };
+  const openRockBot = useOpenRockBotChat(environmentId, openChat);
+  if (environmentId === null || openRockBot === undefined) return undefined;
   return {
     chats: rockBotChatsIn(threads, environmentId)
       .slice(0, ROCKBOT_MENU_CHAT_LIMIT)
       .map((chat) => ({ id: chat.id, title: chat.title })),
-    openLatest: () => openFromServer(false),
-    startNewChat: () => openFromServer(true),
+    openLatest: () => openRockBot({ newChat: false }),
+    startNewChat: () => openRockBot({ newChat: true }),
     openChat,
   };
 }

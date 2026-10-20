@@ -1,4 +1,4 @@
-import { WS_METHODS, type OrchestrationV2ThreadShell } from "@t3tools/contracts";
+import { WS_METHODS } from "@t3tools/contracts";
 import type { Atom } from "effect/reactivity";
 
 import { createAtomCommandScheduler, createEnvironmentRpcCommand } from "./runtime.ts";
@@ -9,7 +9,7 @@ import type { EnvironmentRegistry } from "../connection/registry.ts";
  * with `kind: "orchestrator"`, listed under RockBot rather than with the user's
  * threads.
  */
-export function isRockBot(thread: Pick<OrchestrationV2ThreadShell, "kind">): boolean {
+export function isRockBot(thread: { readonly kind?: string | null | undefined }): boolean {
   return thread.kind === "orchestrator";
 }
 

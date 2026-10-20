@@ -22,8 +22,9 @@ RockBot chat** in the command palette. Rename or archive them like any thread; a
 chats are under **Settings → Archived**. Click a project on the rail to go back to your
 work.
 
-On mobile, the sparkle button opens a menu with **New chat** and your recent RockBot
-chats. The command palette also finds RockBot chats by title.
+On mobile (iOS and Android), the sparkle button on Home opens a menu with **New chat**
+and your recent RockBot chats, and the new-chat button in a RockBot chat's header starts
+another. On web and desktop, the command palette also finds RockBot chats by title.
 
 ## What to ask
 
@@ -36,7 +37,7 @@ chats. The command palette also finds RockBot chats by title.
 
 RockBot can tell another thread something or answer its question, but only after you
 agree. When it wants to, a **Send / Don't send** prompt shows above its composer with the
-exact message. Nothing reaches the other thread until you press **Send**; the server
+exact message (on mobile, a card headed "RockBot asks before sending"). Nothing reaches the other thread until you press **Send**; the server
 enforces this, not RockBot.
 
 RockBot never approves anything. For an approval, it links the thread so you can open it

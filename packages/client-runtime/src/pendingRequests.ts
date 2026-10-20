@@ -16,6 +16,8 @@ export interface PendingApproval {
   readonly detail?: string;
   readonly appName?: string;
   readonly options?: ReadonlyArray<ProviderApprovalOption>;
+  /** RockBot asking before it sends to another thread: `appName` says where, `detail` what. */
+  readonly rockbotConfirm?: true;
 }
 
 export interface PendingUserInput {
