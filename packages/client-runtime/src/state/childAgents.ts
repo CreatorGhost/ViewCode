@@ -1,5 +1,11 @@
 import type { OrchestrationThreadShell } from "../viewcodeThread.ts";
-import { AgentControlState, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import {
+  AgentControlState,
+  EnvironmentId,
+  ThreadId,
+  type OrchestrationV2PendingBackgroundTask,
+  type OrchestrationV2TurnItemStatus,
+} from "@t3tools/contracts";
 import { threadOwnNeed } from "@t3tools/shared/threadNeedsYou";
 
 /**
@@ -18,12 +24,70 @@ export interface ChildAgentEntry<T extends ChildAgentShellInput> {
   /** 1 for direct children, 2 for grandchildren, … */
   readonly depth: number;
   readonly running: boolean;
+  /** What its lead knows about it; see `ChildAgentRecord`. */
+  readonly record: ChildAgentRecord | undefined;
 }
 
-/** A child agent counts as running while its session or latest turn is in flight. */
+/**
+ * What a lead knows about one of its agents: the status of its subagent record. A
+ * provider-native subagent runs inside the lead's provider session and its own thread never gets
+ * a run, so its thread alone always reads idle; the record is the live truth.
+ */
+export interface ChildAgentRecord {
+  readonly status: OrchestrationV2TurnItemStatus;
+}
+
+type LeadShellInput = {
+  readonly environmentId: EnvironmentId;
+  readonly runningSubagentThreadIds?: ReadonlyArray<ThreadId> | undefined;
+  readonly pendingBackgroundTasks?: ReadonlyArray<OrchestrationV2PendingBackgroundTask> | undefined;
+};
+
+const RUNNING_RECORD: ChildAgentRecord = { status: "running" };
+
+/**
+ * The agents their leads' provider sessions are running now, read from the leads' shells (no
+ * child subscriptions): `runningSubagentThreadIds`, and the background roster for servers that
+ * predate it. Returns a lookup by child thread.
+ */
+export function childAgentRecordsFromShells(
+  threads: ReadonlyArray<LeadShellInput>,
+): (thread: {
+  readonly environmentId: EnvironmentId;
+  readonly id: ThreadId;
+}) => ChildAgentRecord | undefined {
+  const running = new Set<string>();
+  const key = (environmentId: EnvironmentId, threadId: ThreadId) =>
+    `${environmentId}\u0000${threadId}`;
+  for (const thread of threads) {
+    for (const childId of thread.runningSubagentThreadIds ?? []) {
+      running.add(key(thread.environmentId, childId));
+    }
+    for (const task of thread.pendingBackgroundTasks ?? []) {
+      if (task.kind === "subagent" && task.childThreadId !== undefined) {
+        running.add(key(thread.environmentId, task.childThreadId));
+      }
+    }
+  }
+  return (thread) =>
+    running.has(key(thread.environmentId, thread.id)) ? RUNNING_RECORD : undefined;
+}
+
+function recordIsActive(record: ChildAgentRecord | null | undefined): boolean {
+  return (
+    record?.status === "pending" || record?.status === "running" || record?.status === "waiting"
+  );
+}
+
+/**
+ * A child agent counts as running while its lead's record says so, or while its own session or
+ * latest turn is in flight.
+ */
 export function isChildAgentRunning(
   thread: Pick<OrchestrationThreadShell, "session" | "latestTurn">,
+  record?: ChildAgentRecord | null | undefined,
 ): boolean {
+  if (recordIsActive(record)) return true;
   const status = thread.session?.status;
   return status === "starting" || status === "running" || thread.latestTurn?.state === "running";
 }
@@ -35,7 +99,7 @@ export function isChildAgentRunning(
  * revisit.
  */
 export function collectChildAgents<T extends ChildAgentShellInput>(
-  threads: ReadonlyArray<T>,
+  threads: ReadonlyArray<T & LeadShellInput>,
   root: { readonly environmentId: EnvironmentId; readonly threadId: ThreadId },
 ): ReadonlyArray<ChildAgentEntry<T>> {
   const childrenByParent = new Map<ThreadId, T[]>();
@@ -50,13 +114,15 @@ export function collectChildAgents<T extends ChildAgentShellInput>(
   }
   if (childrenByParent.size === 0) return [];
 
+  const recordOf = childAgentRecordsFromShells(threads);
   const result: ChildAgentEntry<T>[] = [];
   const visited = new Set<ThreadId>([root.threadId]);
   const visit = (parentId: ThreadId, depth: number) => {
     for (const child of childrenByParent.get(parentId) ?? []) {
       if (visited.has(child.id)) continue;
       visited.add(child.id);
-      result.push({ thread: child, depth, running: isChildAgentRunning(child) });
+      const record = recordOf(child);
+      result.push({ thread: child, depth, running: isChildAgentRunning(child, record), record });
       visit(child.id, depth + 1);
     }
   };
@@ -69,7 +135,7 @@ export function collectChildAgents<T extends ChildAgentShellInput>(
  * descendant. A thread without parent or children is a tree of one.
  */
 export function collectAgentTree<T extends ChildAgentShellInput>(
-  threads: ReadonlyArray<T>,
+  threads: ReadonlyArray<T & LeadShellInput>,
   ref: { readonly environmentId: EnvironmentId; readonly threadId: ThreadId },
 ): ReadonlyArray<ChildAgentEntry<T>> {
   const byId = new Map<ThreadId, T>();
@@ -83,8 +149,14 @@ export function collectAgentTree<T extends ChildAgentShellInput>(
     root = byId.get(root.parentThreadId);
   }
   if (!root) return [];
+  const rootRecord = childAgentRecordsFromShells(threads)(root);
   return [
-    { thread: root, depth: 0, running: isChildAgentRunning(root) },
+    {
+      thread: root,
+      depth: 0,
+      running: isChildAgentRunning(root, rootRecord),
+      record: rootRecord,
+    },
     ...collectChildAgents(threads, { environmentId: ref.environmentId, threadId: root.id }),
   ];
 }
@@ -97,11 +169,12 @@ export function resolveChildAgentStatus(
     OrchestrationThreadShell,
     "session" | "latestTurn" | "hasPendingApprovals" | "hasPendingUserInput"
   >,
+  record?: ChildAgentRecord | null | undefined,
 ): ChildAgentStatus {
   const need = threadOwnNeed(thread);
   if (need !== null) return need === "approval" ? "approval" : "input";
-  if (isChildAgentRunning(thread)) return "working";
-  if (thread.session?.status === "error") return "failed";
+  if (isChildAgentRunning(thread, record)) return "working";
+  if (record?.status === "failed" || thread.session?.status === "error") return "failed";
   return "idle";
 }
 
@@ -196,10 +269,12 @@ export const SPAWNED_AGENT_STATUS_LABEL: Record<SpawnedAgentRowStatus, string> =
  * so. `null` when the child thread is not loaded here.
  */
 export function resolveSpawnedAgentRowStatus(
-  thread: Pick<
-    OrchestrationThreadShell,
-    "session" | "latestTurn" | "hasPendingApprovals" | "hasPendingUserInput"
-  > | null,
+  thread:
+    | (Pick<
+        OrchestrationThreadShell,
+        "session" | "latestTurn" | "hasPendingApprovals" | "hasPendingUserInput"
+      > & { readonly itemCount?: number | undefined })
+    | null,
   delivery: "started" | "queued",
 ): SpawnedAgentRowStatus | null {
   if (!thread) return null;
@@ -222,8 +297,46 @@ export function resolveSpawnedAgentRowStatus(
     case "error":
       return "failed";
     case "running":
-    case undefined:
       return delivery === "queued" ? "queued" : "idle";
+    case undefined:
+      if (delivery === "queued") return "queued";
+      // A provider-native subagent's thread never gets a turn of its own; once it holds work,
+      // it ran and finished.
+      return (thread.itemCount ?? 0) > 0 ? "done" : "idle";
+  }
+}
+
+/**
+ * The one status every surface shows for an agent: what its lead's record says, then what its
+ * own thread's run says, then idle. A need for the user outranks both. The thinking log passes
+ * the subagent item's status; the sidebar and the Active agents bar pass
+ * `childAgentRecordsFromShells`.
+ */
+export function resolveEffectiveAgentStatus(
+  thread: Parameters<typeof resolveSpawnedAgentRowStatus>[0],
+  options: {
+    readonly record?: ChildAgentRecord | null | undefined;
+    readonly delivery?: "started" | "queued";
+  } = {},
+): SpawnedAgentRowStatus | null {
+  const need = thread === null ? null : threadOwnNeed(thread);
+  if (need !== null) return need === "approval" ? "approval" : "input";
+  switch (options.record?.status) {
+    case "pending":
+      return "queued";
+    case "running":
+    case "waiting":
+      return "running";
+    case "failed":
+      return "failed";
+    case "completed":
+      return "done";
+    case "cancelled":
+    case "interrupted":
+      return "stopped";
+    case "idle":
+    case undefined:
+      return resolveSpawnedAgentRowStatus(thread, options.delivery ?? "started");
   }
 }
 

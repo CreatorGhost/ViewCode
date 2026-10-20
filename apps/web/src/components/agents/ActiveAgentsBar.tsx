@@ -3,7 +3,7 @@ import type { ViewCodeSidebarThread as EnvironmentThreadShell } from "../../stat
 import type { AgentControlState, ScopedThreadRef, ServerProvider } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronDownIcon } from "lucide-react";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { useAgentControl } from "../../state/agentControl";
@@ -14,28 +14,44 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import {
   type ChildAgentEntry,
-  type ChildAgentStatus,
+  type SpawnedAgentRowStatus,
   collectChildAgents,
   countRunningChildAgents,
-  resolveChildAgentStatus,
+  resolveEffectiveAgentStatus,
 } from "@t3tools/client-runtime/state/child-agents";
 import { useAgentControlActions } from "./useAgentControlActions";
 
-const STATUS_LABEL: Record<ChildAgentStatus, string> = {
+const STATUS_LABEL: Record<SpawnedAgentRowStatus, string> = {
   approval: "Needs approval",
   input: "Needs input",
-  working: "Working",
+  running: "Working",
+  queued: "Queued",
   failed: "Failed",
+  stopped: "Stopped",
+  done: "Done",
   idle: "Idle",
 };
 
-const STATUS_CLASS: Record<ChildAgentStatus, string> = {
+const STATUS_CLASS: Record<SpawnedAgentRowStatus, string> = {
   approval: "text-warning",
   input: "text-warning",
-  working: "text-success",
+  running: "text-success",
+  queued: "text-warning",
   failed: "text-destructive",
+  stopped: "text-muted-foreground",
+  done: "text-muted-foreground",
   idle: "text-muted-foreground",
 };
+
+/** "6 done" or "4 done · 2 idle": the settled agents, once none is working. */
+function settledSummary(statuses: ReadonlyArray<SpawnedAgentRowStatus | null>): string {
+  const counts = new Map<string, number>();
+  for (const status of statuses) {
+    const label = STATUS_LABEL[status ?? "idle"].toLowerCase();
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts].map(([label, count]) => `${count} ${label}`).join(" · ");
+}
 
 function pausedLabel(state: AgentControlState): string {
   return state.queued > 0 ? `Paused · ${state.queued} queued` : "Paused";
@@ -102,7 +118,7 @@ export const ActiveAgentsBar = memo(function ActiveAgentsBar(props: {
 
   const plural = agents.length > 1;
   const summary = [
-    runningCount > 0 ? `${runningCount} running` : null,
+    runningCount > 0 ? `${runningCount} working` : null,
     pausedCount > 0 ? `${pausedCount} paused` : null,
     queuedCount > 0 ? `${queuedCount} queued` : null,
   ].filter((part): part is string => part !== null);
@@ -168,7 +184,13 @@ export const ActiveAgentsBar = memo(function ActiveAgentsBar(props: {
                 <span className="font-medium">Active agents</span>
                 <ComposerBanner.Separator />
                 <span className="truncate text-muted-foreground tabular-nums">
-                  {summary.length > 0 ? summary.join(" · ") : `${agents.length} idle`}
+                  {summary.length > 0
+                    ? summary.join(" · ")
+                    : settledSummary(
+                        agents.map((agent) =>
+                          resolveEffectiveAgentStatus(agent.thread, { record: agent.record }),
+                        ),
+                      )}
                 </span>
               </ComposerBanner.Content>
               <ComposerBanner.Actions>
@@ -237,8 +259,8 @@ function ActiveAgentRow(props: {
   providers: ReadonlyArray<ServerProvider>;
   onOpen: (thread: EnvironmentThreadShell) => void;
 }) {
-  const { thread, depth, running } = props.agent;
-  const status = resolveChildAgentStatus(thread);
+  const { thread, depth, running, record } = props.agent;
+  const status = resolveEffectiveAgentStatus(thread, { record }) ?? "idle";
   const paused = props.control?.paused === true;
   const actions = useAgentControlActions();
   const ref = scopeThreadRef(thread.environmentId, thread.id);

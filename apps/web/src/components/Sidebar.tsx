@@ -45,6 +45,10 @@ import {
   type FolderSortOrder,
   type SidebarAttentionFilter,
 } from "@t3tools/client-runtime/state/thread-arrangement";
+import {
+  childAgentRecordsFromShells,
+  type ChildAgentRecord,
+} from "@t3tools/client-runtime/state/child-agents";
 import type { ViewCodeSidebarThread as EnvironmentThreadShell } from "../state/viewcodeThreadShells";
 import {
   parseScopedThreadKey,
@@ -849,6 +853,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   descendantCount: number;
   /** Child agents below this thread that are still working. */
   workingDescendantCount: number;
+  /** Its lead's record of this agent: a provider-native subagent's own thread never runs. */
+  agentRecord: ChildAgentRecord | undefined;
   /** Agents below this thread by status group, for the folded summary. */
   agentsWorking: number;
   agentsNeedYou: number;
@@ -969,7 +975,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const status = resolveSidebarThreadStatus(thread);
   const isRunning = thread.session?.status === "running" && thread.session.activeTurnId != null;
   // Child agents read by their group in the chat: a static dot and the time that matters.
-  const agentGroup = isChild ? resolveAgentStatusGroup(thread) : null;
+  const agentGroup = isChild ? resolveAgentStatusGroup(thread, props.agentRecord) : null;
   const agentCounts = (
     (() => ({
       working: props.agentsWorking,
@@ -1932,6 +1938,12 @@ type ProjectMenuAction =
 export default function Sidebar() {
   const projects = useProjects();
   const threads = useThreadShells();
+  // Agents their lead runs inside its own provider session read as working from the lead's shell.
+  const agentRecordOf = childAgentRecordsFromShells(threads);
+  const agentGroupOf = (thread: EnvironmentThreadShell) =>
+    resolveAgentStatusGroup(thread, agentRecordOf(thread));
+  const isThreadWorking = (thread: EnvironmentThreadShell) =>
+    isSidebarThreadWorking(thread) || agentRecordOf(thread) !== undefined;
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -2223,7 +2235,8 @@ export default function Sidebar() {
       latestTurn: thread.latestTurn,
       lastVisitedAt: threadLastVisitedAtById[threadKeyOf(thread)],
     });
-  const attentionCounts = (() => countSidebarAttention(visibleThreads, isThreadUnseen))();
+  const attentionCounts = (() =>
+    countSidebarAttention(visibleThreads, isThreadUnseen, agentRecordOf))();
   const [attentionFilter, setAttentionFilter] = useState<SidebarAttentionFilter | null>(null);
   // A strip filter keeps the matching chats and agents and the chats they sit in, not
   // their other agents, and opens every fold on the way.
@@ -2234,7 +2247,9 @@ export default function Sidebar() {
           threads: visibleThreads,
           threadKeyOf,
           parentKeyOf: parentThreadKeyOf,
-          matches: (thread) => resolveSidebarAttention(thread, isThreadUnseen) === attentionFilter,
+          matches: (thread) =>
+            resolveSidebarAttention(thread, isThreadUnseen, agentRecordOf(thread)) ===
+            attentionFilter,
           includeDescendants: false,
         }))();
   const listedThreads = (() =>
@@ -2321,8 +2336,9 @@ export default function Sidebar() {
         sortChatAgents(
           children,
           children[0] ? folderSortOfThread(children[0]) : DEFAULT_FOLDER_SORT_ORDER,
+          agentGroupOf,
         ),
-      isWorking: isSidebarThreadWorking,
+      isWorking: isThreadWorking,
     }))();
   const treeRef = useRef(tree);
   useLayoutEffect(() => {
@@ -2530,7 +2546,7 @@ export default function Sidebar() {
       folderKey: folderSearch.folderKey,
       ...filterSidebarFolderSections(sections, {
         matches: (key) => matchedKeys.has(key),
-        isWorking: isSidebarThreadWorking,
+        isWorking: isThreadWorking,
       }),
     };
   })();
@@ -2584,7 +2600,7 @@ export default function Sidebar() {
     const ancestors = sidebarThreadAncestorKeys(tree, routeThreadKey);
     if (ancestors.length === 0) return null;
     const agent = threadByKey.get(ancestors.length === 1 ? routeThreadKey : ancestors.at(-2)!);
-    return agent && resolveAgentStatusGroup(agent) === "done" ? ancestors.at(-1)! : null;
+    return agent && agentGroupOf(agent) === "done" ? ancestors.at(-1)! : null;
   })();
   const isDoneExpanded = (leadKey: string) =>
     attentionFilter !== null ||
@@ -2597,7 +2613,7 @@ export default function Sidebar() {
   const chatRowsOf = (node: SidebarThreadTreeNode<EnvironmentThreadShell>) =>
     flattenChatRows(node, {
       isExpanded: isThreadExpanded,
-      groupOf: folderSortOfThread(node.thread) === "status" ? resolveAgentStatusGroup : null,
+      groupOf: folderSortOfThread(node.thread) === "status" ? agentGroupOf : null,
       isDoneExpanded,
     });
   // Per chat (and agent with agents of its own), its agents by group. Rows get the four
@@ -2606,7 +2622,7 @@ export default function Sidebar() {
     const counts = new Map<string, AgentGroupCounts>();
     const visit = (node: SidebarThreadTreeNode<EnvironmentThreadShell>) => {
       if (node.children.length === 0) return;
-      counts.set(node.key, countAgentGroups(node, resolveAgentStatusGroup));
+      counts.set(node.key, countAgentGroups(node, agentGroupOf));
       node.children.forEach(visit);
     };
     tree.pinned.forEach(visit);
@@ -3648,6 +3664,7 @@ export default function Sidebar() {
         guides={entry.guides.map((continues) => (continues ? "1" : "0")).join("")}
         descendantCount={node.descendantCount}
         workingDescendantCount={node.workingDescendantCount}
+        agentRecord={agentRecordOf(thread)}
         agentsWorking={agentCounts?.working ?? 0}
         agentsNeedYou={agentCounts?.["needs-you"] ?? 0}
         agentsFailed={agentCounts?.failed ?? 0}
