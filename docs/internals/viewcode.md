@@ -801,7 +801,10 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   classes; nothing re-renders when it changes. Layer strengths come from
   `shellTint.ts` per theme, written beside the palette by `themePalette.ts`; its
   test holds every built-in theme to readable contrast under the tint, so a new
-  theme must pass it. The composer change is limited to the glow's colour and
+  theme must pass it. The wash is a whisper (5 % to 1.5 % on dark): at the
+  design's 10 % the whole left side read as a grey-tinted plane (user decision).
+  The project colour stays strong on the rail tile, the folder badge, the edge
+  bar and the open row. The composer change is limited to the glow's colour and
   alphas; the halo can be turned off, the running light cannot.
 - Mobile's thread composer wears the same glow (`features/threads/composerChrome.ts`):
   the thread's project colour, else the theme accent (`--color-focus`), with the
@@ -814,7 +817,11 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   keyboard is up.
 - Project colour lives on the folder badges and the composer glow. The top bar and the
   tabs carry none (user decision: a coloured header read as a second layer).
-  The ViewCode default is pure-black neutrals.
+  The ViewCode default ("Obsidian", id `viewcode-teal`) is one neutral black family with no
+  cast: window `#080808`, sheet `#0e0e0e`, raised `#161616`. Separation comes from hairlines and
+  the composer, which is the one raised card; teal sits only on actions. Its light half is warm
+  paper, not the earlier blue-grey, so both halves read as one theme (user decision, after a
+  side-by-side against Synara).
 - The shell is one calm surface (user decision, after a tinted panel, a darker
   rail and a glowing Chrome-style tab read as forced, and full-length hairlines
   read as unfinished): title bar, rail and sidebar share the sidebar colour, and
