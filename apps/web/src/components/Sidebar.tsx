@@ -1,3 +1,4 @@
+import { FoldFrame } from "./ui/fold-frame";
 import { SidebarThreadRowControls } from "./sidebar/SidebarThreadRowControls";
 import { readEnvironmentScope } from "../state/session";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
@@ -4100,53 +4101,59 @@ export default function Sidebar() {
                           onClose={closeFolderSearch}
                         />
                       ) : null}
-                      {expanded &&
-                      view &&
+                      {view &&
                       (activeDraft !== null ||
                         view.needsYou.length > 0 ||
                         view.active.length > 0 ||
                         view.settledCount > 0) ? (
-                        // Indented past the folder's chevron, so its chats sit under its icon.
-                        <ul role="group" className="ms-4.5 flex flex-col gap-px pb-1">
-                          {activeDraft ? (
-                            <ViewCodeActiveDraftRow
-                              key={activeDraft.draftId}
-                              draftId={activeDraft.draftId}
-                              session={activeDraft.session}
-                              project={projectByKey.get(
-                                `${activeDraft.session.environmentId}:${activeDraft.session.projectId}`,
-                              )}
-                              settings={
-                                serverConfigs.get(activeDraft.session.environmentId)?.settings
-                              }
-                              providerEntries={
-                                providerEntriesByEnvironment.get(
-                                  activeDraft.session.environmentId,
-                                ) ?? EMPTY_PROVIDER_ENTRIES
-                              }
-                              onNavigate={navigateToDraft}
-                            />
-                          ) : null}
-                          {view.needsYou.length > 0 ? (
-                            <li className="list-none">
-                              <SidebarNeedsYouGroupLabel count={view.needsYou.length} />
-                            </li>
-                          ) : null}
-                          {view.needsYou.map((node) => renderThreadNode(node))}
-                          {view.active.map((node) => renderThreadNode(node))}
-                          {view.settledCount > 0 ? (
-                            <li className="list-none">
-                              <SidebarSettledGroupRow
-                                folderKey={folder.key}
-                                count={view.settledCount}
-                                expanded={view.settledOpen}
-                                disabled={view.filtering}
-                                onToggle={toggleSettledGroup}
-                              />
-                            </li>
-                          ) : null}
-                          {view.settled.map((node) => renderThreadNode(node, undefined, true))}
-                        </ul>
+                        // The folder folds on grid rows and unmounts its rows once closed; a
+                        // folder that starts closed never mounts them.
+                        <FoldFrame
+                          folded={!expanded}
+                          full={
+                            // Indented past the folder's chevron, so its chats sit under its icon.
+                            <ul role="group" className="ms-4.5 flex flex-col gap-px pb-1">
+                              {activeDraft ? (
+                                <ViewCodeActiveDraftRow
+                                  key={activeDraft.draftId}
+                                  draftId={activeDraft.draftId}
+                                  session={activeDraft.session}
+                                  project={projectByKey.get(
+                                    `${activeDraft.session.environmentId}:${activeDraft.session.projectId}`,
+                                  )}
+                                  settings={
+                                    serverConfigs.get(activeDraft.session.environmentId)?.settings
+                                  }
+                                  providerEntries={
+                                    providerEntriesByEnvironment.get(
+                                      activeDraft.session.environmentId,
+                                    ) ?? EMPTY_PROVIDER_ENTRIES
+                                  }
+                                  onNavigate={navigateToDraft}
+                                />
+                              ) : null}
+                              {view.needsYou.length > 0 ? (
+                                <li className="list-none">
+                                  <SidebarNeedsYouGroupLabel count={view.needsYou.length} />
+                                </li>
+                              ) : null}
+                              {view.needsYou.map((node) => renderThreadNode(node))}
+                              {view.active.map((node) => renderThreadNode(node))}
+                              {view.settledCount > 0 ? (
+                                <li className="list-none">
+                                  <SidebarSettledGroupRow
+                                    folderKey={folder.key}
+                                    count={view.settledCount}
+                                    expanded={view.settledOpen}
+                                    disabled={view.filtering}
+                                    onToggle={toggleSettledGroup}
+                                  />
+                                </li>
+                              ) : null}
+                              {view.settled.map((node) => renderThreadNode(node, undefined, true))}
+                            </ul>
+                          }
+                        />
                       ) : expanded && view?.filtering ? (
                         <p
                           role="status"

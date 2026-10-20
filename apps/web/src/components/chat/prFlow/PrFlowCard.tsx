@@ -1,7 +1,6 @@
 import { ChevronDownIcon, ChevronUpIcon, MinusIcon, TriangleAlertIcon, XIcon } from "lucide-react";
-import { createContext, type CSSProperties, type ReactNode, use, useEffect, useState } from "react";
+import { createContext, type CSSProperties, type ReactNode, use, useState } from "react";
 
-import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { formatRelativeElapsed } from "~/timestampFormat";
 import { observeVisibleAnimation } from "~/lib/visibleAnimation";
@@ -972,57 +971,6 @@ export function PrFlowCollapsedRow({
           <ChevronDownIcon />
         </Button>
       )}
-    </div>
-  );
-}
-
-/**
- * Swaps a pull request between its one line and its full card. Folding closes the card on grid
- * rows (1fr to 0fr, never height) and only then unmounts it, so its reads stop; unfolding opens
- * it the same way. A card that starts folded never mounts the full card at all.
- */
-const FOLD_FALLBACK_MS = 600;
-const afterFold = <T extends { readonly folded: boolean; readonly fullMounted: boolean }>(
-  current: T,
-): T => (current.folded ? { ...current, fullMounted: false } : current);
-
-export function PrFlowFoldFrame({
-  folded,
-  collapsed,
-  full,
-}: {
-  folded: boolean;
-  collapsed: ReactNode;
-  /** Mounted only while unfolded (or folding): an element, so a folded card costs nothing. */
-  full: ReactNode;
-}) {
-  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
-  const [view, setView] = useState({ folded, fullMounted: !folded, moved: false });
-  if (view.folded !== folded) {
-    setView({ folded, fullMounted: !folded || !reducedMotion, moved: true });
-  }
-  const unmountFull = () => setView(afterFold);
-  // The fold's transition end unmounts the card; this catches a transition that never ran.
-  const closing = view.folded && view.fullMounted;
-  useEffect(() => {
-    if (!closing) return;
-    const timer = window.setTimeout(() => setView(afterFold), FOLD_FALLBACK_MS);
-    return () => window.clearTimeout(timer);
-  }, [closing]);
-  return (
-    <div>
-      {folded ? <div className={view.moved ? "blur-swap" : undefined}>{collapsed}</div> : null}
-      {view.fullMounted ? (
-        <div
-          className={cn("pr-flow-fold", !folded && view.moved && "pr-flow-open")}
-          data-open={!folded}
-          onTransitionEnd={(event) => {
-            if (event.target === event.currentTarget) unmountFull();
-          }}
-        >
-          <div>{full}</div>
-        </div>
-      ) : null}
     </div>
   );
 }

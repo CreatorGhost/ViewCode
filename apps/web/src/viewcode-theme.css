@@ -830,11 +830,31 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
     --shell-glow-color: oklch(from var(--project-accent) clamp(0.6, l, 0.8) c h);
   }
 }
-[data-project-tint] {
+/* The project colour is a registered property so the shell can fade between projects, and from
+   a project to none (its initial value), instead of swapping the wash in one frame when the rail
+   changes project. The gradient is always painted; without a project it is transparent. */
+@property --project-accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+/* Declared on the elements that paint it, not on :root: a custom property's var() references
+   resolve where it is declared, and on :root the project colour is still its initial value. */
+[data-app-rail-layout][data-slot="sidebar-wrapper"],
+[data-app-rail-layout] [data-app-rail] {
   --shell-tint-gradient: linear-gradient(
     color-mix(in srgb, var(--project-accent) var(--shell-tint-surface-top), transparent),
     color-mix(in srgb, var(--project-accent) var(--shell-tint-surface-bottom), transparent)
   );
+}
+@media (min-width: 768px) {
+  /* The wrapper carries data-panel-animations itself, so it needs the compound selector. */
+  [data-panel-animations="true"][data-slot="sidebar-wrapper"],
+  [data-panel-animations="true"] [data-app-rail] {
+    transition-property: --project-accent;
+    transition-duration: var(--panel-animation-duration);
+    transition-timing-function: var(--ease-drawer);
+  }
 }
 /* A coloured folder's badge is filled in its own colour (Sidebar sets --project-accent on it),
    so every folder in an All-projects list keeps its colour. */
@@ -914,16 +934,17 @@ html [data-app-rail] {
    One gradient on the shell backdrop, with the rail and sidebar see-through over it, so there is
    no seam between them. No glow and no tab. */
 @media (min-width: 768px) {
-  [data-project-tint] [data-slot="sidebar-wrapper"] {
+  /* The rail layout root is the sidebar wrapper itself. */
+  [data-app-rail-layout][data-slot="sidebar-wrapper"] {
     background-color: var(--sidebar);
     background-image: var(--shell-tint-gradient);
   }
   /* The sidebar is see-through over the wash. The rail keeps a fill, painting the same
      viewport-anchored gradient, so a sidebar sliding under it never shows through. */
-  [data-project-tint] [data-slot="sidebar-inner"] {
+  [data-app-rail-layout] [data-slot="sidebar-inner"] {
     background-color: transparent;
   }
-  [data-project-tint] [data-app-rail] {
+  [data-app-rail-layout] [data-app-rail] {
     background-color: var(--sidebar);
     background-image: var(--shell-tint-gradient);
     background-attachment: fixed;
