@@ -108,6 +108,8 @@ export interface EnvironmentThreadShell {
   readonly pendingBackgroundTasks: ReadonlyArray<
     NonNullable<OrchestrationV2ThreadShell["pendingBackgroundTasks"]>[number]
   >;
+  /** Child threads this thread's provider session runs as subagents now (see the contract). */
+  readonly runningSubagentThreadIds: ReadonlyArray<ThreadId>;
   readonly providerInstanceHistory: ReadonlyArray<ProviderInstanceId>;
   readonly goal: OrchestrationV2ProviderGoal | null;
   readonly itemCount: number;
@@ -247,6 +249,7 @@ export function presentThreadShell(
     pendingSubagentRequest,
     hasActionableProposedPlan: thread.hasActionableProposedPlan,
     pendingBackgroundTasks: thread.pendingBackgroundTasks ?? [],
+    runningSubagentThreadIds: thread.runningSubagentThreadIds ?? [],
     providerInstanceHistory: thread.providerInstanceHistory ?? [],
     goal: thread.goal ?? null,
     itemCount: thread.itemCount,

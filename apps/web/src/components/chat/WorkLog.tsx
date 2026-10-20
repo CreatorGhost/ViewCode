@@ -1,6 +1,7 @@
 import type {
   WorkLogChip,
   WorkLogChipSet,
+  WorkLogLabelTone,
   WorkLogMarkerKind,
 } from "@t3tools/client-runtime/work-log/thinking-log";
 import { workLogLabelTone } from "@t3tools/client-runtime/work-log/thinking-log";
@@ -96,6 +97,8 @@ type RowContent = {
   label: ReactNode;
   trailing?: ReactNode;
   wrapLabel?: boolean;
+  /** The label colour, when the marker alone does not say it (a queued agent is not finished). */
+  tone?: WorkLogLabelTone | undefined;
   /** Branch rows (subagents, dead ends) sit on a short lane off the main rail. */
   lane?: WorkLogLane | undefined;
   /** The step is running now. A row that mounts live softens in, and its label settles when it
@@ -241,10 +244,11 @@ function WorkLogLine({
   label,
   trailing,
   wrapLabel,
+  tone: toneOverride,
   lane = "main",
   settles = 0,
 }: Omit<RowContent, "live"> & { settles?: number }) {
-  const tone = marker ? workLogLabelTone(marker) : "done";
+  const tone = toneOverride ?? (marker ? workLogLabelTone(marker) : "done");
   const branch = lane !== "main";
   const glyph = icon ?? (marker ? <WorkLogMarker kind={marker} /> : null);
   return (
@@ -326,6 +330,7 @@ export function WorkLogRow({
   label,
   trailing,
   wrapLabel = false,
+  tone,
   lane = "main",
   live = false,
   children,
@@ -342,6 +347,7 @@ export function WorkLogRow({
         label={label}
         trailing={trailing}
         wrapLabel={wrapLabel}
+        tone={tone}
         lane={lane}
         settles={settles}
       />

@@ -326,6 +326,68 @@ export function EnvironmentSubagentAvatar({
   return <SubagentAvatar {...props} displayName={displayName} iconUrl={iconUrl} />;
 }
 
+/** A subagent's provider glyph alone, for rows that show its status on their own marker. */
+export function SubagentProviderGlyph({
+  environmentId,
+  providerInstanceId,
+  driver,
+}: {
+  environmentId: EnvironmentId;
+  providerInstanceId: ProviderInstanceId;
+  driver: ProviderDriverKind;
+}) {
+  const providersAtom = serverEnvironment.providersValueAtom(environmentId);
+  const displayName = useAtomValue(
+    providersAtom,
+    (providers) =>
+      providers?.find((provider) => provider.instanceId === providerInstanceId)?.displayName,
+  );
+  const iconUrl = useAtomValue(
+    providersAtom,
+    (providers) =>
+      providers?.find((provider) => provider.instanceId === providerInstanceId)?.iconUrl,
+  );
+  return (
+    <ProviderInstanceIcon
+      driverKind={driver}
+      displayName={displayName ?? driver}
+      acpRegistryIconUrl={iconUrl}
+      className="z-auto"
+      iconClassName="size-3.5"
+    />
+  );
+}
+
+/** The hover card a subagent's row shows: the details its card shows. */
+export function SubagentHoverDetails(props: {
+  readonly parentRef: ScopedThreadRef;
+  readonly item: Extract<OrchestrationV2TurnItem, { type: "subagent" }>;
+  readonly agent: OrchestrationV2Subagent | null;
+  readonly onOpenThread: (threadId: ThreadId) => void;
+}) {
+  const { item, agent } = props;
+  return (
+    <SubagentTimelineTooltip
+      parentRef={props.parentRef}
+      subagentId={item.subagentId}
+      providerInstanceId={item.providerInstanceId}
+      origin={item.origin}
+      driver={item.driver}
+      title={formatSubagentDisplayTitle(item.title ?? "Subagent")}
+      result={agent?.result ?? item.result}
+      progress={agent?.progress ?? item.progress}
+      status={agent?.status ?? item.status}
+      startedAt={agent?.startedAt ?? item.startedAt}
+      completedAt={agent?.completedAt ?? item.completedAt}
+      threadId={item.childThreadId}
+      onOpenThread={props.onOpenThread}
+      elapsed={agent ? <AgentElapsed agent={projectedSubagentsToRuntime([agent])[0]!} /> : null}
+      model={agent?.model ?? null}
+      modelSelection={agent?.modelSelection}
+    />
+  );
+}
+
 const NOTIFICATION_OUTCOME_STATUS: Record<
   OrchestrationV2Notification["outcome"],
   OrchestrationV2TurnItem["status"] | null
@@ -586,9 +648,7 @@ function EnvironmentHandoffRow({
     sourceItemId: item.id,
   });
   const transferredContext = contextHandoff?.summaryText.trim() ? contextHandoff.summaryText : null;
-  return (
-    <HandoffRow {...props} providers={providers} transferredContext={transferredContext} />
-  );
+  return <HandoffRow {...props} providers={providers} transferredContext={transferredContext} />;
 }
 
 export function HandoffRow(props: {

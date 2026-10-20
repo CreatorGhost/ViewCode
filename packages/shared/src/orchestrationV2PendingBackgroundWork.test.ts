@@ -3,10 +3,12 @@ import {
   type OrchestrationV2PendingBackgroundTask,
   ProviderInstanceId,
   ProviderThreadId,
+  ThreadId,
 } from "@t3tools/contracts";
 import {
   backgroundWorkHoldsCompletion,
   derivePendingBackgroundWork,
+  runningSubagentThreadIds,
   turnItemUpdateCanEndBackgroundWork,
 } from "./orchestrationV2PendingBackgroundWork.ts";
 
@@ -632,5 +634,47 @@ describe("derivePendingBackgroundWork kinds", () => {
         }),
       ).toEqual([]);
     });
+  });
+});
+
+describe("runningSubagentThreadIds", () => {
+  const subagent = (
+    id: string,
+    status: "running" | "waiting" | "pending" | "completed" | "failed",
+    childThreadId: string | null,
+    runId: string | null = "run-1",
+  ) => ({
+    id,
+    type: "subagent" as const,
+    status,
+    title: null,
+    runId,
+    childThreadId: childThreadId === null ? null : ThreadId.make(childThreadId),
+  });
+
+  it("names the children the lead's session still runs, while its own run is active too", () => {
+    expect(
+      runningSubagentThreadIds({
+        turnItems: [
+          subagent("a", "running", "child-a"),
+          subagent("b", "waiting", "child-b"),
+          subagent("c", "completed", "child-c"),
+          subagent("d", "failed", "child-d"),
+          subagent("e", "running", null),
+          subagent("f", "running", "child-a"),
+          { id: "cmd", type: "command_execution", status: "running", title: null },
+        ],
+        runs: [{ id: "run-1" as never, ordinal: 1, status: "running" }],
+      }),
+    ).toEqual(["child-a", "child-b"]);
+  });
+
+  it("drops subagents of a rolled-back run", () => {
+    expect(
+      runningSubagentThreadIds({
+        turnItems: [subagent("a", "running", "child-a", "run-gone")],
+        runs: [{ id: "run-gone" as never, ordinal: 1, status: "rolled_back" }],
+      }),
+    ).toEqual([]);
   });
 });
