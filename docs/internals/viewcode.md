@@ -233,8 +233,11 @@ source's current history during later handoffs.
 
 Side chats use native fork history with `kind: sidechat`. While a parent has no
 stable provider run, a bounded transcript bootstrap supplies context without
-changing ordinary fork stability rules. They remain outside delegated-child
-usage-resume walks. Idle side chats archive after 24 hours; the 10-minute sweep
+changing ordinary fork stability rules. A native side chat's projection lists
+the parent's history as inherited rows, so the dock and mobile sheet render only
+`sidechatMessages` (client-runtime `state/sidechat.ts`); the provider context
+and the full-thread view keep the inherited history. They remain outside
+delegated-child usage-resume walks. Idle side chats archive after 24 hours; the 10-minute sweep
 rechecks timestamps, active runs and pending requests under the native command
 lock before archiving. A stale sweep must not archive a newly active chat.
 Unarchive stays available through the normal native path.
@@ -732,6 +735,11 @@ goal state. Debug guidance must not alter the provider's own permission policy.
   isolating only the server database still lets concurrent desktop runs share
   IndexedDB and authentication state. The default home uses its installed v2 profile; native first-run local-storage
   migration reads the v1 profile without sharing its locked Chromium databases.
+- Managed runtimes under `<home>/tools` are never reused from or migrated out of
+  `~/.t3`: T3 Code may still run them, and it pins different releases. When
+  Antigravity does not resolve, `AntigravityInstallation.ts` only reads T3's
+  install record to name it in the error, and only for the default home, so
+  dev and test homes never look outside themselves.
 - The same holds for the mobile app (`apps/mobile/app.config.ts`): package
   `com.viewcode.app[.dev|.preview]`, schemes `viewcode[-dev|-preview]`, so it
   installs beside the store T3 Code app without Android asking which app opens
@@ -1092,6 +1100,23 @@ adopt the same model.
 - Motion keys on liveness, not mounting: rows, chips and the finish mark
   animate only for work that is live (or a turn that ended in the last 3 s),
   because virtualization remounts history as it scrolls back into view.
+- Spawned agents are steps on the rail, one row each (`SpawnedAgentLog.tsx`).
+  Their live state comes from the lead's projection and agent control, never a
+  subscription per child.
+- A provider-native subagent's thread never gets a run of its own, so status
+  read from the child's shell alone says Idle while the lead runs it. The
+  lead's shell lists the agents it is running (`runningSubagentThreadIds`),
+  and `resolveEffectiveAgentStatus` in `client-runtime/state/childAgents.ts`
+  reads that before the child's own run. Every surface that shows an agent's
+  status (rail, Active agents bar, sidebar, mobile Home and agents strip) reads
+  that record, and the sidebar times such an agent from its thread's creation.
+  Such an agent has nothing of its own to stop: only Stop all, which stops the
+  lead, applies.
+- A Claude subagent that ends with SubagentHandback (`handback: "send"`) leaves
+  only a pointer in its `task_notification` summary and Agent tool result ("This
+  agent's report was delivered to you as a message from …"). The report rides
+  beside it (`handback_report` / `handbackReport`); `ClaudeAdapterV2` takes the
+  result from there, so no client has to recognise the pointer.
 
 ## Multi-surface and product policy
 

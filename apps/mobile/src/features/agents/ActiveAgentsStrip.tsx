@@ -5,6 +5,7 @@ import {
   collectChildAgents,
   resolveAgentControlAvailability,
   summarizeAgentTreeControl,
+  type ChildAgentRecord,
 } from "@t3tools/client-runtime/state/child-agents";
 
 import type { AgentControlState, EnvironmentId, ThreadId } from "@t3tools/contracts";
@@ -101,7 +102,9 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
   // their busiest member, so a working agent is on top when the list opens.
   const rankOf = (agent: (typeof agents)[number]) =>
     agentStatusRank(
-      control.get(keyOf(agent.thread.id))?.paused ? "paused" : resolveHomeAgentStatus(agent.thread),
+      control.get(keyOf(agent.thread.id))?.paused
+        ? "paused"
+        : resolveHomeAgentStatus(agent.thread, agent.record),
     );
   const groups: Array<Array<(typeof agents)[number]>> = [];
   for (const agent of agents) {
@@ -230,6 +233,7 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
                 <ActiveAgentRow
                   key={agent.thread.id}
                   thread={agent.thread}
+                  record={agent.record}
                   depth={agent.depth}
                   running={agent.running}
                   control={control.get(keyOf(agent.thread.id))}
@@ -251,6 +255,7 @@ export const ActiveAgentsStrip = memo(function ActiveAgentsStrip(props: {
 
 function ActiveAgentRow(props: {
   readonly thread: EnvironmentThreadShell;
+  readonly record: ChildAgentRecord | undefined;
   readonly depth: number;
   readonly running: boolean;
   readonly control: AgentControlState | undefined;
@@ -260,7 +265,7 @@ function ActiveAgentRow(props: {
   readonly onResume: () => void;
 }) {
   const { thread } = props;
-  const status = resolveHomeAgentStatus(thread);
+  const status = resolveHomeAgentStatus(thread, props.record);
   const availability = resolveAgentControlAvailability({
     running: props.running,
     control: props.control,

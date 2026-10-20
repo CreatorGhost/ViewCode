@@ -265,6 +265,31 @@ describe("resolveHomeAgentStatus", () => {
   });
 });
 
+describe("provider-native subagents", () => {
+  // Their threads never get a run; the lead's shell says which it runs now.
+  const lead = (running: string[]) =>
+    thread("lead", "app", {
+      session: sessionWith("running"),
+      runningSubagentThreadIds: running.map((id) => ThreadId.make(id)),
+    });
+
+  it("reads an agent its lead runs as working, and as stopped once the lead lets it go", () => {
+    const agent = child("native", "lead");
+    const rows = (running: string[]) =>
+      describeRows(build([lead(running), agent], { expandedLeadKeys: ["lead"] }).items);
+    expect(rows(["native"])).toContain("  child native working");
+    expect(rows([])).toContain("  child native stopped");
+  });
+
+  it("counts a lead with a running native agent under Working", () => {
+    const idleLead = thread("lead", "app", {
+      session: sessionWith("ready"),
+      runningSubagentThreadIds: [ThreadId.make("native")],
+    });
+    expect(countHomeStatusFilters([idleLead, child("native", "lead")]).working).toBe(1);
+  });
+});
+
 describe("resolveHomeAgentModelLabel", () => {
   it("names the model the way its provider lists it, else compacts the id", () => {
     const configs = new Map([

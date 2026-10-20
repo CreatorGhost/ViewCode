@@ -28,6 +28,7 @@ import {
   type PrFlowConflicts,
   type PrFlowRow,
   type PrFlowStatus,
+  prFlowAwaitingReview,
   prFlowReached,
   prFlowStatus,
 } from "./prFlowModel";
@@ -864,7 +865,12 @@ function FooterAction({
         </Button>
       );
     case "ready":
-      if (!flow.draft && (flow.checks?.failed ?? 0) === 0 && onMerge !== undefined) {
+      if (
+        !flow.draft &&
+        (flow.checks?.failed ?? 0) === 0 &&
+        !prFlowAwaitingReview(flow) &&
+        onMerge !== undefined
+      ) {
         return (
           <Button size="xs" onClick={onMerge}>
             Merge

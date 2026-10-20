@@ -36,6 +36,7 @@ import {
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
   resolveTimelineIsAtEnd,
+  TIMELINE_FOLLOW_REARM_PX,
   resolveTimelineMinimapHasPersistentGutter,
   resolveTimelineMinimapHeightStyle,
   resolveTimelineMinimapHitStripWidth,
@@ -4782,7 +4783,7 @@ describe("linked timeline resources", () => {
   });
   const common = { isWorking: false, turnDiffSummaries: [], supportsConversationRollback: false };
 
-  it("previews a thought and separates subagent cards from worklogs", () => {
+  it("previews a thought and keeps spawned agents on the turn's rail", () => {
     const rows = deriveMessagesTimelineRows({
       ...common,
       timelineEntries: [
@@ -4821,8 +4822,29 @@ describe("linked timeline resources", () => {
     expect(rows.find((row) => row.kind === "work")).toMatchObject({
       displayLabel: "First paragraph. Second paragraph.",
     });
-    expect(rows.find((row) => row.kind === "work")?.continuesWorkLog).toBeUndefined();
+    expect(rows.find((row) => row.kind === "work")?.continuesWorkLog).toBe(true);
+    expect(rows.find((row) => row.id === "child")).toMatchObject({ followsWorkLog: true });
     expect(rows.find((row) => row.id === "child")?.continuesWorkLog).toBeUndefined();
+  });
+
+  it("shows agents the turn is waiting on as its live step, not a thinking row", () => {
+    const spawned = (id: string, status: string) => {
+      const entry = event(id, "subagent");
+      return {
+        ...entry,
+        projectedItem: {
+          item: { ...entry.projectedItem.item, status },
+        } as OrchestrationV2ProjectedTurnItem,
+      };
+    };
+    const live = (statuses: ReadonlyArray<string>) =>
+      deriveMessagesTimelineRows({
+        ...common,
+        isWorking: true,
+        timelineEntries: statuses.map((status, index) => spawned(`agent-${index}`, status)),
+      }).map((row) => row.kind);
+    expect(live(["running", "completed"])).not.toContain("thinking");
+    expect(live(["completed", "failed"])).toContain("thinking");
   });
 
   it("groups adjacent subagents without merging across a resource or run boundary", () => {
@@ -5752,6 +5774,19 @@ describe("timeline end and minimap geometry", () => {
     ).toBe(false);
     expect(resolveTimelineIsAtEnd({ isNearEnd: true, isAtEnd: false })).toBe(false);
     expect(resolveTimelineIsAtEnd({ isAtEnd: false })).toBe(false);
+  });
+
+  it("resumes following only at the very end, not anywhere in the near-end band", () => {
+    const reader = (gap: number) => ({
+      contentLength: 2000,
+      scroll: 1200 - gap,
+      scrollLength: 800,
+    });
+    expect(resolveTimelineIsAtEnd(reader(30))).toBe(true);
+    expect(resolveTimelineIsAtEnd(reader(30), TIMELINE_FOLLOW_REARM_PX)).toBe(false);
+    expect(resolveTimelineIsAtEnd(reader(5), TIMELINE_FOLLOW_REARM_PX)).toBe(false);
+    expect(resolveTimelineIsAtEnd(reader(3), TIMELINE_FOLLOW_REARM_PX)).toBe(true);
+    expect(resolveTimelineIsAtEnd(reader(0), TIMELINE_FOLLOW_REARM_PX)).toBe(true);
   });
 
   it("maps the minimap rail to rows and sizes its hit strip from the free gutter", () => {

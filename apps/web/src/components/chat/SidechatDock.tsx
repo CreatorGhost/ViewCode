@@ -35,6 +35,7 @@ import { ProviderModelPicker } from "./ProviderModelPicker";
 import {
   FRESH_SIDECHAT,
   resolveActiveSidechat,
+  sidechatMessages,
   sidechatsOf,
 } from "@t3tools/client-runtime/state/sidechat";
 import { isPinnedToBottom } from "./sidechat.logic";
@@ -115,7 +116,7 @@ export const SidechatDock = memo(function SidechatDock(props: {
   }, [parentRef]);
 
   const running = isRunning(thread?.session?.status);
-  const messages = thread?.messages ?? [];
+  const messages = sidechatMessages(thread?.messages ?? []);
   const lastMessage = messages.at(-1);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   // Follow new output only while the reader is at the bottom; scrolling up to

@@ -333,12 +333,21 @@ export interface TimelineEndState {
 
 /**
  * strict isAtEnd flickers false for a frame while streaming content grows under
- * the viewport, so follow re-arms within this distance of the real content
- * bottom instead.
+ * the viewport, so a gesture only counts as leaving the end beyond this band.
  */
-const TIMELINE_FOLLOW_REARM_THRESHOLD_PX = 40;
+const TIMELINE_NEAR_END_PX = 40;
+/**
+ * Follow resumes only when the reader is back at the very end. The near-end
+ * band is too loose for this: content settling below a reader who scrolled up
+ * a little (a finished step merging, a row measuring shorter) would carry them
+ * into it and re-pin them without any gesture.
+ */
+export const TIMELINE_FOLLOW_REARM_PX = 4;
 
-export function resolveTimelineIsAtEnd(state: TimelineEndState | undefined): boolean | undefined {
+export function resolveTimelineIsAtEnd(
+  state: TimelineEndState | undefined,
+  tolerancePx = TIMELINE_NEAR_END_PX,
+): boolean | undefined {
   if (!state) {
     return undefined;
   }
@@ -352,7 +361,7 @@ export function resolveTimelineIsAtEnd(state: TimelineEndState | undefined): boo
   // and the visible edge above the composer. LegendList's own isAtEnd subtracts
   // the inset and is true anywhere in the bottom composer-height band, so it is
   // only a fallback here, never a short-circuit.
-  return contentLength - scroll - scrollLength <= TIMELINE_FOLLOW_REARM_THRESHOLD_PX;
+  return contentLength - scroll - scrollLength <= tolerancePx;
 }
 
 export function resolveTimelineMinimapHeightStyle(itemCount: number): string {
@@ -1940,8 +1949,15 @@ export function deriveMessagesTimelineRows(input: {
   if (input.isWorking && !hasWorkingRow && activeTurnHeaderIndex === timelineEntries.length) {
     appendWorkingRow();
   }
-  // Nothing is running between steps, so the model is thinking about the next one.
-  if (input.isWorking && !setupOwnsWorkingSlot && !hasActiveCompaction && !hasActivityRow) {
+  // Nothing is running between steps, so the model is thinking about the next one. Agents it
+  // spawned last and still waits on are the live step themselves.
+  if (
+    input.isWorking &&
+    !setupOwnsWorkingSlot &&
+    !hasActiveCompaction &&
+    !hasActivityRow &&
+    !rowHasLiveSubagents(nextRows.at(-1))
+  ) {
     nextRows.push({
       kind: "thinking",
       id: LIVE_ACTIVITY_ROW_ID,
@@ -1969,6 +1985,13 @@ export function deriveMessagesTimelineRows(input: {
   });
 }
 
+function rowHasLiveSubagents(row: MessagesTimelineRow | undefined): boolean {
+  if (row?.kind !== "event" || row.projectedItem.item.type !== "subagent") return false;
+  return (row.subagents ?? [row.projectedItem]).some(({ item }) =>
+    ["pending", "running", "waiting"].includes(item.status),
+  );
+}
+
 /** The turn's header ("Working for", an open "Worked for") starts the rail of the steps below. */
 function timelineRowHeadsWorkLog(row: MessagesTimelineRow | undefined): boolean {
   return row?.kind === "working" || (row?.kind === "turn-fold" && row.expanded);
@@ -1980,7 +2003,9 @@ function timelineRowIsWorkLog(row: MessagesTimelineRow | undefined): boolean {
     (row.kind === "work" ||
       row.kind === "work-toggle" ||
       row.kind === "work-live" ||
-      row.kind === "thinking")
+      row.kind === "thinking" ||
+      // Spawned agents are steps of the turn and sit on its rail.
+      (row.kind === "event" && row.projectedItem.item.type === "subagent"))
   );
 }
 

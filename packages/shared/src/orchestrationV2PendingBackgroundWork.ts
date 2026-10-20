@@ -183,6 +183,22 @@ export function pendingBackgroundTurnItems<Item extends PendingBackgroundWorkTur
   );
 }
 
+/**
+ * Child threads the provider session is running as subagents now. Unlike the pending-work list
+ * this ignores whether the owning run is still active: a subagent's own thread never gets a run,
+ * so its liveness has to come from here while the lead works and after.
+ */
+export function runningSubagentThreadIds(input: {
+  readonly turnItems: ReadonlyArray<PendingBackgroundWorkTurnItem>;
+  readonly runs?: ReadonlyArray<PendingBackgroundWorkRun>;
+}): ReadonlyArray<ThreadId> {
+  const ids = new Set<ThreadId>();
+  for (const item of pendingBackgroundTurnItems(input)) {
+    if (item.type === "subagent" && item.childThreadId != null) ids.add(item.childThreadId);
+  }
+  return [...ids];
+}
+
 export function derivePendingBackgroundWork(input: {
   readonly latestRun: PendingBackgroundWorkRun | null | undefined;
   readonly providerThreads: ReadonlyArray<PendingBackgroundWorkProviderThread>;

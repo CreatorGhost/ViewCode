@@ -5,6 +5,13 @@ import {
   subagentGroupSummary,
   resolveSubagentMetadata,
   subagentDetailPreview,
+  spawnedAgentsHeading,
+  spawnedAgentsMarker,
+  subagentRowIsActive,
+  subagentRowState,
+  subagentRowStateLabel,
+  summarizeSubagentRowStates,
+  visibleAgentRows,
 } from "./subagentDisplay.js";
 
 describe("subagentGroupSummary", () => {
@@ -162,5 +169,54 @@ describe("subagentDetailPreview", () => {
       subagentDetailPreview({ status: "failed", progress: "Last progress", result: " " }),
     ).toBe("Last progress");
     expect(subagentDetailPreview({ status: "pending" })).toBeNull();
+  });
+
+  it("shows a markdown report as plain text", () => {
+    expect(
+      subagentDetailPreview({
+        status: "completed",
+        result:
+          "## Review of `src/auth.ts`\n\n**File:** a four-line stub.\n\n- See [the spec](https://x.test) for *why*.",
+      }),
+    ).toBe("Review of src/auth.ts File: a four-line stub. See the spec for *why*.");
+  });
+});
+
+describe("spawned agent rows", () => {
+  it("reads each agent's state, with a pause from agent control winning", () => {
+    expect(subagentRowState("running")).toBe("working");
+    expect(subagentRowState("pending")).toBe("queued");
+    expect(subagentRowState("completed")).toBe("done");
+    expect(subagentRowState("interrupted")).toBe("stopped");
+    expect(subagentRowState("running", { paused: true })).toBe("paused");
+    expect(subagentRowStateLabel("paused", { queued: 2 })).toBe("paused · 2 queued");
+    expect(subagentRowStateLabel("failed")).toBe("failed");
+  });
+
+  it("keeps working, waiting, queued and paused agents in the live colour", () => {
+    expect(
+      (
+        ["working", "waiting", "queued", "paused", "done", "failed", "stopped", "idle"] as const
+      ).filter(subagentRowIsActive),
+    ).toEqual(["working", "waiting", "queued", "paused"]);
+  });
+
+  it("summarises a spawn and picks its marker", () => {
+    const states = ["working", "done", "working", "failed", "working", "working"] as const;
+    expect(summarizeSubagentRowStates(states)).toBe("4 working · 1 done · 1 failed");
+    expect(spawnedAgentsHeading(6)).toBe("Spawned 6 agents");
+    expect(spawnedAgentsHeading(1)).toBe("Spawned 1 agent");
+    expect(spawnedAgentsMarker(states)).toBe("live");
+    expect(spawnedAgentsMarker(["done", "failed"])).toBe("dead-end");
+    expect(spawnedAgentsMarker(["done", "stopped"])).toBe("merged");
+  });
+
+  it("lists every agent up to eight, then folds the rest", () => {
+    const six = Array.from({ length: 6 }, (_, index) => index);
+    expect(visibleAgentRows(six)).toEqual({ visible: six, hidden: 0 });
+    const eight = Array.from({ length: 8 }, (_, index) => index);
+    expect(visibleAgentRows(eight).hidden).toBe(0);
+    const twelve = Array.from({ length: 12 }, (_, index) => index);
+    expect(visibleAgentRows(twelve)).toEqual({ visible: twelve.slice(0, 7), hidden: 5 });
   });
 });
