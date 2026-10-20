@@ -6,7 +6,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { Atom } from "effect/reactivity";
 import { ChevronDownIcon, XIcon } from "lucide-react";
 import { Menu, MenuItem, MenuItemLabel, MenuPopup, MenuTrigger } from "../ui/menu";
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useLayoutEffect, useRef } from "react";
 
 import { cn } from "~/lib/utils";
 import { environmentCatalog } from "../../connection/catalog";
@@ -32,6 +32,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   adjacentThreadTab,
   closeThreadTab,
+  projectThreadTabs,
   resolveThreadTabCommand,
   threadTabTitle,
   visibleThreadTabs,
@@ -39,21 +40,6 @@ import {
 
 function useActiveThreadRef(): ScopedThreadRef | null {
   return useParams({ strict: false, select: (params) => resolveThreadRouteRef(params) });
-}
-
-/**
- * The strip is per project, like the rail and the sidebar: the environment's tab list keeps
- * every open thread, and the active thread's project decides which of them show. Until the
- * active thread's shell is known, or when it has no project, every tab shows.
- */
-export function projectThreadTabs(
-  tabs: ReadonlyArray<string>,
-  activeKey: string | null,
-  byKey: ReadonlyMap<string, { readonly projectId: string }>,
-): ReadonlyArray<string> {
-  const projectId = activeKey ? byKey.get(activeKey)?.projectId : undefined;
-  if (projectId === undefined) return tabs;
-  return tabs.filter((key) => byKey.get(key)?.projectId === projectId);
 }
 
 /**
@@ -101,7 +87,7 @@ export function ThreadTabsHost() {
   }, [activeKey, liveEnvironmentIds, liveKeys]);
 
   const shellsRef = useRef(shells);
-  useEffect(() => {
+  useLayoutEffect(() => {
     shellsRef.current = shells;
   }, [shells]);
   useEffect(() => {
@@ -331,11 +317,7 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeKey, tabs]);
 
-  // Only loaded shells make tabs: until the active thread's is in, there is no project to scope
-  // to, so the strip stays the single tab rather than briefly showing every project's tabs.
-  const projectTabs = projectThreadTabs(tabs ?? [], activeKey, byKey).filter((key) =>
-    byKey.has(key),
-  );
+  const projectTabs = projectThreadTabs(tabs ?? [], activeKey, byKey);
   const showList =
     !props.paneOnly &&
     projectTabs.length >= 2 &&

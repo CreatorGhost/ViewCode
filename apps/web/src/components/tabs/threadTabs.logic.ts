@@ -35,6 +35,22 @@ export function closeThreadTab(
   return { tabs: next, nextActiveKey: next[index] ?? next[index - 1] ?? null };
 }
 
+/**
+ * The strip is per project, like the rail and the sidebar: the environment's tab list keeps
+ * every open thread, and the active thread's project decides which of them show. Tabs whose
+ * shell has not loaded are left out, and until the active thread's own shell is in there is no
+ * project to scope to, so only the active tab shows.
+ */
+export function projectThreadTabs(
+  tabs: ReadonlyArray<string>,
+  activeKey: string | null,
+  byKey: ReadonlyMap<string, { readonly projectId: string }>,
+): ReadonlyArray<string> {
+  const projectId = activeKey ? byKey.get(activeKey)?.projectId : undefined;
+  if (projectId === undefined) return activeKey ? [activeKey] : [];
+  return tabs.filter((key) => byKey.get(key)?.projectId === projectId);
+}
+
 /** The strip shows this many tabs; the rest wait in its overflow menu. */
 export const MAX_VISIBLE_THREAD_TABS = 6;
 

@@ -36,11 +36,13 @@ export function usePreviewPanelInlineSize(
   // The cap is measured against the stored width, so the measurement starts from it too: the
   // first render cannot wait a tick for the hook below to report it.
   const [desiredWidth, setDesiredWidth] = useState(() => readStoredWidth(storageKey, defaultWidth));
+  const dragging = useRef(false);
   const { maxWidth, remeasure } = useViewportClampedMaxWidth(
     hostRef,
     options.enabled ?? true,
     options.container,
     desiredWidth,
+    dragging,
   );
   const size = useResizableWidth({
     storageKey,
@@ -50,15 +52,26 @@ export function usePreviewPanelInlineSize(
     edge: "left",
   });
   if (size.desiredWidth !== desiredWidth) setDesiredWidth(size.desiredWidth);
+  const endDrag =
+    <E>(handler: (event: E) => void) =>
+    (event: E) => {
+      dragging.current = false;
+      handler(event);
+    };
   return {
     width: size.width,
     handlers: {
-      ...size.handlers,
       onPointerDown: (event) => {
-        // A skipped cap (below) is caught up before the drag's clamp reads it.
+        // A skipped cap (below) is caught up before the drag's clamp reads it, and every cap
+        // is stored while the drag lasts: the dragged width is not the stored one.
+        dragging.current = true;
         remeasure();
         size.handlers.onPointerDown(event);
       },
+      onPointerMove: size.handlers.onPointerMove,
+      onPointerUp: endDrag(size.handlers.onPointerUp),
+      onPointerCancel: endDrag(size.handlers.onPointerCancel),
+      onLostPointerCapture: endDrag(size.handlers.onLostPointerCapture),
     },
   };
 }
@@ -68,6 +81,7 @@ function useViewportClampedMaxWidth(
   enabled: boolean,
   container: HTMLElement | null | undefined,
   desiredWidth: number,
+  dragging: RefObject<boolean>,
 ): { readonly maxWidth: number; readonly remeasure: () => void } {
   const [maxWidth, setMaxWidth] = useState(() =>
     getPreviewPanelMaxWidth(typeof window === "undefined" ? 1280 : window.innerWidth),
@@ -88,7 +102,9 @@ function useViewportClampedMaxWidth(
     // would otherwise never be allowed to let go.
     const measure = () => {
       const next = cap();
-      setMaxWidth((current) => (keepsPanelUnclamped(current, next, desiredWidth) ? current : next));
+      setMaxWidth((current) =>
+        !dragging.current && keepsPanelUnclamped(current, next, desiredWidth) ? current : next,
+      );
     };
     // Measure before first paint: the persisted width must be clamped against
     // the row on the initial render, not one observer tick later (the panel
@@ -111,7 +127,7 @@ function useViewportClampedMaxWidth(
     };
     // Another stored width (a thread switch, a drag) is clamped against the live cap: the effect
     // re-runs for it, and the measurement above is unconditional.
-  }, [container, hostRef, enabled, desiredWidth]);
+  }, [container, hostRef, enabled, desiredWidth, dragging]);
   return { maxWidth, remeasure };
 }
 

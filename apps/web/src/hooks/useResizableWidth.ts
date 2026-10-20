@@ -55,7 +55,9 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
     return Math.max(minWidth, Math.min(maxWidth, value));
   };
 
-  const readWidth = () => clamp(readStoredWidth(storageKey, defaultWidth));
+  // Unclamped: the render clamps, so a width stored while the bounds were tight comes back
+  // once they loosen instead of being cut down for good at the read.
+  const readWidth = () => readStoredWidth(storageKey, defaultWidth);
   const [widthState, setWidthState] = useState(() => ({ storageKey, width: readWidth() }));
   if (widthState.storageKey !== storageKey) {
     setWidthState({ storageKey, width: readWidth() });

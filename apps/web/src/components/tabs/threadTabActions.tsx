@@ -5,8 +5,7 @@ import { ArrowLeftToLineIcon, ArrowRightToLineIcon, XIcon } from "lucide-react";
 import { useThreadTabsStore } from "../../threadTabsStore";
 import { readViewCodeThreadShell } from "../../state/viewcodeThreadShells";
 import { ITEM_ICON_CLASS, type CommandPaletteActionItem } from "../CommandPalette.logic";
-import { projectThreadTabs } from "./OpenThreadTabs";
-import { adjacentThreadTab, closeThreadTab } from "./threadTabs.logic";
+import { adjacentThreadTab, closeThreadTab, projectThreadTabs } from "./threadTabs.logic";
 
 /**
  * Command-palette entries for the open-thread tabs. Same behaviour as the shortcuts in
