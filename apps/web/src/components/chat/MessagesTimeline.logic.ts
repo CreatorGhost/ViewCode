@@ -1980,7 +1980,9 @@ function timelineRowIsWorkLog(row: MessagesTimelineRow | undefined): boolean {
     (row.kind === "work" ||
       row.kind === "work-toggle" ||
       row.kind === "work-live" ||
-      row.kind === "thinking")
+      row.kind === "thinking" ||
+      // Spawned agents are steps of the turn and sit on its rail.
+      (row.kind === "event" && row.projectedItem.item.type === "subagent"))
   );
 }
 

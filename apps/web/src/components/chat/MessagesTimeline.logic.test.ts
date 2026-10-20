@@ -4782,7 +4782,7 @@ describe("linked timeline resources", () => {
   });
   const common = { isWorking: false, turnDiffSummaries: [], supportsConversationRollback: false };
 
-  it("previews a thought and separates subagent cards from worklogs", () => {
+  it("previews a thought and keeps spawned agents on the turn's rail", () => {
     const rows = deriveMessagesTimelineRows({
       ...common,
       timelineEntries: [
@@ -4821,7 +4821,8 @@ describe("linked timeline resources", () => {
     expect(rows.find((row) => row.kind === "work")).toMatchObject({
       displayLabel: "First paragraph. Second paragraph.",
     });
-    expect(rows.find((row) => row.kind === "work")?.continuesWorkLog).toBeUndefined();
+    expect(rows.find((row) => row.kind === "work")?.continuesWorkLog).toBe(true);
+    expect(rows.find((row) => row.id === "child")).toMatchObject({ followsWorkLog: true });
     expect(rows.find((row) => row.id === "child")?.continuesWorkLog).toBeUndefined();
   });
 
