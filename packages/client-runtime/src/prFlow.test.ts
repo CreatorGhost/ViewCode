@@ -24,7 +24,7 @@ import {
   prFlowResolvingNumber,
   prFlowRunningCommand,
   prFlowStatus,
-} from "./prFlow";
+} from "./prFlow.ts";
 
 const OPEN = {
   number: 128,

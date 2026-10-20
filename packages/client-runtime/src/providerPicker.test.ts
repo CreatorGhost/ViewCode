@@ -6,7 +6,7 @@ import {
   providerPickerPatch,
   resolveOnboardingAgentDrivers,
   selectedProviderPickerDrivers,
-} from "./providerPicker";
+} from "./providerPicker.ts";
 
 const driver = (value: string) => ProviderDriverKind.make(value);
 

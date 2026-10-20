@@ -4,7 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   preferredPullRequestMergeMethod,
   resolvePullRequestDetailMergeMethod,
-} from "./pullRequestMergeMethod";
+} from "./pullRequestMergeMethod.ts";
 
 const detail = (
   offered: ReadonlyArray<PullRequestMergeMethod>,
