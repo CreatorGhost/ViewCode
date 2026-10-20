@@ -145,7 +145,9 @@ of the old database only after a verified upgrade and separate backup.
   that happens to report running. A failed child yields a useful failure reply,
   and a stopped/interrupted run does not produce a spurious completion reply.
 - Agents can reach only their own tree (root thread and all descendants). A hop
-  limit (24) stops ping-pong loops; spawning counts as a hop too. V2 uses native
+  limit (24) stops ping-pong loops; spawning counts as a hop too. `t3_thread_send`
+  reaches any thread, so it enforces the same 24 from durable messages instead:
+  sends from other threads since the user last wrote in the caller. V2 uses native
   `lineage.rootThreadId` and rejects missing, ambiguous or archived destinations.
   Do not infer tree authority from an optional legacy parent alias alone.
 - Child creation and its own worktree use upstream delegated tasks. Their native

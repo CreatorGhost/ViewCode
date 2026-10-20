@@ -354,9 +354,22 @@ launching again. `create_threads` remains the batch option for a shared checkout
 ### `t3_thread_list`
 
 Lists durable thread shells in one project, newest first: `projectId` when
-given, else the calling thread's project. Callers can filter by title, run
+given, else the calling thread's project. `allProjects: true` lists every
+project in the environment instead; each item then carries its `projectId` and
+the result's `projectId` is null. Callers can filter by title, run
 status, and whether app-owned sub-agent threads are included. Results are
 bounded and offset-paginated. Deleted threads are never listed.
+
+### `t3_attention_list`
+
+Answers "does anything need me, and how are my agents doing" for the whole
+environment (or one `projectId`), child agents included. Each entry is one
+thread with `attention`: `approval` or `question` (the shared needs-you rule,
+longest waiting first), then `failed` and `working` (newest first). A pending
+approval or question always shows; failures and work show only while the
+thread is neither settled nor snoozed. The caller's own thread is left out.
+Entries carry a ready `[title](t3-thread://v1/<threadId>)` link. The tool only
+reads; answering a request stays with the user.
 
 ### `t3_thread_read`
 
@@ -366,7 +379,8 @@ default `messages` view returns user messages, assistant
 messages, and proposed plans. The `activity` view also returns summarized tool,
 reasoning, checkpoint, handoff, and runtime-request items. Large item text is
 bounded and reports whether it was truncated. `afterPosition` and
-`nextPosition` support incremental reads.
+`nextPosition` support incremental reads. `recent: true` returns the newest
+`limit` items instead, with `hasMore` meaning older items exist.
 
 Thread and message results include required `createdBy` and `creationSource`
 provenance. MCP-created threads and user-role messages use `createdBy: "agent"`
@@ -415,6 +429,11 @@ Sends a message to any ordinary or delegated thread in the environment:
 The target runtime and interaction modes may not be broader than the caller's.
 Stable command and message IDs are derived from `clientRequestId` for
 idempotent retries.
+
+A loop guard refuses the send with `send_loop_guard` once the calling thread has
+received 24 messages from other threads since the user last wrote in it, the
+same hop budget as agent messaging. The count lives in the durable messages
+(`senderThreadId`), so a restart does not reset it; a user message does.
 
 ### `t3_thread_wait`
 

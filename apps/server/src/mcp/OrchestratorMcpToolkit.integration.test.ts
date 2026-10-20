@@ -21,6 +21,7 @@ import {
   OrchestratorMcpThreadInterruptResult,
   OrchestratorMcpThreadListResult,
   OrchestratorMcpThreadReadResult,
+  OrchestratorMcpAttentionListResult,
   OrchestratorMcpThreadSendResult,
   OrchestratorMcpThreadWaitResult,
   ProjectId,
@@ -121,6 +122,7 @@ const decodeThreadInterruptResult = Schema.decodeUnknownEffect(
 );
 const decodeThreadListResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadListResult);
 const decodeThreadReadResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadReadResult);
+const decodeAttentionListResult = Schema.decodeUnknownEffect(OrchestratorMcpAttentionListResult);
 const decodeThreadSendResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadSendResult);
 const decodeThreadWaitResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadWaitResult);
 const decodeThreadUpdateResult = Schema.decodeUnknownEffect(ThreadMetadataMcpUpdateResult);
@@ -1623,6 +1625,55 @@ describe("orchestrator MCP toolkit", () => {
               (yield* invoke("t3_thread_read", { threadId: parentThreadId })).structuredContent,
             ).pipe(Effect.orDie);
             expect(waitingRead.thread.needsYou).toBe("question");
+            const fullRead = yield* decodeThreadReadResult(
+              (yield* invoke("t3_thread_read", {
+                threadId: parentThreadId,
+                view: "activity",
+                limit: 100,
+              })).structuredContent,
+            ).pipe(Effect.orDie);
+            const recentRead = yield* decodeThreadReadResult(
+              (yield* invoke("t3_thread_read", {
+                threadId: parentThreadId,
+                view: "activity",
+                recent: true,
+                limit: 2,
+              })).structuredContent,
+            ).pipe(Effect.orDie);
+            expect(fullRead.items.length).toBeGreaterThan(2);
+            expect(recentRead.items.map((item) => item.position)).toEqual(
+              fullRead.items.slice(-2).map((item) => item.position),
+            );
+            expect(recentRead.hasMore).toBe(true);
+            expect(
+              declaredFailure(
+                yield* invoke("t3_thread_read", {
+                  threadId: parentThreadId,
+                  recent: true,
+                  afterPosition: 0,
+                }),
+              ),
+            ).toMatchObject({ code: "invalid_request" });
+            // An outside client sees the asking thread first; the asking thread itself
+            // leaves itself out, since it is busy making the call.
+            const outsideClient = {
+              ...invocation,
+              thread: undefined,
+              client: { sessionId: "attention-client", label: "Attention", access: "read-only" },
+            } as const;
+            const attention = yield* decodeAttentionListResult(
+              (yield* invokeAs(outsideClient, "t3_attention_list", {})).structuredContent,
+            ).pipe(Effect.orDie);
+            expect(attention.needsYou).toBeGreaterThanOrEqual(1);
+            expect(attention.items[0]).toMatchObject({
+              threadId: parentThreadId,
+              attention: "question",
+              link: expect.stringContaining(`(t3-thread://v1/${parentThreadId})`),
+            });
+            const ownAttention = yield* decodeAttentionListResult(
+              (yield* invoke("t3_attention_list", {})).structuredContent,
+            ).pipe(Effect.orDie);
+            expect(ownAttention.items.map((item) => item.threadId)).not.toContain(parentThreadId);
             const waitingList = yield* decodeThreadListResult(
               (yield* invoke("t3_thread_list", { limit: 100 })).structuredContent,
             ).pipe(Effect.orDie);
@@ -2318,6 +2369,14 @@ describe("orchestrator MCP toolkit", () => {
               title: "Metadata-managed thread",
               linkedPullRequest: linked.linkedPullRequest,
             });
+            const environmentList = yield* decodeThreadListResult(
+              (yield* invoke("t3_thread_list", { allProjects: true, limit: 100 }))
+                .structuredContent,
+            ).pipe(Effect.orDie);
+            expect(environmentList.projectId).toBeNull();
+            expect(
+              environmentList.threads.find((thread) => thread.threadId === emptyThread.threadId),
+            ).toMatchObject({ projectId });
             const metadataListCall = yield* invoke("t3_thread_list", { limit: 100 });
             const metadataList = yield* decodeThreadListResult(
               metadataListCall.structuredContent,
