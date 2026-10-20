@@ -7,6 +7,7 @@ import type {
 import * as DateTime from "effect/DateTime";
 
 import { backgroundWorkHoldsCompletion } from "./orchestrationV2PendingBackgroundWork.ts";
+import { runtimeRequestNeed } from "./threadNeedsYou.ts";
 
 export type AgentAwarenessPhase =
   | "starting"
@@ -86,15 +87,9 @@ export function projectThreadAwarenessV2(
 function resolveThreadAwarenessPhaseV2(
   thread: ProjectThreadAwarenessV2Input["thread"],
 ): AgentAwarenessPhase | null {
-  if (thread.pendingRuntimeRequest?.kind === "user_input") {
-    return "waiting_for_input";
-  }
-  if (
-    thread.pendingRuntimeRequest !== null &&
-    thread.pendingRuntimeRequest.kind !== "auth_refresh"
-  ) {
-    return "waiting_for_approval";
-  }
+  const need = runtimeRequestNeed(thread.pendingRuntimeRequest?.kind);
+  if (need === "question") return "waiting_for_input";
+  if (need === "approval") return "waiting_for_approval";
   switch (thread.activityRunStatus ?? thread.status) {
     case "preparing":
     case "starting":

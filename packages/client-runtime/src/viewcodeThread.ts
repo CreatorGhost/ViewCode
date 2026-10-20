@@ -21,6 +21,7 @@ import {
   type ThreadKind,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
+import { runtimeRequestNeed } from "@t3tools/shared/threadNeedsYou";
 import * as DateTime from "effect/DateTime";
 
 export interface OrchestrationMessage {
@@ -231,11 +232,8 @@ export function viewCodeThreadShell(thread: OrchestrationV2ThreadShell): ViewCod
       ? { latestMessagePreview: thread.latestVisibleMessage.text }
       : {}),
     latestUserMessageAt: nullableIso(thread.latestUserMessageAt),
-    hasPendingApprovals:
-      thread.pendingRuntimeRequest !== null &&
-      thread.pendingRuntimeRequest.kind !== "user_input" &&
-      thread.pendingRuntimeRequest.kind !== "auth_refresh",
-    hasPendingUserInput: thread.pendingRuntimeRequest?.kind === "user_input",
+    hasPendingApprovals: runtimeRequestNeed(thread.pendingRuntimeRequest?.kind) === "approval",
+    hasPendingUserInput: runtimeRequestNeed(thread.pendingRuntimeRequest?.kind) === "question",
     hasActionableProposedPlan: thread.hasActionableProposedPlan,
     parentThreadId: thread.parentThreadId ?? thread.lineage.parentThreadId,
     kind: thread.kind ?? null,
@@ -504,9 +502,11 @@ export function viewCodeThread(projection: OrchestrationV2ThreadProjection): Vie
           },
     latestUserMessageAt: messages.findLast((message) => message.role === "user")?.createdAt ?? null,
     hasPendingApprovals: pendingRequests.some(
-      (request) => request.kind !== "user_input" && request.kind !== "auth_refresh",
+      (request) => runtimeRequestNeed(request.kind) === "approval",
     ),
-    hasPendingUserInput: pendingRequests.some((request) => request.kind === "user_input"),
+    hasPendingUserInput: pendingRequests.some(
+      (request) => runtimeRequestNeed(request.kind) === "question",
+    ),
     hasActionableProposedPlan: projection.plans.some(
       (plan) =>
         plan.kind === "proposed_plan" && (plan.status === "active" || plan.status === "draft"),

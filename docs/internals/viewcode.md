@@ -1058,6 +1058,12 @@ upstream coverage/lint ratchet is retained behind that policy until the existing
 ViewCode screens are validated for compiler adoption. Android foldable/rail and
 layout changes stay excluded with the navigation redesign.
 
+"Needs you" has one definition, `packages/shared/src/threadNeedsYou.ts`: a pending
+approval or question, never a failure or a ready plan. Thread shells, sidebar and
+rail counts, mobile Home, phone notifications and MCP `needsYou` all call it.
+Count a thread's own need; a lead shows its blocked agents' need without counting
+them again.
+
 Remote use is a first-class path. Do not bake origins into Vite bundles.
 Pairing links are credentials: never consume the owner's link while testing or
 publish it in logs/reports.

@@ -236,6 +236,14 @@ describe("buildRailProjectActivity", () => {
     });
   });
 
+  it("counts a blocked child agent once, and its lead by what the lead itself is doing", () => {
+    const activity = buildRailProjectActivity(groups, [
+      thread(local, "p1", { pendingSubagentRequest: "approval", runtime: runtime("running") }),
+      thread(local, "p1", { hasPendingApprovals: true }),
+    ]);
+    expect(Object.fromEntries(activity)).toEqual({ app: { needsYou: 1, working: 1 } });
+  });
+
   it("skips archived threads, side chats, failures, and projects outside the folders", () => {
     const activity = buildRailProjectActivity(groups, [
       thread(local, "p1", { hasPendingApprovals: true, archivedAt: "2026-01-01T00:00:00.000Z" }),

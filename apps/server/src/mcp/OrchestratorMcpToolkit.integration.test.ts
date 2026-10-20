@@ -1619,6 +1619,16 @@ describe("orchestrator MCP toolkit", () => {
             expect(threadShellFromProjection(asked).pendingRuntimeRequest).toMatchObject({
               kind: "user_input",
             });
+            const waitingRead = yield* decodeThreadReadResult(
+              (yield* invoke("t3_thread_read", { threadId: parentThreadId })).structuredContent,
+            ).pipe(Effect.orDie);
+            expect(waitingRead.thread.needsYou).toBe("question");
+            const waitingList = yield* decodeThreadListResult(
+              (yield* invoke("t3_thread_list", { limit: 100 })).structuredContent,
+            ).pipe(Effect.orDie);
+            expect(
+              waitingList.threads.find((thread) => thread.threadId === parentThreadId)?.needsYou,
+            ).toBe("question");
             yield* secretRequests.answer({
               threadId: parentThreadId,
               turnItemId: card.id,
@@ -1634,6 +1644,10 @@ describe("orchestrator MCP toolkit", () => {
             expect(
               (yield* orchestrator.getThreadShell(parentThreadId))?.pendingRuntimeRequest ?? null,
             ).toBeNull();
+            const answeredRead = yield* decodeThreadReadResult(
+              (yield* invoke("t3_thread_read", { threadId: parentThreadId })).structuredContent,
+            ).pipe(Effect.orDie);
+            expect(answeredRead.thread.needsYou).toBeNull();
             expect(secretResult.secretRef).toMatch(/^secret-ref:[0-9a-f]{32}$/);
             const received = [
               ...secretCall.content.map((part) => ("text" in part ? part.text : "")),

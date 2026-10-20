@@ -318,6 +318,10 @@ export const OrchestratorMcpThreadPullRequest = Schema.Struct({
 });
 export type OrchestratorMcpThreadPullRequest = typeof OrchestratorMcpThreadPullRequest.Type;
 
+/** The shared "needs you" rule: a pending approval or question, never a failure. */
+export const OrchestratorMcpThreadNeed = Schema.Literals(["approval", "question"]);
+export type OrchestratorMcpThreadNeed = typeof OrchestratorMcpThreadNeed.Type;
+
 export const OrchestratorMcpThreadListItem = Schema.Struct({
   threadId: ThreadId,
   title: Schema.String,
@@ -336,6 +340,8 @@ export const OrchestratorMcpThreadListItem = Schema.Struct({
   settledAt: Schema.NullOr(IsoDateTime),
   snoozed: Schema.Boolean,
   snoozedUntil: Schema.NullOr(IsoDateTime),
+  /** What the thread itself waits on the user for. Missing on older servers. */
+  needsYou: Schema.optional(Schema.NullOr(OrchestratorMcpThreadNeed)),
   parentThreadId: Schema.NullOr(ThreadId),
   relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
   itemCount: NonNegativeInt,
@@ -394,6 +400,8 @@ export const OrchestratorMcpThreadDetail = Schema.Struct({
   settledAt: Schema.NullOr(IsoDateTime),
   snoozed: Schema.Boolean,
   snoozedUntil: Schema.NullOr(IsoDateTime),
+  /** What the thread itself waits on the user for. Missing on older servers. */
+  needsYou: Schema.optional(Schema.NullOr(OrchestratorMcpThreadNeed)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

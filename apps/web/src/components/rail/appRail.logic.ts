@@ -1,4 +1,5 @@
 import type { EnvironmentId, ServerProviderUsageWindow } from "@t3tools/contracts";
+import { threadOwnNeed } from "@t3tools/shared/threadNeedsYou";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
@@ -115,9 +116,15 @@ export function buildRailProjectActivity(
   const activity = new Map<string, { needsYou: number; working: number }>();
   for (const thread of threads) {
     if (thread.archivedAt !== null || thread.kind === "sidechat") continue;
-    const status = resolveSidebarThreadStatus(thread);
-    const needsYou = status === "approval" || status === "input";
-    if (!needsYou && status !== "working") continue;
+    // Each thread counts only its own wait: a blocked child agent is listed itself, so
+    // counting it again on its lead would report one wait as two.
+    const needsYou = threadOwnNeed(thread) !== null;
+    if (
+      !needsYou &&
+      resolveSidebarThreadStatus({ ...thread, pendingSubagentRequest: null }) !== "working"
+    ) {
+      continue;
+    }
     const groupKey = groupKeyByPhysicalKey.get(`${thread.environmentId}:${thread.projectId}`);
     if (groupKey === undefined) continue;
     const entry = activity.get(groupKey) ?? { needsYou: 0, working: 0 };

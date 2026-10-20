@@ -383,6 +383,9 @@ List and read results report `snoozed` and `snoozedUntil`, and
 `t3_thread_list` filters on `snoozed`. The server's `isSnoozed` follows the
 client's `effectiveSnoozed`, so agents and the sidebar agree: a snoozed thread
 wakes early when it has a pending request, fails, or completes after the snooze.
+They also report `needsYou`: `approval` or `question` while the thread itself waits
+on the user, otherwise null. It is the same rule the clients' **Needs you** counts
+use; a failure is not a need, and a blocked child agent reports on its own thread.
 
 ### `t3_thread_update`
 
