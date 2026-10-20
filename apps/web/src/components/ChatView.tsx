@@ -7,6 +7,12 @@ import { useViewCodeThreadBanners } from "./chat/useViewCodeThreadBanners";
 import { threadShellHasStarted } from "./ChatView.logic";
 import { useThreadGoalControls } from "./chat/useThreadGoalControls";
 import { ThreadGoalDialog } from "./chat/ThreadGoalDialog";
+import { clearThreadGoalRunRequest, useThreadGoalEditorStore } from "./chat/threadGoal";
+import {
+  threadGoalRunMessage,
+  threadGoalRunState,
+  threadGoalRunTitle,
+} from "@t3tools/client-runtime/threadGoal";
 import { WorkspacePageHeader } from "./WorkspacePageHeader";
 import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
@@ -1642,8 +1648,9 @@ export default function ChatView(props: ChatViewProps) {
     const thread = await ensurePanelThread();
     if (thread) useRightPanelStore.getState().open(thread, "review");
   });
+  const threadGoalKey = activeThreadKey ?? routeThreadKey;
   const threadGoalControls = useThreadGoalControls({
-    threadKey: activeThreadKey ?? routeThreadKey,
+    threadKey: threadGoalKey,
     environmentId: activeThreadRef?.environmentId ?? null,
     threadId: activeThreadRef?.threadId ?? null,
     isServerThread,
@@ -4784,6 +4791,7 @@ export default function ChatView(props: ChatViewProps) {
     composerRestingRef.current = resting;
   };
   const onComposerRestingChangeStable = useStableCallback(onComposerRestingChange);
+  const [composerSendAvailable, setComposerSendAvailable] = useState(false);
   useLayoutEffect(() => {
     if (!composerOverlayElement) return;
     composerTimelineInsetRef.current = 0;
@@ -6394,6 +6402,18 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
     const threadIdForSend = activeThread.id;
+    // Read at send time, not from this render: Save & run sets a draft's goal in the same tick.
+    const draftThreadForSend =
+      routeKind === "server"
+        ? useComposerDraftStore.getState().getDraftSessionByRef(routeThreadRef)
+        : draftId
+          ? useComposerDraftStore.getState().getDraftSession(draftId)
+          : null;
+    // "Start working on the goal." says nothing about the work, so a thread it creates is named
+    // after the goal; without a titleSeed the server keeps that title instead of generating one.
+    const goalRunTitle = isLocalDraftThread
+      ? threadGoalRunTitle({ message: trimmed, goal: draftThreadForSend?.goal })
+      : null;
     const isFirstMessage = !sendQueuesBehindSetup && (!isServerThread || activeMessageCount === 0);
     const baseBranchForWorktree =
       isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath
@@ -6671,9 +6691,10 @@ export default function ChatView(props: ChatViewProps) {
           ),
         );
         const title = truncate(
-          assistantCitationsToPlainText(stripInlineContextReferences(trimmed)).trim() ||
-            composerAttachmentsSnapshot[0]?.name ||
-            "New thread",
+          goalRunTitle ??
+            (assistantCitationsToPlainText(stripInlineContextReferences(trimmed)).trim() ||
+              composerAttachmentsSnapshot[0]?.name ||
+              "New thread"),
         );
         promptRef.current = "";
         clearComposerDraftContent(composerDraftTarget);
@@ -6722,13 +6743,13 @@ export default function ChatView(props: ChatViewProps) {
                       ...(context && supportsInlineMessageContext ? { context } : {}),
                     },
                     modelSelection: target.selection,
-                    titleSeed: title,
+                    ...(goalRunTitle === null ? { titleSeed: title } : {}),
                     runtimeMode,
                     interactionMode: target.interactionMode,
                     bootstrap: {
                       createThread: {
-                        ...(draftThread?.goal ? { goal: draftThread.goal } : {}),
-                        ...(draftThread?.debugMode ? { debugMode: true } : {}),
+                        ...(draftThreadForSend?.goal ? { goal: draftThreadForSend.goal } : {}),
+                        ...(draftThreadForSend?.debugMode ? { debugMode: true } : {}),
                         projectId: activeProject.id,
                         title,
                         modelSelection: target.selection,
@@ -6948,7 +6969,7 @@ export default function ChatView(props: ChatViewProps) {
         titleSeed = "New thread";
       }
     }
-    const title = truncate(titleSeed);
+    const title = truncate(goalRunTitle ?? titleSeed);
     const threadCreateModelSelection = createModelSelection(
       ctxSelectedModelSelection.instanceId,
       ctxSelectedModel || activeProjectDefaultModelSelection?.model || DEFAULT_MODEL,
@@ -7009,8 +7030,8 @@ export default function ChatView(props: ChatViewProps) {
               ...(isLocalDraftThread
                 ? {
                     createThread: {
-                      ...(draftThread?.goal ? { goal: draftThread.goal } : {}),
-                      ...(draftThread?.debugMode ? { debugMode: true } : {}),
+                      ...(draftThreadForSend?.goal ? { goal: draftThreadForSend.goal } : {}),
+                      ...(draftThreadForSend?.debugMode ? { debugMode: true } : {}),
                       projectId: activeProject.id,
                       title,
                       modelSelection: threadCreateModelSelection,
@@ -7076,7 +7097,7 @@ export default function ChatView(props: ChatViewProps) {
             })(),
           },
           modelSelection: ctxSelectedModelSelection,
-          titleSeed: title,
+          ...(goalRunTitle === null ? { titleSeed: title } : {}),
           runtimeMode,
           interactionMode: sendInteractionMode,
           dispatchMode: turnDispatchMode,
@@ -7648,6 +7669,71 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onWorktreeSetupWorkLocallyStable = useStableCallback(onWorktreeSetupWorkLocally);
   const onComposerSendStable = useStableCallback(onSend);
+  const goalRunBlockedReason = !canOperateThread
+    ? "This connection cannot change threads."
+    : activeEnvironmentUnavailable
+      ? "Not connected to this environment."
+      : threadDetailLoading || !clientSettingsHydrated || isRevertingCheckpoint
+        ? "The thread is not ready to send yet."
+        : !composerSendAvailable
+          ? "No model is available to send to."
+          : !isServerThread && composerHasDraftContent
+            ? "Send or clear the message in the composer first."
+            : null;
+  const threadGoalRun = threadGoalRunState({
+    goal: threadGoalControls.goal,
+    working: isWorking,
+    canSend: goalRunBlockedReason === null,
+  });
+  const sendThreadGoalRunMessage = (goalChanged: boolean) => {
+    const text = threadGoalRunMessage({ hasMessages: activeMessageCount > 0, goalChanged });
+    if (isServerThread) {
+      void sendStandaloneCommand(text, "Couldn't start the goal.");
+      return;
+    }
+    // A draft's first message creates the thread, so it takes the composer's first-send path.
+    // The text goes into the composer, so a send that stops early leaves it visible, not hidden.
+    promptRef.current = text;
+    setComposerDraftPrompt(composerDraftTarget, text);
+    void onSend();
+  };
+  const onRunThreadGoalStable = useStableCallback(() => {
+    if (threadGoalRun === "ready") sendThreadGoalRunMessage(false);
+  });
+  const onSaveAndRunThreadGoal = async (objective: string, changed: boolean) => {
+    if (changed && !(await threadGoalControls.saveGoal(objective))) return;
+    sendThreadGoalRunMessage(changed);
+  };
+  // `/goal run` and the command palette ask through the goal store; this view owns the send.
+  const goalRunRequested = useThreadGoalEditorStore(
+    (state) => state.runThreadKey !== null && state.runThreadKey === threadGoalKey,
+  );
+  const runRequestedThreadGoal = useStableCallback(() => {
+    clearThreadGoalRunRequest();
+    if (threadGoalRun === "ready") {
+      sendThreadGoalRunMessage(false);
+      return;
+    }
+    toastManager.add(
+      stackedThreadToast({
+        type: "info",
+        title:
+          threadGoalRun === "no-goal"
+            ? "This thread has no goal yet"
+            : threadGoalRun === "paused"
+              ? "The goal is paused"
+              : threadGoalRun === "working"
+                ? "Run the goal when the current turn ends"
+                : "Can't run the goal right now",
+        ...(threadGoalRun === "blocked" && goalRunBlockedReason !== null
+          ? { description: goalRunBlockedReason }
+          : {}),
+      }),
+    );
+  });
+  useEffect(() => {
+    if (goalRunRequested) runRequestedThreadGoal();
+  }, [goalRunRequested, runRequestedThreadGoal]);
   const sendPreviewAnnotation = (
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
@@ -7964,6 +8050,9 @@ export default function ChatView(props: ChatViewProps) {
           <ChatHeader
             threadGoal={threadGoalControls.goal}
             onEditThreadGoal={threadGoalControls.openEditor}
+            threadGoalRunState={threadGoalRun}
+            threadGoalRunBlockedReason={goalRunBlockedReason}
+            onRunThreadGoal={onRunThreadGoalStable}
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}
             isServerThread={isServerThread}
@@ -8470,6 +8559,7 @@ export default function ChatView(props: ChatViewProps) {
                               timelineOverflows={timelineOverflows}
                               onComposerOverlayHeightChange={publishComposerOverlayHeightStable}
                               onRestingChange={onComposerRestingChangeStable}
+                              onSendAvailableChange={setComposerSendAvailable}
                               promptRef={promptRef}
                               composerImagesRef={composerImagesRef}
                               composerFilesRef={composerFilesRef}
@@ -8826,7 +8916,12 @@ export default function ChatView(props: ChatViewProps) {
           goal={threadGoalControls.goal}
           canPause={isServerThread}
           disabled={isEnsuringPanelThread}
-          onSave={threadGoalControls.saveGoal}
+          run={{
+            working: isWorking,
+            blockedReason: goalRunBlockedReason,
+            onSaveAndRun: (objective, changed) => void onSaveAndRunThreadGoal(objective, changed),
+          }}
+          onSave={(objective) => void threadGoalControls.saveGoal(objective)}
           onSetPaused={threadGoalControls.setGoalPaused}
           onClear={threadGoalControls.clearGoal}
           onClose={threadGoalControls.closeEditor}

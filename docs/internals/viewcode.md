@@ -634,6 +634,10 @@ message being the Resolve prompt, while its run is active, means the agent is re
 ViewCode goals/debug guidance are provider-neutral thread metadata, available
 through clients and MCP. Hide upstream's native `/goal` UI to avoid competing
 goal state. Debug guidance must not alter the provider's own permission policy.
+Run goal is a client action, not a server command: it sends the visible
+`threadGoalRunMessage` (client-runtime `threadGoal.ts`) through the normal send
+path, so history shows what started the turn and a draft is created by its first
+send as usual. There is no loop or queue behind it.
 
 ## Desktop local mode and phone access
 
