@@ -1,6 +1,7 @@
 import type { OrchestrationThreadShell } from "@t3tools/client-runtime/viewcodeThread";
 
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
+import { NoProviderNotice } from "./NoProviderNotice";
 import { isGlassEffectAPIAvailable } from "expo-glass-effect";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
@@ -952,6 +953,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           environmentId={props.environmentId}
           thread={props.selectedThread}
         />
+        <NoProviderNotice environmentId={props.environmentId} />
         {!voiceInput.isBusy &&
         composerMenu.trigger &&
         (composerMenu.items.length > 0 || composerMenu.trigger.kind === "pull-request") ? (

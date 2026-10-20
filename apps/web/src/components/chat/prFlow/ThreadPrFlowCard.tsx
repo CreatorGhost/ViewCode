@@ -20,7 +20,7 @@ import {
   prFlowChipShown,
   prFlowFolded,
   prFlowTimelinePullRequests,
-} from "./prFlowModel";
+} from "@t3tools/client-runtime/pr-flow";
 import { PrFlowStatusChip } from "./PrFlowStatusChip";
 import { useThreadPrFlow } from "./useThreadPrFlow";
 

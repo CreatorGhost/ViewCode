@@ -19,7 +19,10 @@ import {
   DialogTitle,
 } from "../ui/dialog";
 import { ProviderPicker } from "./ProviderPicker";
-import { resolveProviderPickerPrompt, type ProviderPickerPrompt } from "./providerSetup.logic";
+import {
+  resolveProviderPickerPrompt,
+  type ProviderPickerPrompt,
+} from "@t3tools/client-runtime/provider-picker";
 
 // Closing the picker holds for the rest of this page's life, per environment,
 // so moving between chats does not reopen it.

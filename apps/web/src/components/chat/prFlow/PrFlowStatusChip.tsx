@@ -1,7 +1,7 @@
 import { cn } from "~/lib/utils";
 import { PullRequestGlyph } from "../../pullRequest/pullRequestIcons";
 import { Spinner } from "../../ui/spinner";
-import { type PrFlow, prFlowReached, prFlowStatus } from "./prFlowModel";
+import { type PrFlow, prFlowReached, prFlowStatus } from "@t3tools/client-runtime/pr-flow";
 
 const TONE_DOT = {
   warning: "bg-warning",
