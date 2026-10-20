@@ -38,7 +38,8 @@ also applies here and takes precedence over your selection and project settings.
 The same question comes back in a chat whenever the computer it runs on has no
 provider turned on, even if this browser finished setup before. If you close it,
 the chat shows **No AI tool is turned on** with a **Turn one on** link to reopen it.
-A connection that cannot change settings only sees the notice.
+A connection that cannot change settings only sees the notice. The mobile app shows the
+same notice above the composer, and **Turn one on** lists the providers there.
 
 Select an enabled provider's setup action to install it or sign in on the selected
 computer. Other providers remain off until you enable them. Existing installations

@@ -601,7 +601,8 @@ this restriction disappear.
 
 ## Pull request card
 
-The chat's PR card (`apps/web/src/components/chat/prFlow/`) combines the thread's PR link
+The chat's PR card (`apps/web/src/components/chat/prFlow/`, model in client-runtime `prFlow.ts`
+so the phone feed's `ThreadPullRequestFeedCard` reads the same phases and actions) combines the thread's PR link
 snapshot (the host's state), the host's checks, the agent's running command, and
 `GitWorkflowService.pullRequestGraph`, which reads commits and conflicts from the thread's
 checkout. That read must never write to the worktree, so conflicts come from

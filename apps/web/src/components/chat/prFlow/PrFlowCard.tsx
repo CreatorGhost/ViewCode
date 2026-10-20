@@ -28,10 +28,10 @@ import {
   type PrFlowConflicts,
   type PrFlowRow,
   type PrFlowStatus,
-  prFlowAwaitingReview,
+  prFlowFooterAction,
   prFlowReached,
   prFlowStatus,
-} from "./prFlowModel";
+} from "@t3tools/client-runtime/pr-flow";
 
 export interface PrFlowCardActions {
   readonly onResolveConflicts?: (() => void) | undefined;
@@ -827,8 +827,8 @@ function FooterAction({
   onMerge,
   onOpen,
 }: { flow: PrFlow } & PrFlowCardActions) {
-  switch (flow.phase) {
-    case "conflicts":
+  switch (prFlowFooterAction(flow)) {
+    case "resolve":
       return onResolveConflicts === undefined ? null : (
         <Button size="xs" variant="secondary" onClick={onResolveConflicts}>
           Resolve conflicts
@@ -842,23 +842,17 @@ function FooterAction({
           {flow.phase === "resolving" ? "Resolving" : "Merging"}
         </Button>
       );
-    case "ready":
-      if (
-        !flow.draft &&
-        (flow.checks?.failed ?? 0) === 0 &&
-        !prFlowAwaitingReview(flow) &&
-        onMerge !== undefined
-      ) {
-        return (
-          <Button size="xs" onClick={onMerge}>
-            Merge
-          </Button>
-        );
-      }
+    case "merge":
+      return onMerge === undefined ? (
+        <OpenButton flow={flow} onOpen={onOpen} />
+      ) : (
+        <Button size="xs" onClick={onMerge}>
+          Merge
+        </Button>
+      );
+    case "open":
       return <OpenButton flow={flow} onOpen={onOpen} />;
-    case "merged":
-      return <OpenButton flow={flow} onOpen={onOpen} />;
-    default:
+    case null:
       return null;
   }
 }

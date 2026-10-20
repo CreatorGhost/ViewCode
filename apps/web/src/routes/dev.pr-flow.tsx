@@ -10,7 +10,7 @@ import {
   type PrFlowSources,
   prFlowCreating,
   prFlowFromPullRequest,
-} from "~/components/chat/prFlow/prFlowModel";
+} from "@t3tools/client-runtime/pr-flow";
 import { Button } from "~/components/ui/button";
 import { observeChipGlide } from "~/lib/chipGlide";
 

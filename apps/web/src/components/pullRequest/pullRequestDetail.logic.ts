@@ -1,3 +1,4 @@
+import { preferredPullRequestMergeMethod } from "@t3tools/client-runtime/pull-request-merge-method";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import * as Schema from "effect/Schema";
 
@@ -62,10 +63,7 @@ export function resolvePullRequestMergeMethod(
   projectDefault: PullRequestMergeMethod | undefined,
   lastSelected: PullRequestMergeMethod,
 ): PullRequestMergeMethod {
-  for (const method of [current, projectDefault, lastSelected]) {
-    if (method && allowed.includes(method)) return method;
-  }
-  return allowed[0] ?? "merge";
+  return preferredPullRequestMergeMethod(allowed, [current, projectDefault, lastSelected]);
 }
 
 export type PullRequestPrimaryControl =

@@ -157,6 +157,30 @@ export function prFlowAwaitingReview(flow: PrFlow): boolean {
   return flow.reviewDecision === "review-required" || flow.reviewDecision === "changes-requested";
 }
 
+export type PrFlowFooterAction = "resolve" | "resolving" | "merging" | "merge" | "open" | null;
+
+/**
+ * The one action the card offers for where the flow is. Merge only when nothing would make the
+ * host refuse it: a draft, a failed check or a review still owed get the link to the host instead.
+ */
+export function prFlowFooterAction(flow: PrFlow): PrFlowFooterAction {
+  switch (flow.phase) {
+    case "conflicts":
+      return "resolve";
+    case "resolving":
+    case "merging":
+      return flow.phase;
+    case "ready":
+      return !flow.draft && (flow.checks?.failed ?? 0) === 0 && !prFlowAwaitingReview(flow)
+        ? "merge"
+        : "open";
+    case "merged":
+      return "open";
+    default:
+      return null;
+  }
+}
+
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 export function prFlowStatus(flow: PrFlow): PrFlowStatus {
@@ -463,7 +487,8 @@ function prFlowRows(
   }
   const commits = [...graph.head, ...graph.base]
     .map((commit, order) => ({ commit, order, at: Date.parse(commit.authoredAt) }))
-    .toSorted((left, right) =>
+    // `.sort()` on the fresh mapped array: this runs on Hermes, which has no `toSorted`.
+    .sort((left, right) =>
       Number.isFinite(left.at) && Number.isFinite(right.at) && left.at !== right.at
         ? right.at - left.at
         : left.order - right.order,
@@ -691,7 +716,7 @@ export function prFlowTimelinePullRequests(links: ReadonlyArray<ThreadPullReques
   return {
     pullRequests: visible
       .map((link) => ({ key: threadPullRequestKeyOf(link), anchorAt: link.linkedAt }))
-      .toSorted((left, right) => Date.parse(left.anchorAt) - Date.parse(right.anchorAt)),
+      .sort((left, right) => Date.parse(left.anchorAt) - Date.parse(right.anchorAt)),
     currentKey: current === null ? null : threadPullRequestKeyOf(current),
   };
 }
