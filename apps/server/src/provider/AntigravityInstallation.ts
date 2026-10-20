@@ -27,6 +27,7 @@ import * as NodeFSP from "node:fs/promises";
 
 import * as ServerConfig from "../config.ts";
 import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
+import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import { openZipArchive } from "../zipArchive.ts";
 import { makeAntigravityAcpRuntime } from "./acp/AntigravityAcpSupport.ts";
 import {
@@ -109,13 +110,30 @@ export class AntigravityInstallation extends Context.Service<
     AntigravityInstallation,
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;
-      return yield* makeAntigravityInstallation({ baseDir: config.baseDir });
+      const path = yield* Path.Path;
+      const home = yield* HostProcess.HomeDirectory;
+      // Only the default home replaced T3 Code's; isolated and custom homes
+      // (dev worktrees, tests) never look outside themselves.
+      const isDefaultHome =
+        path.resolve(config.baseDir) ===
+        path.resolve(home, viewcodeProductPolicy.homeDirectoryName);
+      return yield* makeAntigravityInstallation({
+        baseDir: config.baseDir,
+        ...(isDefaultHome
+          ? { legacyBaseDir: path.join(home, viewcodeProductPolicy.upstreamHomeDirectoryName) }
+          : {}),
+      });
     }),
   );
 }
 
 export interface AntigravityInstallationOptions {
   readonly baseDir: string;
+  /**
+   * T3 Code's home. Its managed runtime is only read, to explain why it is not
+   * used: that app may still run it, and its pinned release differs from ours.
+   */
+  readonly legacyBaseDir?: string;
   readonly releaseAsset?: AntigravityReleaseAsset | null;
   readonly validate?: (
     executable: AntigravityExecutable,
@@ -157,17 +175,24 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
   const platform = yield* HostProcess.Platform;
   const arch = yield* HostProcess.Architecture;
   const environment = yield* HostProcess.Environment;
+  const homeDirectory = yield* HostProcess.HomeDirectory;
   const releaseAsset =
     options.releaseAsset === undefined
       ? resolveAntigravityReleaseAsset(platform, arch)
       : options.releaseAsset;
   const names = executableNames(platform);
-  const managedDirectory = path.join(
-    options.baseDir,
-    "tools",
-    "antigravity-acp",
-    `${platform}-${arch}`,
-  );
+  const managedDirectoryIn = (baseDir: string) =>
+    path.join(baseDir, "tools", "antigravity-acp", `${platform}-${arch}`);
+  const managedDirectory = managedDirectoryIn(options.baseDir);
+  const legacyManagedDirectory =
+    options.legacyBaseDir === undefined ||
+    path.resolve(managedDirectoryIn(options.legacyBaseDir)) === path.resolve(managedDirectory)
+      ? null
+      : managedDirectoryIn(options.legacyBaseDir);
+  const displayPath = (filePath: string) =>
+    platform !== "win32" && filePath.startsWith(`${homeDirectory}${path.sep}`)
+      ? `~${filePath.slice(homeDirectory.length)}`
+      : filePath;
   const versionsDirectory = path.join(managedDirectory, "versions");
   const activePath = path.join(managedDirectory, "active.json");
   const gate = yield* Semaphore.make(1);
@@ -283,23 +308,50 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
       .map((directory) => path.resolve(directory, binary));
   };
 
+  const notInstalledDetail = Effect.fn("AntigravityInstallation.notInstalledDetail")(function* (
+    asset: AntigravityReleaseAsset,
+  ) {
+    // T3 Code's runtime is only read, and an unreadable one counts as absent.
+    if (legacyManagedDirectory !== null) {
+      const active = yield* readRecord(
+        path.join(legacyManagedDirectory, "active.json"),
+        ActiveRelease,
+      ).pipe(Effect.option);
+      if (Option.isSome(active)) {
+        const version = yield* readRecord(
+          path.join(legacyManagedDirectory, "versions", active.value.releaseId, RELEASE_RECORD),
+          InstalledRelease,
+        ).pipe(
+          Effect.map((record) => (record.version.trim() ? ` (${record.version.trim()})` : "")),
+          Effect.orElseSucceed(() => ""),
+        );
+        return `Antigravity is not installed in ViewCode. T3 Code's runtime${version} at ${displayPath(legacyManagedDirectory)} isn't used: ViewCode needs its own copy (${asset.version}). Install Antigravity to download it.`;
+      }
+    }
+    return `Antigravity is not installed. Checked ${displayPath(managedDirectory)} and PATH for ${names.executable}. Install it in this environment or set a custom executable path.`;
+  });
+
   const resolve: AntigravityInstallationService["resolve"] = Effect.fn(
     "AntigravityInstallation.resolve",
   )(
     function* (binaryPath?: string, processEnvironment?: NodeJS.ProcessEnv) {
       const override = binaryPath?.trim();
       if (override) {
-        const candidates =
-          path.isAbsolute(override) || override.includes("/") || override.includes("\\")
-            ? [path.resolve(override)]
-            : pathCandidates(override, processEnvironment);
+        const pathLike =
+          path.isAbsolute(override) || override.includes("/") || override.includes("\\");
+        const candidates = pathLike
+          ? [path.resolve(override)]
+          : pathCandidates(override, processEnvironment);
         for (const candidate of candidates) {
           const selected = yield* fromExternal(candidate, "override");
           if (selected) return selected;
         }
+        const location = pathLike
+          ? `at ${displayPath(path.resolve(override))}`
+          : `${override} on PATH`;
         return yield* installationError(
           "resolve",
-          "The custom Antigravity executable or its localharness_external sibling is missing or not executable.",
+          `The custom Antigravity executable ${location} or its ${names.harness} sibling is missing or not executable.`,
         );
       }
       if (yield* fs.exists(activePath)) {
@@ -313,7 +365,7 @@ export const makeAntigravityInstallation = Effect.fn("AntigravityInstallation.ma
       return yield* installationError(
         "resolve",
         releaseAsset
-          ? "Antigravity is not installed. Install it in this environment or set a custom executable path."
+          ? yield* notInstalledDetail(releaseAsset)
           : `Google does not publish an Antigravity runtime for ${platform}-${arch}. Use a supported environment or a custom executable.`,
       );
     },

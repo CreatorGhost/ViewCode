@@ -731,6 +731,11 @@ goal state. Debug guidance must not alter the provider's own permission policy.
   isolating only the server database still lets concurrent desktop runs share
   IndexedDB and authentication state. The default home uses its installed v2 profile; native first-run local-storage
   migration reads the v1 profile without sharing its locked Chromium databases.
+- Managed runtimes under `<home>/tools` are never reused from or migrated out of
+  `~/.t3`: T3 Code may still run them, and it pins different releases. When
+  Antigravity does not resolve, `AntigravityInstallation.ts` only reads T3's
+  install record to name it in the error, and only for the default home, so
+  dev and test homes never look outside themselves.
 - The same holds for the mobile app (`apps/mobile/app.config.ts`): package
   `com.viewcode.app[.dev|.preview]`, schemes `viewcode[-dev|-preview]`, so it
   installs beside the store T3 Code app without Android asking which app opens
