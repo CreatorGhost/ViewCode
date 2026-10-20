@@ -1018,7 +1018,7 @@ describe("MessagesTimeline subagents", () => {
       ] as const
     ).flatMap((scenario) => [1, 2].map((count) => ({ ...scenario, count }))),
   )(
-    "shows $count $status subagents with '$preview', grouping only multiple agents",
+    "shows $count $status subagents with '$preview', one row per agent",
     async ({ status, progress, result, preview, count }) => {
       const onOpenThread = vi.fn();
       await renderTimeline(
@@ -1051,18 +1051,13 @@ describe("MessagesTimeline subagents", () => {
         { onOpenThread },
       );
       const children = () => buttons("Open Package audit");
+      const header = () => buttons(/^Spawned \d+ agents/);
       // A settled run folds its work behind a "Worked for" summary.
       const fold = buttons(/^Worked for/)[0];
       if (fold) await click(fold);
-      if (count > 1) {
-        // Collapsed, each agent is a branch row that opens its thread, without its preview.
-        expect(children()).toHaveLength(count);
-        expect(text()).not.toContain(preview);
-        await click(button(`${count} subagents`));
-      } else {
-        expect(buttons(`${count} subagents`)).toHaveLength(0);
-      }
+      // Every agent gets its own row with what it is doing, grouped or not.
       expect(children()).toHaveLength(count);
+      expect(header()).toHaveLength(count > 1 ? 1 : 0);
       expect(text()).toContain(preview);
       expect(text()).not.toContain("Inspect the package");
       if (result?.trim() && result !== preview) expect(text()).not.toContain(result);
@@ -1070,8 +1065,12 @@ describe("MessagesTimeline subagents", () => {
       await click(children()[0]!);
       expect(onOpenThread).toHaveBeenCalledWith("thread-subagent-1");
       if (count > 1) {
-        await click(button(`${count} subagents`));
-        await vi.waitFor(() => expect(text()).not.toContain(preview));
+        // The header expands to the full cards and folds back to the rows.
+        await click(header()[0]!);
+        expect(header()[0]!.getAttribute("aria-expanded")).toBe("true");
+        expect(children()).toHaveLength(count);
+        await click(header()[0]!);
+        await vi.waitFor(() => expect(header()[0]!.getAttribute("aria-expanded")).toBe("false"));
         expect(children()).toHaveLength(count);
       }
     },

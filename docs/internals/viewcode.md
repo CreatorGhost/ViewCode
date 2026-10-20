@@ -1076,6 +1076,16 @@ adopt the same model.
 - Motion keys on liveness, not mounting: rows, chips and the finish mark
   animate only for work that is live (or a turn that ended in the last 3 s),
   because virtualization remounts history as it scrolls back into view.
+- Spawned agents are steps on the rail, one row each (`SpawnedAgentLog.tsx`).
+  Their live state comes from the lead's projection and agent control, never a
+  subscription per child.
+- A provider-native subagent's thread never gets a run of its own, so status
+  read from the child's shell alone says Idle while the lead runs it. The
+  lead's shell lists the agents it is running (`runningSubagentThreadIds`),
+  and `resolveEffectiveAgentStatus` in `client-runtime/state/childAgents.ts`
+  reads that before the child's own run. Every surface that shows an agent's
+  status (rail, Active agents bar, sidebar) goes through it. Such an agent has
+  nothing of its own to stop: only Stop all, which stops the lead, applies.
 
 ## Multi-surface and product policy
 
