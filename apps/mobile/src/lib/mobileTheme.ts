@@ -9,6 +9,7 @@ import {
   MOBILE_THEME_IDS as SHARED_MOBILE_THEME_IDS,
   VIEWCODE_TEAL_THEME_ID,
   VIEWCODE_THEME_ID,
+  isViewCodeThemeId,
   type MobilePaletteThemeId,
   type MobileThemeId as SharedMobileThemeId,
   type ThemeAppearance,
@@ -489,13 +490,16 @@ export function getMobileThemeVariables(
   const colors = getMobileThemeColors(themeId, appearance);
   // Mobile settings groups and fallback materials use tonal fills where desktop
   // uses outlined cards. Raise flat or near-flat desktop surfaces above the sheet so grouped
-  // content keeps a visible boundary. Regular cards retain their desktop surface.
+  // content keeps a visible boundary. Regular cards retain their desktop surface. The ViewCode
+  // family always raises them: on web its composer and settings groups are the one step above
+  // the sheet, and Obsidian's sheet and window are close enough that the contrast test alone
+  // would leave the phone's composer on the screen colour.
   const groupedCard =
     themeId === DEFAULT_MOBILE_THEME_ID
       ? appearance === "light"
         ? colors.toolbarControlHover
         : colors.sidebarRowActive
-      : !surfacesDiffer(colors.surface, colors.chrome)
+      : isViewCodeThemeId(themeId) || !surfacesDiffer(colors.surface, colors.chrome)
         ? colors.surfaceRaised
         : colors.surface;
   const mobileColors =

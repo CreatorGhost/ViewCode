@@ -189,9 +189,15 @@ import {
 } from "./thread-work-log";
 import { ThreadSubagentGroup } from "./thread-subagent-group";
 import { appendPendingThreadMessages, type PendingThreadFeedEntry } from "./pending-thread-feed";
+import { insertPullRequestFeedEntries, type PullRequestFeedEntry } from "./pull-request-feed";
+import { ThreadPullRequestFeedCard } from "./ThreadPullRequestFeedCard";
+import { useThreadFeedPullRequests } from "./useThreadPullRequestFlow";
 
-/** What the list renders: the presented feed with agent chatter folded behind headers. */
-type RenderedFeedEntry = PendingThreadFeedEntry | AgentChatterHeaderEntry;
+/**
+ * What the list renders: the presented feed with agent chatter folded behind headers, and the
+ * thread's pull request cards where it got each one.
+ */
+type RenderedFeedEntry = PendingThreadFeedEntry | AgentChatterHeaderEntry | PullRequestFeedEntry;
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
 import { htmlRenderRowHeight, ThreadHtmlRender } from "./HtmlRenderWebView";
 import { ReviewFindingsFeedCard } from "../review/findings/ReviewFindingsFeedCard";
@@ -1547,6 +1553,17 @@ function renderFeedEntry(
     );
   }
 
+  if (entry.type === "pull-request") {
+    return (
+      <ThreadPullRequestFeedCard
+        environmentId={props.environmentId}
+        threadId={props.threadId}
+        pullRequestKey={entry.pullRequestKey}
+        current={entry.current}
+      />
+    );
+  }
+
   if (entry.type === "review-findings") {
     return (
       <ReviewFindingsFeedCard
@@ -2672,9 +2689,19 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     ],
   );
   const working = props.activeWorkStartedAt !== null;
-  const { entries: renderedFeed, memberIds: chatterMemberIds } = useMemo(
+  const { entries: chatterFeed, memberIds: chatterMemberIds } = useMemo(
     () => groupAgentChatter(presentedFeed, { overrides: agentChatterOverrides, working }),
     [presentedFeed, agentChatterOverrides, working],
+  );
+  const feedPullRequests = useThreadFeedPullRequests(
+    useMemo(
+      () => ({ environmentId: props.environmentId, threadId: props.threadId }),
+      [props.environmentId, props.threadId],
+    ),
+  );
+  const renderedFeed = useMemo(
+    () => insertPullRequestFeedEntries(chatterFeed, feedPullRequests),
+    [chatterFeed, feedPullRequests],
   );
   // "Your last message" chip: shown while the user's last message has scrolled
   // out of view above. LegendList reports viewable rows only when membership

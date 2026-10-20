@@ -2,8 +2,11 @@ import { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/
 import { describe, expect, it } from "vite-plus/test";
 
 import { isFreshFirstRunWorkspace, resolveFirstRunDecision } from "../../onboarding/firstRun.logic";
-import { providerPickerPatch } from "../../onboarding/onboardingAgents.logic";
-import { resolveProviderPickerPrompt, resolveProviderSetup } from "./providerSetup.logic";
+import {
+  providerPickerPatch,
+  resolveProviderPickerPrompt,
+  resolveProviderSetup,
+} from "@t3tools/client-runtime/provider-picker";
 
 const codex = ProviderDriverKind.make("codex");
 const claude = ProviderDriverKind.make("claudeAgent");

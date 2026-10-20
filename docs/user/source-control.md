@@ -170,6 +170,11 @@ The card reads commits and conflicts from the thread's checkout, against the bas
 last fetched it. Conflict details need Git 2.38 or later; with an older Git the card only says that
 the pull request conflicts.
 
+The mobile app shows the same cards in the chat, without the commit map: the pull request's state,
+its checks, conflicts, **Resolve conflicts** and **Merge** (after a confirmation). Merge uses the
+project's default merge method, else the one you last chose on the phone, else squash, whichever
+the repository allows. Folding on the phone lasts until the app restarts.
+
 An existing fork PR can appear beside the branch even if you pushed without setting an upstream.
 If its badge is missing because several remotes hold that branch, set the branch's upstream to
 the intended remote with `git branch --set-upstream-to=<remote>/<branch>`.

@@ -17,13 +17,14 @@ import {
   prFlowCommandStep,
   prFlowCreating,
   prFlowCreatingPhase,
+  prFlowFooterAction,
   prFlowFromPullRequest,
   prFlowGitCommandsKey,
   prFlowResolvePrompt,
   prFlowResolvingNumber,
   prFlowRunningCommand,
   prFlowStatus,
-} from "./prFlowModel";
+} from "./prFlow.ts";
 
 const OPEN = {
   number: 128,
@@ -90,6 +91,8 @@ const GRAPH: GitPullRequestGraph = {
   resolving: null,
   viewerName: "Ada",
 };
+
+type PrFlowPullRequestInput = Parameters<typeof prFlowFromPullRequest>[0];
 
 const IDLE: PrFlowSources = {
   graph: null,
@@ -336,6 +339,30 @@ describe("prFlowFromPullRequest", () => {
 
   it("has nothing to show for a closed pull request", () => {
     expect(prFlowFromPullRequest({ ...OPEN, state: "closed" }, IDLE)).toBeNull();
+  });
+});
+
+describe("prFlowFooterAction", () => {
+  const action = (pr: Partial<PrFlowPullRequestInput>, sources: Partial<PrFlowSources> = {}) => {
+    const flow = prFlowFromPullRequest({ ...OPEN, ...pr }, { ...IDLE, ...sources });
+    return flow === null ? undefined : prFlowFooterAction(flow);
+  };
+
+  it("offers Merge only when the host would take it", () => {
+    expect(action({ mergeability: "mergeable" })).toBe("merge");
+    expect(action({ isDraft: true })).toBe("open");
+    expect(action({ reviewDecision: "review-required" })).toBe("open");
+    expect(action({ reviewDecision: "changes-requested" })).toBe("open");
+    expect(action({}, { checks: [check("ci", "failure")] })).toBe("open");
+    expect(action({}, { checks: [check("ci", "pending")] })).toBeNull();
+  });
+
+  it("asks to resolve conflicts, then shows the work in flight", () => {
+    expect(action({ mergeability: "conflicting" })).toBe("resolve");
+    expect(action({ mergeability: "conflicting" }, { resolveAsked: true })).toBe("resolving");
+    expect(action({}, { merging: true })).toBe("merging");
+    expect(action({ state: "merged" })).toBe("open");
+    expect(action({ state: "closed" })).toBeUndefined();
   });
 });
 
