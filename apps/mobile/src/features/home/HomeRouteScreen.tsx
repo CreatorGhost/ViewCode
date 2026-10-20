@@ -31,6 +31,7 @@ import { useThreadListActions } from "./useThreadListActions";
 import { HomeScopeFilters } from "./HomeScopeFilters";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 import { useRockBotMenu } from "../rockbot/useRockBotMenu";
+import { holdsOnlyRockBot } from "@t3tools/client-runtime/state/rockbot";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
@@ -104,10 +105,21 @@ export function HomeRouteScreen() {
         threads,
         pendingTasks,
         projectSortOrder: listOptions.projectSortOrder,
-      }).map((scope) => ({
-        key: scope.key,
-        label: scope.title,
-      })),
+      })
+        // The scratch folder RockBot alone uses is RockBot's, opened from its header button.
+        .filter((scope) => {
+          if (!scope.projects.some((project) => project.isScratch)) return true;
+          const members = new Set(
+            scope.projectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`),
+          );
+          if (pendingTasks.some((task) => members.has(`${task.environmentId}:${task.projectId}`)))
+            return true;
+          return !holdsOnlyRockBot(members, threads, (thread) => thread.kind);
+        })
+        .map((scope) => ({
+          key: scope.key,
+          label: scope.title,
+        })),
     [
       listOptions.projectGroupingMode,
       listOptions.projectSortOrder,

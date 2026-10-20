@@ -5,7 +5,14 @@ import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings } from "./NotificationSettings";
 import { PRIVACY_POLICY_URL } from "../../legalLinks";
-import { ArchiveIcon, ArchiveX, CheckIcon, ChevronRightIcon, SettingsIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ArchiveX,
+  BotIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  SettingsIcon,
+} from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
@@ -1436,8 +1443,7 @@ export function AppearanceSettingsPanel() {
             </div>
           }
           resetAction={
-            settings.panelAnimationMs !==
-            DEFAULT_UNIFIED_SETTINGS.panelAnimationMs ? (
+            settings.panelAnimationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationMs ? (
               <SettingResetButton
                 label="panel animations"
                 onClick={() =>
@@ -3441,12 +3447,26 @@ export function ArchivedThreadsPanel() {
         readonly project: (typeof archivedProjects)[number];
         readonly title: string;
         readonly threads: Array<(typeof threads)[number]>;
+        readonly rockBot?: true;
       }
     >();
     for (const project of archivedProjects) {
       const projectThreads: Array<(typeof threads)[number]> = [];
       for (const thread of threads) {
         if (thread.projectId === project.id && thread.environmentId === project.environmentId) {
+          // RockBot chats run in the scratch folder but are filed under RockBot.
+          if (thread.source.kind === "orchestrator") {
+            const rockBot = groups.get("rockbot");
+            if (rockBot) rockBot.threads.push(thread);
+            else
+              groups.set("rockbot", {
+                project,
+                title: "RockBot",
+                threads: [thread],
+                rockBot: true,
+              });
+            continue;
+          }
           projectThreads.push(thread);
         }
       }
@@ -3558,12 +3578,12 @@ export function ArchivedThreadsPanel() {
           />
         </SettingsSection>
       ) : (
-        archivedGroups.map(({ key, project, title, threads: projectThreads }, index) => (
+        archivedGroups.map(({ key, project, title, threads: projectThreads, rockBot }, index) => (
           <SettingsSection
             key={key}
             id={index === 0 ? searchableSetting("archive").id : undefined}
             title={title}
-            icon={<ProjectFavicon project={project} />}
+            icon={rockBot ? <BotIcon /> : <ProjectFavicon project={project} />}
           >
             {projectThreads.map((thread) => (
               <SettingsRow

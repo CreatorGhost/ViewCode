@@ -32,6 +32,33 @@ export function rockBotChatsIn<
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
+/**
+ * Whether a project folder holds RockBot chats and nothing the user started there.
+ * RockBot keeps its chats in the scratch folder only so its agent never runs in a
+ * repository, so such a folder is RockBot's, and lists hide it rather than show an
+ * empty "No project". Archived threads and side chats do not count.
+ */
+export function holdsOnlyRockBot<T extends RockBotFolderThread>(
+  memberProjectKeys: ReadonlySet<string>,
+  threads: ReadonlyArray<T>,
+  kindOf: (thread: T) => string | null | undefined,
+): boolean {
+  let rockBot = false;
+  for (const thread of threads) {
+    if (!memberProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)) continue;
+    const kind = kindOf(thread);
+    if (kind === "orchestrator") rockBot = true;
+    else if (kind == null && thread.archivedAt === null) return false;
+  }
+  return rockBot;
+}
+
+interface RockBotFolderThread {
+  readonly environmentId: string;
+  readonly projectId: string;
+  readonly archivedAt: string | null;
+}
+
 export function createRockBotEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
 ) {

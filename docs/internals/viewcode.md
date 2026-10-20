@@ -253,7 +253,11 @@ inside a repository, borrowing the latest project only where Scratch is unavaila
 and start on the latest thread's model. Project lists hide them: the web sidebar
 swaps its project tree for the chat list while one is open, the rail lights RockBot
 instead of a folder, and a folder pick leaves RockBot. Settlement candidates exclude
-them.
+them. Scratch is only their storage, so nothing names it for them: a chat's tab,
+rows, palette entry and mobile header say RockBot, its header offers no project
+tools, and a Scratch folder holding only RockBot chats (no live thread or draft of
+the user's) is left out of the rail, sidebar and mobile project filter
+(`holdsOnlyRockBot`).
 
 Its safety is the server's, not its prompt's. `McpToolAccess` refuses every writing
 tool to an orchestrator caller except the `sendsForUser` ones (`t3_thread_send`,

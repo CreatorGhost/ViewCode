@@ -1,5 +1,5 @@
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
-
 
 import { getThreadSortTimestamp } from "@t3tools/client-runtime/viewcodeThreadSort";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
@@ -38,7 +38,8 @@ export function buildHomeTerminalTargets(input: {
     { readonly thread: EnvironmentThreadShell; readonly timestamp: number }
   >();
   for (const thread of input.threads) {
-    if (thread.archivedAt !== null) continue;
+    // A RockBot chat runs in the scratch folder only to stay out of every repository.
+    if (thread.archivedAt !== null || isRockBot(thread)) continue;
     const scopeKey = scopeKeyByProjectKey.get(
       scopedProjectKey(thread.environmentId, thread.projectId),
     );
