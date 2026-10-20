@@ -859,7 +859,12 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   after mount (`PreviewPanelShell`, `PersistentThreadTerminals`) because the
   content's mount stalls the main thread for 100ms+ and otherwise ate the
   animation's first frames. Keep the three on one curve when touching any of
-  them.
+  them. The collapsed sidebar parks with its right edge under the rail's, not
+  fully off screen: the sheet moves the sidebar's width, so a park 3rem further
+  out made the two edges travel different distances on the same curve and
+  opened a strip between them for the whole motion (the "trail"). On window
+  glass the rail has no fill, so the part under it is clipped from the same
+  transitioned length instead.
 
 ## Account usage
 

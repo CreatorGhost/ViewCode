@@ -539,11 +539,18 @@ html[data-window-glass="true"] body {
 /*
  * App rail (components/rail/AppRail.tsx): a 3rem strip left of the thread sidebar. The
  * sidebar's fixed container is shifted right of it instead of editing ui/sidebar.tsx, and
- * collapsing slides the sidebar fully off screen, passing under the rail. Parking its edge
- * behind the rail showed through on window glass, where the rail has no fill. Below
- * THREAD_SIDEBAR_OVERLAY_BREAKPOINT (threadSidebarWidth.ts) the thread sidebar is already an
- * overlay sheet beside the rail.
+ * collapsing parks it with its right edge under the rail's: that is the same distance the
+ * content sheet moves, so the two edges stay together while they slide. Parking further off
+ * screen made the sidebar travel 3rem more than the sheet and opened a strip between them for
+ * the whole motion. On window glass the rail has no fill, so what would sit under it is clipped
+ * off instead. Both read one transitioned length. Below THREAD_SIDEBAR_OVERLAY_BREAKPOINT
+ * (threadSidebarWidth.ts) the thread sidebar is already an overlay sheet beside the rail.
  */
+@property --sidebar-x {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 @media (min-width: 768px) {
   [data-app-rail-layout] {
     --app-rail-width: 3rem;
@@ -557,10 +564,12 @@ html[data-window-glass="true"] body {
     width: var(--app-rail-width);
   }
   [data-app-rail-layout] [data-slot="sidebar-container"] {
-    left: var(--app-rail-width) !important;
+    --sidebar-x: var(--app-rail-width);
+    left: var(--sidebar-x) !important;
+    clip-path: inset(0 0 0 calc(var(--app-rail-width) - var(--sidebar-x)));
   }
   [data-app-rail-layout] [data-collapsible="offcanvas"] [data-slot="sidebar-container"] {
-    left: calc(var(--sidebar-width) * -1) !important;
+    --sidebar-x: calc(var(--app-rail-width) - var(--sidebar-width));
   }
   /* Without traffic lights the control group starts over the rail's top strip and runs past
      it, so content measured from the rail's edge clears what overhangs. */
@@ -977,6 +986,9 @@ html [data-app-rail] {
 [data-panel-animations="true"] [data-slot="sidebar"] [data-slot="sidebar-container"],
 [data-panel-animations="true"] [data-slot="sidebar"] [data-slot="sidebar-rail"] {
   transition-timing-function: var(--ease-drawer);
+}
+[data-panel-animations="true"][data-app-rail-layout] [data-slot="sidebar-container"] {
+  transition-property: --sidebar-x, width;
 }
 
 /* A folder's sort order lives in its menu, in every theme; the row stays a name. */
