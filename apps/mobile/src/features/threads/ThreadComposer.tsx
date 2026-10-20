@@ -130,6 +130,7 @@ import {
 import { RUNTIME_MODE_CHOICES } from "./thread-settings-options";
 import { useComposerCommandMenu } from "./use-composer-command-menu";
 import { useThreadGoalActions } from "./useThreadGoalActions";
+import { resolveProviderInteractionMode } from "../../state/legacy-plan-mode";
 import { isThreadGoalPaused, parseThreadSlashCommand } from "@t3tools/client-runtime/threadGoal";
 import {
   ComposerDictationCancelAction,
@@ -604,6 +605,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     environmentId: props.environmentId,
     thread: props.selectedThread,
     ...(interactionModeOffered ? { onUpdateInteractionMode: props.onUpdateInteractionMode } : {}),
+    run: {
+      working: isTurnRunning,
+      canSend: !modelUnavailable,
+      modelSelection: currentModelSelection,
+      runtimeMode: currentRuntimeMode,
+      interactionMode: resolveProviderInteractionMode(
+        selectedProviderStatus,
+        props.selectedThread.interactionMode,
+      ),
+    },
   });
   const { applyGoalAction, applyThreadCommand } = threadGoal;
   // T3 owns /usage-limits only where Limits has data for the selected provider;

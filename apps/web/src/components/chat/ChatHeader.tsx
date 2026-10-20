@@ -30,6 +30,7 @@ import { ProjectFavicon } from "../ProjectFavicon";
 import { OpenThreadTabs, type ActiveTabExtras } from "../tabs/OpenThreadTabs";
 import { useSplitPaneActions } from "../../splitView/SplitPaneContext";
 import { SplitPaneControls } from "../../splitView/SplitPaneControls";
+import type { ThreadGoalRunState } from "@t3tools/client-runtime/threadGoal";
 import { ThreadGoalChip } from "./ThreadGoalChip";
 import { cn } from "~/lib/utils";
 
@@ -39,6 +40,9 @@ interface ChatHeaderProps {
   activeThreadTitle: string;
   threadGoal?: ThreadGoal | null;
   onEditThreadGoal?: () => void;
+  threadGoalRunState?: ThreadGoalRunState;
+  threadGoalRunBlockedReason?: string | null;
+  onRunThreadGoal?: () => void;
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
   parentThreadLink: { threadId: ThreadId; title: string } | null;
@@ -72,6 +76,9 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadTitle,
   threadGoal,
   onEditThreadGoal,
+  threadGoalRunState,
+  threadGoalRunBlockedReason = null,
+  onRunThreadGoal,
   isServerThread,
   activeProject,
   rightPanelOpen,
@@ -297,7 +304,20 @@ export const ChatHeader = memo(function ChatHeader({
         </div>
       ) : null}
       {threadGoal && onEditThreadGoal ? (
-        <ThreadGoalChip goal={threadGoal} onEdit={onEditThreadGoal} disabled={!canOperateThread} />
+        <ThreadGoalChip
+          goal={threadGoal}
+          onEdit={onEditThreadGoal}
+          disabled={!canOperateThread}
+          {...(threadGoalRunState && onRunThreadGoal
+            ? {
+                run: {
+                  state: threadGoalRunState,
+                  blockedReason: threadGoalRunBlockedReason,
+                  onRun: onRunThreadGoal,
+                },
+              }
+            : {})}
+        />
       ) : null}
       {actions}
     </div>
