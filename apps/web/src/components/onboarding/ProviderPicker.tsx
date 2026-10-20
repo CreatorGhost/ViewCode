@@ -17,7 +17,7 @@ import {
   providerPickerPatch,
   selectedProviderPickerDrivers,
   type ProviderPickerRow,
-} from "../../onboarding/onboardingAgents.logic";
+} from "@t3tools/client-runtime/provider-picker";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";

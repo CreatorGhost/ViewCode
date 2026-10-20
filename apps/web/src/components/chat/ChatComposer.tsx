@@ -1672,6 +1672,8 @@ export interface ChatComposerProps {
   timelineOverflows: boolean;
   onComposerOverlayHeightChange: (height: number) => void;
   onRestingChange: (resting: boolean) => void;
+  /** Whether one plain message to the selected model could send now; Run goal reads it. */
+  onSendAvailableChange: (available: boolean) => void;
 
   promptRef: React.RefObject<string>;
   composerImagesRef: React.RefObject<ComposerImageAttachment[]>;
@@ -2039,6 +2041,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     timelineOverflows,
     onComposerOverlayHeightChange,
     onRestingChange,
+    onSendAvailableChange,
     promptRef,
     composerRef,
     composerImagesRef,
@@ -2745,7 +2748,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           type: "slash-command",
           command: "goal",
           label: "/goal",
-          description: "Set, edit, pause, resume or clear this thread's goal",
+          description: "Set, edit, run, pause, resume or clear this thread's goal",
         },
         {
           id: "slash:debug",
@@ -4966,6 +4969,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   useLayoutEffect(() => {
     onRestingChange(isComposerResting);
   }, [isComposerResting, onRestingChange]);
+  const singleSendAvailable =
+    multipleModelSelections === null && !noProviderAvailable && providerSendBlockReason === null;
+  useEffect(() => {
+    onSendAvailableChange(singleSendAvailable);
+  }, [singleSendAvailable, onSendAvailableChange]);
   const [restingActionsElement, setRestingActionsElement] = useState<HTMLDivElement | null>(null);
   const [restingActionsWidth, setRestingActionsWidth] = useState<number | null>(null);
   useLayoutEffect(() => {

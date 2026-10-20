@@ -54,7 +54,10 @@ function Controls({
   });
   return (
     <>
-      <button aria-label="dialog-save" onClick={() => controls.saveGoal("Changed from dialog")} />
+      <button
+        aria-label="dialog-save"
+        onClick={() => void controls.saveGoal("Changed from dialog")}
+      />
       <button
         aria-label="slash-goal"
         onClick={() => controls.applyGoalAction({ action: "set", objective: "Changed from slash" })}

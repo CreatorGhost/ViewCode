@@ -601,7 +601,8 @@ this restriction disappear.
 
 ## Pull request card
 
-The chat's PR card (`apps/web/src/components/chat/prFlow/`) combines the thread's PR link
+The chat's PR card (`apps/web/src/components/chat/prFlow/`, model in client-runtime `prFlow.ts`
+so the phone feed's `ThreadPullRequestFeedCard` reads the same phases and actions) combines the thread's PR link
 snapshot (the host's state), the host's checks, the agent's running command, and
 `GitWorkflowService.pullRequestGraph`, which reads commits and conflicts from the thread's
 checkout. That read must never write to the worktree, so conflicts come from
@@ -634,6 +635,10 @@ message being the Resolve prompt, while its run is active, means the agent is re
 ViewCode goals/debug guidance are provider-neutral thread metadata, available
 through clients and MCP. Hide upstream's native `/goal` UI to avoid competing
 goal state. Debug guidance must not alter the provider's own permission policy.
+Run goal is a client action, not a server command: it sends the visible
+`threadGoalRunMessage` (client-runtime `threadGoal.ts`) through the normal send
+path, so history shows what started the turn and a draft is created by its first
+send as usual. There is no loop or queue behind it.
 
 ## Desktop local mode and phone access
 

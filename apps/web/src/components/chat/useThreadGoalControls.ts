@@ -8,6 +8,7 @@ import { toastManager } from "../ui/toast";
 import {
   closeThreadGoalEditor,
   openThreadGoalEditor,
+  requestThreadGoalRun,
   useThreadGoalEditorStore,
   useUpdateThreadGoalState,
 } from "./threadGoal";
@@ -49,11 +50,12 @@ export function useThreadGoalControls(input: {
   const debugMode = isServerThread ? serverDebugMode === true : draftDebugMode === true;
   const editorOpen = useThreadGoalEditorStore((state) => state.threadKey === threadKey);
 
-  const change = (fields: {
+  /** Resolves true once the change is stored (a draft's at once). */
+  const change = async (fields: {
     readonly goal?: string | null;
     readonly goalPaused?: boolean;
     readonly debugMode?: boolean;
-  }) => {
+  }): Promise<boolean> => {
     // Record-only panel creation captures these fields before its receipt.
     // Block edits across all callers until that handover finishes; a later
     // reconciliation could overwrite another client's newer server values.
@@ -67,23 +69,22 @@ export function useThreadGoalControls(input: {
         title: "Preparing thread",
         description: "Try changing the goal or debug mode again in a moment.",
       });
-      return;
+      return false;
     }
     if (isServerThread) {
-      if (environmentId !== null && threadId !== null) {
-        updateServer(environmentId, threadId, fields);
-      }
-      return;
+      if (environmentId === null || threadId === null) return false;
+      return updateServer(environmentId, threadId, fields);
     }
-    if (draftTarget === null) return;
+    if (draftTarget === null) return false;
     setDraftThreadContext(draftTarget, {
       ...(fields.goal !== undefined ? { goal: fields.goal } : {}),
       ...(fields.debugMode !== undefined ? { debugMode: fields.debugMode } : {}),
     });
+    return true;
   };
 
   const setDebugMode = (next: boolean) => {
-    if (next !== debugMode) change({ debugMode: next });
+    if (next !== debugMode) void change({ debugMode: next });
   };
 
   const applyGoalAction = (action: GoalCommandAction) => {
@@ -93,6 +94,11 @@ export function useThreadGoalControls(input: {
     }
     if (action.action === "too-long") {
       toastManager.add({ type: "warning", title: "That goal is too long" });
+      return;
+    }
+    if (action.action === "run") {
+      // The chat view checks the goal and whether it can send, and says why when it can't.
+      requestThreadGoalRun(threadKey);
       return;
     }
     if ((action.action === "pause" || action.action === "resume") && goal === null) {
@@ -107,7 +113,7 @@ export function useThreadGoalControls(input: {
       return;
     }
     const update = threadGoalUpdate(action);
-    if (update !== null) change(update);
+    if (update !== null) void change(update);
   };
 
   return {
@@ -118,8 +124,9 @@ export function useThreadGoalControls(input: {
     editorOpen,
     openEditor: () => openThreadGoalEditor(threadKey),
     closeEditor: closeThreadGoalEditor,
+    requestRun: () => requestThreadGoalRun(threadKey),
     saveGoal: (objective: string) => change({ goal: objective }),
-    setGoalPaused: (paused: boolean) => change({ goalPaused: paused }),
-    clearGoal: () => change({ goal: null }),
+    setGoalPaused: (paused: boolean) => void change({ goalPaused: paused }),
+    clearGoal: () => void change({ goal: null }),
   };
 }

@@ -110,6 +110,7 @@ import { projectEnvironment } from "../../state/projects";
 import { sourceControlEnvironment } from "../../state/sourceControl";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ProjectCloneBanner } from "../../components/ProjectCloneBanner";
+import { NoProviderNotice } from "./NoProviderNotice";
 import {
   isModelSelectionUnavailable,
   describeUnavailableModelSelection,
@@ -1622,6 +1623,7 @@ export function NewTaskDraftScreen(props: {
           />
         </View>
       ) : null}
+      {selectedProject ? <NoProviderNotice environmentId={selectedProject.environmentId} /> : null}
       {/* Above the workspace controls so they keep their place relative to
           the composer when the banner goes away once the clone lands. */}
       {projectClone && projectClone.phase !== "done" && selectedProject ? (
