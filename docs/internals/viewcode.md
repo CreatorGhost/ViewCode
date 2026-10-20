@@ -27,6 +27,7 @@ excluded from ViewCode are gated, not deleted.
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Provider/model handoff and account switching      | Native `ContextHandoffService`/`ProviderSwitchService`; account-scoped continuation keys in the provider drivers (covered by `provider/viewcode/accountSwitchHandoff.test.ts`) |
 | Child agents, messaging and controls              | Native delegated tasks and lineage; `agents/AgentMessagingV2.ts`, `server/viewcodeAgentsLayers.ts`, MCP `toolkits/agents/`                                                     |
+| RockBot (`kind: "orchestrator"`)                  | `rockbot/RockBotService.ts`, `rockbot/RockBotConfirmation.ts`, MCP `McpToolAccess` gate, `ViewCodeTurnGuidance.ts`; shared `state/rockbot.ts`                                  |
 | Side chats and expiry                             | Native `thread.fork` with optional kind; `ViewCodeSidechatBootstrap.ts`, `ViewCodeSidechatExpiry.ts`, shared `state/sidechat.ts`                                               |
 | Exact user-message forks                          | Native `thread.fork` with optional `sourceMessageId`; `orchestration-v2/ViewCodeMessageFork.ts` snapshots a target-local conversation prefix                                   |
 | Goals and debug mode                              | `orchestration-v2/ViewCodeGoals.ts`, `ViewCodeTurnGuidance.ts`, MCP `toolkits/goal/`                                                                                           |
@@ -145,7 +146,9 @@ of the old database only after a verified upgrade and separate backup.
   that happens to report running. A failed child yields a useful failure reply,
   and a stopped/interrupted run does not produce a spurious completion reply.
 - Agents can reach only their own tree (root thread and all descendants). A hop
-  limit (24) stops ping-pong loops; spawning counts as a hop too. V2 uses native
+  limit (24) stops ping-pong loops; spawning counts as a hop too. `t3_thread_send`
+  reaches any thread, so it enforces the same 24 from durable messages instead:
+  sends from other threads since the user last wrote in the caller. V2 uses native
   `lineage.rootThreadId` and rejects missing, ambiguous or archived destinations.
   Do not infer tree authority from an optional legacy parent alias alone.
 - Child creation and its own worktree use upstream delegated tasks. Their native
@@ -230,11 +233,34 @@ source's current history during later handoffs.
 
 Side chats use native fork history with `kind: sidechat`. While a parent has no
 stable provider run, a bounded transcript bootstrap supplies context without
-changing ordinary fork stability rules. They remain outside delegated-child
-usage-resume walks. Idle side chats archive after 24 hours; the 10-minute sweep
+changing ordinary fork stability rules. A native side chat's projection lists
+the parent's history as inherited rows, so the dock and mobile sheet render only
+`sidechatMessages` (client-runtime `state/sidechat.ts`); the provider context
+and the full-thread view keep the inherited history. They remain outside
+delegated-child usage-resume walks. Idle side chats archive after 24 hours; the 10-minute sweep
 rechecks timestamps, active runs and pending requests under the native command
 lock before archiving. A stale sweep must not archive a newly active chat.
 Unarchive stays available through the normal native path.
+
+## RockBot
+
+RockBot is an ordinary thread with `kind: "orchestrator"`, one per environment
+(`RockBotService.open`, fixed id `rockbot`, so racing clients converge). It lives in
+the Scratch project so its agent never runs inside a repository, borrowing the latest
+project only where Scratch is unavailable, and it starts on the latest thread's model.
+Clients hide it from thread lists; the rail button, palette action and mobile header
+open it through `rockbot.open`. Settlement candidates exclude it.
+
+Its safety is the server's, not its prompt's. `McpToolAccess` refuses every writing
+tool to an orchestrator caller except the `sendsForUser` ones (`t3_thread_send`,
+`t3_pending_request_respond`), and those call `confirmIfRockBot` first. The
+confirmation copies the computer-use bridge: an `approval_request` with
+`viewcodeRockBotConfirm` in RockBot's own run, answered by the user through the
+normal approval UI, intercepted in `RuntimeRequestService` so no provider sees it,
+and polled by the waiting tool call. Do not route RockBot sends around this gate,
+and do not let a client or agent change a thread's `kind`; nothing an agent says can
+stand in for the click. A pending question dies with the tool call, and startup
+closes any left from a restart.
 
 ## Browser CLI
 
@@ -589,6 +615,12 @@ The branch's fork point is the parent of its oldest first-parent commit, not `gi
 After the agent merges the base in, `merge-base` would move to the base tip and the base commits
 that conflicted would disappear from the card.
 
+Each PR card is a `pull-request` timeline row placed by `insertPullRequestRows` at the link's
+`linkedAt`, which is when the thread got the link, not when the host created the pull request. A
+pull request linked by hand later sits where it was linked. Folded cards render from the link
+snapshot only and never mount the full card, so the graph and checks reads stay with the one
+current card per thread.
+
 "Resolving" survives reloads and other devices without stored state. The thread's latest user
 message being the Resolve prompt, while its run is active, means the agent is resolving.
 `prFlowResolvePrompt` and `prFlowResolvePromptNumber` must keep matching each other.
@@ -772,7 +804,10 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   classes; nothing re-renders when it changes. Layer strengths come from
   `shellTint.ts` per theme, written beside the palette by `themePalette.ts`; its
   test holds every built-in theme to readable contrast under the tint, so a new
-  theme must pass it. The composer change is limited to the glow's colour and
+  theme must pass it. The wash is a whisper (5 % to 1.5 % on dark): at the
+  design's 10 % the whole left side read as a grey-tinted plane (user decision).
+  The project colour stays strong on the rail tile, the folder badge, the edge
+  bar and the open row. The composer change is limited to the glow's colour and
   alphas; the halo can be turned off, the running light cannot.
 - Mobile's thread composer wears the same glow (`features/threads/composerChrome.ts`):
   the thread's project colour, else the theme accent (`--color-focus`), with the
@@ -785,7 +820,11 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   keyboard is up.
 - Project colour lives on the folder badges and the composer glow. The top bar and the
   tabs carry none (user decision: a coloured header read as a second layer).
-  The ViewCode default is pure-black neutrals.
+  The ViewCode default ("Obsidian", id `viewcode-teal`) is one neutral black family with no
+  cast: window `#080808`, sheet `#0e0e0e`, raised `#161616`. Separation comes from hairlines and
+  the composer, which is the one raised card; teal sits only on actions. Its light half is warm
+  paper, not the earlier blue-grey, so both halves read as one theme (user decision, after a
+  side-by-side against Synara).
 - The shell is one calm surface (user decision, after a tinted panel, a darker
   rail and a glowing Chrome-style tab read as forced, and full-length hairlines
   read as unfinished): title bar, rail and sidebar share the sidebar colour, and
@@ -1040,6 +1079,16 @@ adopt the same model.
 - Motion keys on liveness, not mounting: rows, chips and the finish mark
   animate only for work that is live (or a turn that ended in the last 3 s),
   because virtualization remounts history as it scrolls back into view.
+- Spawned agents are steps on the rail, one row each (`SpawnedAgentLog.tsx`).
+  Their live state comes from the lead's projection and agent control, never a
+  subscription per child.
+- A provider-native subagent's thread never gets a run of its own, so status
+  read from the child's shell alone says Idle while the lead runs it. The
+  lead's shell lists the agents it is running (`runningSubagentThreadIds`),
+  and `resolveEffectiveAgentStatus` in `client-runtime/state/childAgents.ts`
+  reads that before the child's own run. Every surface that shows an agent's
+  status (rail, Active agents bar, sidebar) goes through it. Such an agent has
+  nothing of its own to stop: only Stop all, which stops the lead, applies.
 
 ## Multi-surface and product policy
 
@@ -1051,6 +1100,12 @@ The mobile React Compiler remains off through `upstreamMobileCompiler`; the
 upstream coverage/lint ratchet is retained behind that policy until the existing
 ViewCode screens are validated for compiler adoption. Android foldable/rail and
 layout changes stay excluded with the navigation redesign.
+
+"Needs you" has one definition, `packages/shared/src/threadNeedsYou.ts`: a pending
+approval or question, never a failure or a ready plan. Thread shells, sidebar and
+rail counts, mobile Home, phone notifications and MCP `needsYou` all call it.
+Count a thread's own need; a lead shows its blocked agents' need without counting
+them again.
 
 Remote use is a first-class path. Do not bake origins into Vite bundles.
 Pairing links are credentials: never consume the owner's link while testing or
@@ -1103,6 +1158,12 @@ uses the optional installation package identity and preserves `viewcode-app`.
   looks fine. Use longhands (`animation-duration`, …) in `viewcode-theme.css`,
   and check animations against a production build (`vp build`, then run the
   server without `--dev-url` so it serves `apps/web/dist`).
+- **Markdown link schemes are allowed in more than one place.** Web
+  `ChatMarkdown.tsx` keeps its own sanitize schema and URL transform rather than
+  `@t3tools/shared/markdownPipeline`'s, and the mobile feed reads
+  `modules/t3-markdown-text/src/markdownLinks.ts`, not `src/lib/markdownLinks.ts`.
+  An app scheme such as `t3-thread:` must be allowed in each, or its links render
+  dead with no error.
 - **tailwind-merge** drops one of two background images in `cn(...)`; keep
   sparkle/gradient classes out of `cn()`.
 

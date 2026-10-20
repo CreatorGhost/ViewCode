@@ -21,6 +21,7 @@ import {
   OrchestratorMcpThreadInterruptResult,
   OrchestratorMcpThreadListResult,
   OrchestratorMcpThreadReadResult,
+  OrchestratorMcpAttentionListResult,
   OrchestratorMcpThreadSendResult,
   OrchestratorMcpThreadWaitResult,
   ProjectId,
@@ -79,6 +80,7 @@ import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMoc
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as RockBotConfirmation from "../rockbot/RockBotConfirmation.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
@@ -121,6 +123,7 @@ const decodeThreadInterruptResult = Schema.decodeUnknownEffect(
 );
 const decodeThreadListResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadListResult);
 const decodeThreadReadResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadReadResult);
+const decodeAttentionListResult = Schema.decodeUnknownEffect(OrchestratorMcpAttentionListResult);
 const decodeThreadSendResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadSendResult);
 const decodeThreadWaitResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadWaitResult);
 const decodeThreadUpdateResult = Schema.decodeUnknownEffect(ThreadMetadataMcpUpdateResult);
@@ -735,6 +738,12 @@ describe("orchestrator MCP toolkit", () => {
                 Layer.provide(layerOrchestration),
               ),
             ),
+            Layer.provideMerge(
+              RockBotConfirmation.layer.pipe(
+                Layer.provide(layerOrchestrator),
+                Layer.provide(NodeServices.layer),
+              ),
+            ),
             Layer.provide(NodeServices.layer),
           );
 
@@ -812,6 +821,93 @@ describe("orchestrator MCP toolkit", () => {
             expect(afterDeferredSettle.runs.find((run) => run.id === parentRun?.id)?.status).toBe(
               "running",
             );
+
+            // RockBot reads freely, changes nothing unasked, and sends only after the
+            // user presses Send on a question in its own thread.
+            const rockBotTarget = ThreadId.make("thread:rockbot-target");
+            yield* orchestrator.dispatch({
+              type: "thread.create",
+              createdBy: "user",
+              creationSource: "web",
+              commandId: CommandId.make("command:rockbot-target:create"),
+              threadId: rockBotTarget,
+              projectId,
+              title: "Timeline tests",
+              modelSelection: codexSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: cwd,
+            });
+            yield* orchestrator.dispatch({
+              type: "thread.metadata.update",
+              commandId: CommandId.make("command:mcp-parent:rockbot-on"),
+              threadId: parentThreadId,
+              kind: "orchestrator",
+            });
+            expect(
+              declaredFailure(yield* invoke("t3_thread_organize", { action: "pin" })),
+            ).toMatchObject({ code: "capability_denied" });
+            const askRockBotUser = (message: string, decision: "accept" | "decline") =>
+              Effect.gen(function* () {
+                const call = yield* invoke("t3_thread_send", {
+                  threadId: rockBotTarget,
+                  message,
+                  clientRequestId: `rockbot-${decision}`,
+                }).pipe(Effect.forkChild);
+                const asking = yield* waitForProjection(
+                  orchestrator,
+                  parentThreadId,
+                  (projection) =>
+                    projection.runtimeRequests.some(
+                      (request) =>
+                        request.viewcodeRockBotConfirm === true && request.status === "pending",
+                    ),
+                );
+                const request = asking.runtimeRequests.find(
+                  (candidate) =>
+                    candidate.viewcodeRockBotConfirm === true && candidate.status === "pending",
+                )!;
+                expect(
+                  asking.turnItems.find(
+                    (item) => item.type === "approval_request" && item.requestId === request.id,
+                  ),
+                ).toMatchObject({
+                  title: "Send to Timeline tests",
+                  prompt: message,
+                  options: [
+                    { decision: "decline", label: "Don't send" },
+                    { decision: "accept", label: "Send" },
+                  ],
+                });
+                expect(
+                  (yield* orchestrator.getThreadShell(parentThreadId))?.pendingRuntimeRequest?.kind,
+                ).toBe("permission");
+                yield* orchestrator.dispatch({
+                  type: "runtime-request.respond",
+                  commandId: CommandId.make(`command:rockbot-${decision}:respond`),
+                  threadId: parentThreadId,
+                  requestId: request.id,
+                  decision,
+                });
+                return yield* Fiber.join(call);
+              });
+            const declined = yield* askRockBotUser("Keep the old snapshot", "decline");
+            expect(declaredFailure(declined)).toMatchObject({ code: "user_declined" });
+            const accepted = yield* askRockBotUser("Keep the regenerated snapshot", "accept");
+            expect(accepted.isError).toBe(false);
+            const delivered = yield* waitForProjection(orchestrator, rockBotTarget, (projection) =>
+              projection.messages.some((entry) => entry.text === "Keep the regenerated snapshot"),
+            );
+            expect(delivered.messages.map((entry) => entry.text)).not.toContain(
+              "Keep the old snapshot",
+            );
+            yield* orchestrator.dispatch({
+              type: "thread.metadata.update",
+              commandId: CommandId.make("command:mcp-parent:rockbot-off"),
+              threadId: parentThreadId,
+              kind: null,
+            });
 
             const pinned = yield* invoke("t3_thread_organize", { action: "pin" });
             expect(pinned.isError).toBe(false);
@@ -1619,6 +1715,65 @@ describe("orchestrator MCP toolkit", () => {
             expect(threadShellFromProjection(asked).pendingRuntimeRequest).toMatchObject({
               kind: "user_input",
             });
+            const waitingRead = yield* decodeThreadReadResult(
+              (yield* invoke("t3_thread_read", { threadId: parentThreadId })).structuredContent,
+            ).pipe(Effect.orDie);
+            expect(waitingRead.thread.needsYou).toBe("question");
+            const fullRead = yield* decodeThreadReadResult(
+              (yield* invoke("t3_thread_read", {
+                threadId: parentThreadId,
+                view: "activity",
+                limit: 100,
+              })).structuredContent,
+            ).pipe(Effect.orDie);
+            const recentRead = yield* decodeThreadReadResult(
+              (yield* invoke("t3_thread_read", {
+                threadId: parentThreadId,
+                view: "activity",
+                recent: true,
+                limit: 2,
+              })).structuredContent,
+            ).pipe(Effect.orDie);
+            expect(fullRead.items.length).toBeGreaterThan(2);
+            expect(recentRead.items.map((item) => item.position)).toEqual(
+              fullRead.items.slice(-2).map((item) => item.position),
+            );
+            expect(recentRead.hasMore).toBe(true);
+            expect(
+              declaredFailure(
+                yield* invoke("t3_thread_read", {
+                  threadId: parentThreadId,
+                  recent: true,
+                  afterPosition: 0,
+                }),
+              ),
+            ).toMatchObject({ code: "invalid_request" });
+            // An outside client sees the asking thread first; the asking thread itself
+            // leaves itself out, since it is busy making the call.
+            const outsideClient = {
+              ...invocation,
+              thread: undefined,
+              client: { sessionId: "attention-client", label: "Attention", access: "read-only" },
+            } as const;
+            const attention = yield* decodeAttentionListResult(
+              (yield* invokeAs(outsideClient, "t3_attention_list", {})).structuredContent,
+            ).pipe(Effect.orDie);
+            expect(attention.needsYou).toBeGreaterThanOrEqual(1);
+            expect(attention.items[0]).toMatchObject({
+              threadId: parentThreadId,
+              attention: "question",
+              link: expect.stringContaining(`(t3-thread://v1/${parentThreadId})`),
+            });
+            const ownAttention = yield* decodeAttentionListResult(
+              (yield* invoke("t3_attention_list", {})).structuredContent,
+            ).pipe(Effect.orDie);
+            expect(ownAttention.items.map((item) => item.threadId)).not.toContain(parentThreadId);
+            const waitingList = yield* decodeThreadListResult(
+              (yield* invoke("t3_thread_list", { limit: 100 })).structuredContent,
+            ).pipe(Effect.orDie);
+            expect(
+              waitingList.threads.find((thread) => thread.threadId === parentThreadId)?.needsYou,
+            ).toBe("question");
             yield* secretRequests.answer({
               threadId: parentThreadId,
               turnItemId: card.id,
@@ -1634,6 +1789,10 @@ describe("orchestrator MCP toolkit", () => {
             expect(
               (yield* orchestrator.getThreadShell(parentThreadId))?.pendingRuntimeRequest ?? null,
             ).toBeNull();
+            const answeredRead = yield* decodeThreadReadResult(
+              (yield* invoke("t3_thread_read", { threadId: parentThreadId })).structuredContent,
+            ).pipe(Effect.orDie);
+            expect(answeredRead.thread.needsYou).toBeNull();
             expect(secretResult.secretRef).toMatch(/^secret-ref:[0-9a-f]{32}$/);
             const received = [
               ...secretCall.content.map((part) => ("text" in part ? part.text : "")),
@@ -2304,6 +2463,14 @@ describe("orchestrator MCP toolkit", () => {
               title: "Metadata-managed thread",
               linkedPullRequest: linked.linkedPullRequest,
             });
+            const environmentList = yield* decodeThreadListResult(
+              (yield* invoke("t3_thread_list", { allProjects: true, limit: 100 }))
+                .structuredContent,
+            ).pipe(Effect.orDie);
+            expect(environmentList.projectId).toBeNull();
+            expect(
+              environmentList.threads.find((thread) => thread.threadId === emptyThread.threadId),
+            ).toMatchObject({ projectId });
             const metadataListCall = yield* invoke("t3_thread_list", { limit: 100 });
             const metadataList = yield* decodeThreadListResult(
               metadataListCall.structuredContent,

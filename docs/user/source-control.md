@@ -151,11 +151,16 @@ make your first commit before pushing.
 Use a thread's Git actions to commit, push, and create a pull request. ViewCode can generate commit
 messages, review titles, and descriptions from your changes.
 
-The thread's pull request then shows as a card at the end of the chat, with its state beside the
-composer and a short version at the top of the Review panel. The card follows the pull request as
-it changes: your branch's commits against the base's commits since you branched, which base
-commits conflict with yours (hover the conflict count to see the clashing lines), each check as it
-finishes, and what the agent is doing while it works on the pull request.
+The thread's pull request then shows as a card in the chat, at the point where the thread got it,
+with its state beside the composer and a short version at the top of the Review panel. The card
+follows the pull request as it changes: your branch's commits against the base's commits since you
+branched, which base commits conflict with yours (hover the conflict count to see the clashing
+lines), each check as it finishes, and what the agent is doing while it works on the pull request.
+
+Once a pull request is merged or closed, its card folds to one line and the composer chip goes
+away. A thread that opens several pull requests shows a card for each, and only the newest open
+one stays expanded. Use the chevron on a card to fold or unfold it; ViewCode remembers your choice
+for that pull request.
 
 **Resolve conflicts** asks the thread's agent to merge the base in, fix the conflicts, and push;
 the card counts the conflicts down as it fixes them. **Merge** merges it on the host. Drafts and

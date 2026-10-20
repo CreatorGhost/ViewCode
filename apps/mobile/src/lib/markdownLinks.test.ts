@@ -128,6 +128,13 @@ describe("resolveMarkdownLinkPresentation", () => {
     });
   });
 
+  it("keeps thread links pressable so they can open the thread", () => {
+    expect(resolveMarkdownLinkPresentation("t3-thread://v1/thread:project:1")).toEqual({
+      kind: "link",
+      href: "t3-thread://v1/thread:project:1",
+    });
+  });
+
   it("does not style app routes as file links", () => {
     expect(resolveMarkdownLinkPresentation("/chat/settings")).toEqual({
       kind: "link",

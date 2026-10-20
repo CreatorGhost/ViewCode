@@ -74,6 +74,8 @@ import * as ViewCodeAgentsLayers from "./server/viewcodeAgentsLayers.ts";
 import * as ViewCodeComputerUseLayers from "./server/viewcodeComputerUseLayers.ts";
 import * as AgentMessaging from "./agents/AgentMessagingV2.ts";
 import * as ComputerUseBridge from "./computerUse/ComputerUseV2Bridge.ts";
+import * as RockBotConfirmation from "./rockbot/RockBotConfirmation.ts";
+import * as RockBotService from "./rockbot/RockBotService.ts";
 import * as PushNotifications from "./notifications/PushNotifications.ts";
 import { computerUseRouteLayer } from "./computerUse/ComputerUseRoute.ts";
 import { browserCliRouteLayer } from "./browserCli/BrowserCliRoute.ts";
@@ -546,6 +548,7 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
 
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   VoiceModelStore.layer,
+  RockBotService.layer,
   Layer.mergeAll(
     Layer.effectDiscard(
       Effect.flatMap(AgentMessaging.AgentMessaging, (service) => service.start()),
@@ -741,6 +744,7 @@ const layerMakeRoutes = Layer.mergeAll(
     ),
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
+    Layer.provide(RockBotConfirmation.layer),
   ),
 ).pipe(
   Layer.provide(

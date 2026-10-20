@@ -259,6 +259,10 @@
       "types": "./src/promptLinks.ts",
       "import": "./src/promptLinks.ts"
     },
+    "./threadNeedsYou": {
+      "types": "./src/threadNeedsYou.ts",
+      "import": "./src/threadNeedsYou.ts"
+    },
     "./threadLinks": {
       "types": "./src/threadLinks.ts",
       "import": "./src/threadLinks.ts"

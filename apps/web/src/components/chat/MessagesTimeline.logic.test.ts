@@ -30,11 +30,13 @@ import {
   deriveMessagesTimelineRows,
   timelineEntryTurnFoldRunId,
   deriveMessagesTimelineRowsWithState,
+  insertPullRequestRows,
   shouldCollapseUserMessage,
   liveWorkEntryLabel,
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
   resolveTimelineIsAtEnd,
+  TIMELINE_FOLLOW_REARM_PX,
   resolveTimelineMinimapHasPersistentGutter,
   resolveTimelineMinimapHeightStyle,
   resolveTimelineMinimapHitStripWidth,
@@ -4781,7 +4783,7 @@ describe("linked timeline resources", () => {
   });
   const common = { isWorking: false, turnDiffSummaries: [], supportsConversationRollback: false };
 
-  it("previews a thought and separates subagent cards from worklogs", () => {
+  it("previews a thought and keeps spawned agents on the turn's rail", () => {
     const rows = deriveMessagesTimelineRows({
       ...common,
       timelineEntries: [
@@ -4820,8 +4822,29 @@ describe("linked timeline resources", () => {
     expect(rows.find((row) => row.kind === "work")).toMatchObject({
       displayLabel: "First paragraph. Second paragraph.",
     });
-    expect(rows.find((row) => row.kind === "work")?.continuesWorkLog).toBeUndefined();
+    expect(rows.find((row) => row.kind === "work")?.continuesWorkLog).toBe(true);
+    expect(rows.find((row) => row.id === "child")).toMatchObject({ followsWorkLog: true });
     expect(rows.find((row) => row.id === "child")?.continuesWorkLog).toBeUndefined();
+  });
+
+  it("shows agents the turn is waiting on as its live step, not a thinking row", () => {
+    const spawned = (id: string, status: string) => {
+      const entry = event(id, "subagent");
+      return {
+        ...entry,
+        projectedItem: {
+          item: { ...entry.projectedItem.item, status },
+        } as OrchestrationV2ProjectedTurnItem,
+      };
+    };
+    const live = (statuses: ReadonlyArray<string>) =>
+      deriveMessagesTimelineRows({
+        ...common,
+        isWorking: true,
+        timelineEntries: statuses.map((status, index) => spawned(`agent-${index}`, status)),
+      }).map((row) => row.kind);
+    expect(live(["running", "completed"])).not.toContain("thinking");
+    expect(live(["completed", "failed"])).toContain("thinking");
   });
 
   it("groups adjacent subagents without merging across a resource or run boundary", () => {
@@ -5753,6 +5776,19 @@ describe("timeline end and minimap geometry", () => {
     expect(resolveTimelineIsAtEnd({ isAtEnd: false })).toBe(false);
   });
 
+  it("resumes following only at the very end, not anywhere in the near-end band", () => {
+    const reader = (gap: number) => ({
+      contentLength: 2000,
+      scroll: 1200 - gap,
+      scrollLength: 800,
+    });
+    expect(resolveTimelineIsAtEnd(reader(30))).toBe(true);
+    expect(resolveTimelineIsAtEnd(reader(30), TIMELINE_FOLLOW_REARM_PX)).toBe(false);
+    expect(resolveTimelineIsAtEnd(reader(5), TIMELINE_FOLLOW_REARM_PX)).toBe(false);
+    expect(resolveTimelineIsAtEnd(reader(3), TIMELINE_FOLLOW_REARM_PX)).toBe(true);
+    expect(resolveTimelineIsAtEnd(reader(0), TIMELINE_FOLLOW_REARM_PX)).toBe(true);
+  });
+
   it("maps the minimap rail to rows and sizes its hit strip from the free gutter", () => {
     expect(resolveTimelineMinimapHeightStyle(5)).toBe("min(32px, calc(100vh - 18rem))");
     expect(resolveTimelineMinimapTopPercent(2, 5)).toBe(50);
@@ -5788,5 +5824,46 @@ describe("timeline end and minimap geometry", () => {
     for (const width of [0, 14, 40]) {
       expect(resolveTimelineMinimapInteractiveWidth(width, true)).toBe("22rem");
     }
+  });
+});
+
+describe("insertPullRequestRows", () => {
+  const row = (id: string, createdAt: string, extra: Partial<MessagesTimelineRow> = {}) =>
+    ({ kind: "turn-fold", id, createdAt, ...extra }) as MessagesTimelineRow;
+  const ids = (rows: ReadonlyArray<MessagesTimelineRow>) => rows.map((entry) => entry.id);
+
+  it("places each card where the thread got its pull request, oldest first", () => {
+    const rows = [
+      row("ask", "2026-10-19T10:00:00Z"),
+      row("reply", "2026-10-19T10:05:00Z"),
+      row("next", "2026-10-19T11:00:00Z"),
+    ];
+    expect(
+      ids(
+        insertPullRequestRows(rows, [
+          { key: "b", anchorAt: "2026-10-19T10:30:00Z" },
+          { key: "a", anchorAt: "2026-10-19T10:20:00Z" },
+        ]),
+      ),
+    ).toEqual(["ask", "reply", "pull-request:a", "pull-request:b", "next"]);
+  });
+
+  it("puts a card linked after everything at the end, under the conversation so far", () => {
+    const rows = [row("ask", "2026-10-19T10:00:00Z"), row("reply", "2026-10-19T10:05:00Z")];
+    expect(
+      ids(insertPullRequestRows(rows, [{ key: "a", anchorAt: "2026-10-19T12:00:00Z" }])),
+    ).toEqual(["ask", "reply", "pull-request:a"]);
+  });
+
+  it("never splits a run of work log", () => {
+    const rows = [
+      row("step-1", "2026-10-19T10:00:00Z", { continuesWorkLog: true }),
+      row("step-2", "2026-10-19T10:02:00Z", { followsWorkLog: true, continuesWorkLog: true }),
+      row("step-3", "2026-10-19T10:04:00Z", { followsWorkLog: true }),
+      row("reply", "2026-10-19T10:05:00Z"),
+    ];
+    expect(
+      ids(insertPullRequestRows(rows, [{ key: "a", anchorAt: "2026-10-19T10:01:00Z" }])),
+    ).toEqual(["step-1", "step-2", "step-3", "pull-request:a", "reply"]);
   });
 });

@@ -82,11 +82,6 @@ import {
   turnItemNeedsDetailFetch,
 } from "@t3tools/client-runtime/work-log/item-detail";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
-import {
-  formatSubagentDisplayTitle,
-  subagentGroupSummary,
-  summarizeSubagentStatuses,
-} from "@t3tools/client-runtime/state/subagent-display";
 import type { WorkflowOpening } from "@t3tools/client-runtime/state/subagentRuntime";
 import { observeResize } from "~/lib/observeResize";
 
@@ -233,10 +228,12 @@ import { useAssistantCitationTarget, type CitationHistoryPage } from "./useAssis
 import {
   computeStableMessagesTimelineRows,
   deriveMessagesTimelineRowsWithState,
+  insertPullRequestRows,
   type MessagesTimelineRowsProjection,
   liveWorkEntryLabel,
   resolveAssistantMessageCopyState,
   resolveTimelineIsAtEnd,
+  TIMELINE_FOLLOW_REARM_PX,
   resolveTimelineMinimapHasPersistentGutter,
   resolveTimelineMinimapCurrentIndex,
   resolveTimelineMinimapHeightStyle,
@@ -316,7 +313,9 @@ import {
 } from "../../timestampFormat";
 import { FetchedToolOutput, V2ItemInspector } from "./V2ItemInspector";
 import { useV2ItemSupport } from "../../state/v2ItemSupport";
-import { Collapsible, CollapsiblePanel } from "../ui/collapsible";
+import { useAgentControl } from "../../state/agentControl";
+import { useAgentControlActions } from "../agents/useAgentControlActions";
+import { SpawnedAgentLog } from "./SpawnedAgentLog";
 import {
   isV2LifecycleItem,
   SubagentElapsed,
@@ -383,6 +382,7 @@ interface TimelineRowSharedState {
   onWorktreeSetupWorkLocally: (() => void) | null;
   onOpenWorktreeSetupTerminal: ((terminalId: string) => void) | null;
   workGroupViewState: WorkGroupViewState;
+  renderPullRequest: ((key: string) => ReactNode) | null;
 }
 
 interface TimelineRowActivityState {
@@ -457,6 +457,11 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END = {
   },
 } as const satisfies MaintainScrollAtEndOptions;
 const EMPTY_TIMELINE_RUNS: ReadonlyArray<HandoffTimelineRun> = [];
+export interface TimelinePullRequest {
+  readonly key: string;
+  readonly anchorAt: string;
+}
+const EMPTY_TIMELINE_PULL_REQUESTS: ReadonlyArray<TimelinePullRequest> = [];
 const EMPTY_RUN_IDS: ReadonlySet<RunId> = new Set();
 const TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH = {
   ...TIMELINE_MAINTAIN_SCROLL_AT_END,
@@ -491,6 +496,9 @@ interface MessagesTimelineProps {
   isCompacting?: boolean;
   awaitingUser?: boolean;
   footer?: ReactNode;
+  /** The thread's pull requests, each placed in the conversation where the thread got it. */
+  pullRequests?: ReadonlyArray<TimelinePullRequest>;
+  renderPullRequest?: (key: string) => ReactNode;
 
   listRef: React.RefObject<LegendListRef | null>;
   timelineEntries: ReadonlyArray<TimelineEntry>;
@@ -587,6 +595,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
   activeTurnStartedAt = null,
   worktreeSetup = null,
   footer = null,
+  pullRequests = EMPTY_TIMELINE_PULL_REQUESTS,
+  renderPullRequest,
   onCancelWorktreeSetup,
   retryableWorkspacePreparationRunIds = EMPTY_RUN_IDS,
   onRetryWorkspacePreparation,
@@ -900,7 +910,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     worktreeSetup,
     undeliveredMessages,
   });
-  const rows = useStableRows(rawRows, listIdentityKey);
+  const rows = useStableRows(useRowsWithPullRequests(rawRows, pullRequests), listIdentityKey);
   // Run status/timestamps churn on every stream event; the shared row context
   // must not change with them or every timeline row re-renders per event.
   const runs = useStableHandoffRuns(runsProp);
@@ -1143,7 +1153,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const handleScroll = () => {
     const state = listRef.current?.getState?.();
     if (restoringThreadPosition || state?.data !== rows) return;
-    const isAtEnd = resolveTimelineIsAtEnd(state);
+    const isAtEnd = resolveTimelineIsAtEnd(state, TIMELINE_FOLLOW_REARM_PX);
     const position = state?.data?.length ? resolveWorkGroupScrollAnchor(state) : undefined;
     if (position && state && isAtEnd !== undefined && !paintOnly) {
       const index = state.indexByKey(position.rowId);
@@ -1294,6 +1304,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onWorktreeSetupWorkLocally: onWorktreeSetupWorkLocally ?? null,
     onOpenWorktreeSetupTerminal: onOpenWorktreeSetupTerminal ?? null,
     workGroupViewState,
+    renderPullRequest: renderPullRequest ?? null,
   };
   const compactionAwaitingRow =
     isCompacting && !rows.some((row) => row.kind === "context-compaction" && row.active);
@@ -1523,7 +1534,14 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 ? false
                 : maintainVisibleContentPosition
             }
-            maintainScrollAtEndThreshold={1}
+            // Legend re-checks this before running a follow scroll it already
+            // queued. While following it must cover a whole viewport, as smooth
+            // catch-up passes far from the end; once the reader takes over, a
+            // queued scroll must abort within a few pixels or it pulls a small
+            // scroll-up back down. Not zero: a reader who returns to the end
+            // re-arms follow within TIMELINE_FOLLOW_REARM_PX and must still count
+            // as within it.
+            maintainScrollAtEndThreshold={liveFollowEnabled ? 1 : 0.01}
             onScroll={handleScroll}
             onItemSizeChanged={handleItemSizeChanged}
             className={cn(
@@ -2035,12 +2053,18 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
       {row.kind === "html-render" ? <HtmlRenderTimelineRow row={row} /> : null}
       {row.kind === "mcp-app" ? <McpAppTimelineRow row={row} /> : null}
+      {row.kind === "pull-request" ? <PullRequestTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
       {row.kind === "worktree-setup" ? <WorktreeSetupTimelineRow row={row} /> : null}
       {row.kind === "event" ? <V2EventTimelineRow row={row} /> : null}
     </div>
   );
 });
+
+function PullRequestTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "pull-request" }> }) {
+  const { renderPullRequest } = use(TimelineRowCtx);
+  return renderPullRequest === null ? null : renderPullRequest(row.pullRequestKey);
+}
 
 function WorktreeSetupTimelineRow({
   row,
@@ -3118,7 +3142,7 @@ function v2EventPresentation(item: OrchestrationV2TurnItem): {
 function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event" }> }) {
   const ctx = use(TimelineRowCtx);
   const { item, visibility, sourceThreadId } = row.projectedItem;
-  if (item.type === "subagent" && (row.subagents?.length ?? 1) > 1) {
+  if (item.type === "subagent") {
     return <V2SubagentGroup key={row.id} row={row} />;
   }
   if (item.type === "secret_request") {
@@ -3334,6 +3358,11 @@ function subagentGroupTiming(
   };
 }
 
+/**
+ * The agents a turn spawned, on the rail. Each agent's live state comes from the lead's own
+ * projection (already loaded for this timeline) and agent control, never from a subscription per
+ * child.
+ */
 const V2SubagentGroup = memo(function V2SubagentGroup({
   row,
 }: {
@@ -3347,117 +3376,51 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
   const members = (row.subagents ?? [row.projectedItem]).flatMap(({ item }) =>
     item.type === "subagent" ? [item] : [],
   );
+  const parentRef = scopeThreadRef(ctx.activeThreadEnvironmentId, row.projectedItem.item.threadId);
   const liveAgents = useAtomValue(
-    environmentThreadDetails.threadAtom(
-      scopeThreadRef(ctx.activeThreadEnvironmentId, row.projectedItem.item.threadId),
-    ),
+    environmentThreadDetails.threadAtom(parentRef),
     (thread) => thread?.projection.subagents,
   );
-  const agents = members.map((item) => {
-    const live = liveAgents?.find((agent) => agent.id === item.subagentId);
-    return {
-      item,
-      status: live?.status ?? item.status,
-      startedAt: live?.startedAt ?? item.startedAt,
-      completedAt: live?.completedAt ?? item.completedAt,
-    };
-  });
-  const summary = subagentGroupSummary(agents);
-  const label = `${members.length} ${members.length === 1 ? "subagent" : "subagents"}`;
-  const statusSummary = summarizeSubagentStatuses(agents.map(({ status }) => status));
+  const control = useAgentControl(ctx.activeThreadEnvironmentId);
+  const controlActions = useAgentControlActions();
+  const agents = members.map((item) => ({
+    item,
+    live: liveAgents?.find((agent) => agent.id === item.subagentId) ?? null,
+    control: item.childThreadId === null ? undefined : control.get(item.childThreadId),
+  }));
   const toggleExpanded = (open: boolean) => {
     ctx.onToggleWorkEntry(row.id, expanded);
     if (open) ctx.workGroupViewState.expandedEntries.add(groupId);
     else ctx.workGroupViewState.expandedEntries.delete(groupId);
     setExpanded(open);
   };
-  const branches = agents.slice(0, MAX_SUBAGENT_BRANCHES);
-  const hiddenBranches = agents.length - branches.length;
-  const marker: WorkLogMarkerKind = summary.active
-    ? "live"
-    : summary.failed
-      ? "dead-end"
-      : "merged";
+  const childRef = (threadId: ThreadId) => scopeThreadRef(ctx.activeThreadEnvironmentId, threadId);
   return (
     <WorkLogBlock continues={row.continuesWorkLog} follows={row.followsWorkLog}>
-      <Collapsible open={expanded} onOpenChange={toggleExpanded} data-subagent-group>
-        <SubagentGroupRail expanded={expanded}>
-          <WorkLogRow
-            ref={summary.active ? observeVisibleAnimation : undefined}
-            role="button"
-            tabIndex={0}
-            aria-label={label}
-            aria-description={statusSummary}
-            aria-expanded={expanded}
-            onClick={() => toggleExpanded(!expanded)}
-            onKeyDown={(event) => {
-              if (event.target !== event.currentTarget) return;
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                toggleExpanded(!expanded);
-              }
-            }}
-            marker={marker}
-            label={
-              <span className="flex min-w-0 items-baseline gap-2">
-                <span className="truncate">{summary.label}</span>
-                <span
-                  className={cn(
-                    "truncate text-xs text-muted-foreground",
-                    summary.failed && !summary.active && "text-destructive",
-                  )}
-                >
-                  {statusSummary}
-                </span>
-              </span>
-            }
-            trailing={
-              <>
-                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                  <SubagentElapsed agent={subagentGroupTiming(agents)} />
-                </span>
-                <ChevronDownIcon
-                  aria-hidden
-                  className={cn(
-                    "size-3.5 shrink-0 text-muted-foreground transition-transform",
-                    expanded && "rotate-180",
-                  )}
-                />
-              </>
-            }
-          />
-        </SubagentGroupRail>
-        {expanded ? null : (
-          <>
-            {branches.map(({ item, status }, index) => (
-              <SubagentBranchRow
-                key={item.id}
-                title={formatSubagentDisplayTitle(item.title ?? "Subagent")}
-                status={status}
-                first={index === 0}
-                last={index === branches.length - 1 && hiddenBranches === 0}
-                onOpen={
-                  item.childThreadId === null
-                    ? undefined
-                    : () => {
-                        if (item.childThreadId !== null) ctx.onOpenThread(item.childThreadId);
-                      }
-                }
-              />
-            ))}
-            {hiddenBranches > 0 ? (
-              <SubagentBranchRow
-                title={`+${hiddenBranches} more`}
-                first={false}
-                last
-                onOpen={() => toggleExpanded(true)}
-              />
-            ) : null}
-          </>
-        )}
-        {/* Virtualized rows must settle before disclosure scroll anchoring resumes. */}
-        <CollapsiblePanel animate={false}>
-          {expanded ? (
+      <div data-subagent-group>
+        <SpawnedAgentLog
+          environmentId={ctx.activeThreadEnvironmentId}
+          parentRef={parentRef}
+          agents={agents}
+          elapsed={
+            <SubagentElapsed
+              agent={subagentGroupTiming(
+                agents.map(({ item, live }) => ({
+                  status: live?.status ?? item.status,
+                  startedAt: live?.startedAt ?? item.startedAt,
+                  completedAt: live?.completedAt ?? item.completedAt,
+                })),
+              )}
+            />
+          }
+          expanded={expanded}
+          onToggleExpanded={toggleExpanded}
+          actions={{
+            onOpenThread: ctx.onOpenThread,
+            onStop: (threadId) => void controlActions.stop(childRef(threadId), "thread"),
+            onResume: (threadId) => void controlActions.resume(childRef(threadId), "thread"),
+          }}
+          cards={
             <div className="relative">
               <WorkLogRailThrough />
               <div className="ms-9 mt-1 mb-1 rounded-lg border border-border/60 bg-card/30 p-1">
@@ -3474,82 +3437,12 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
                 ))}
               </div>
             </div>
-          ) : null}
-        </CollapsiblePanel>
-      </Collapsible>
+          }
+        />
+      </div>
     </WorkLogBlock>
   );
 });
-
-/** The group's header always runs its rail down into its branches or its expanded cards. */
-function SubagentGroupRail({ expanded, children }: { expanded: boolean; children: ReactNode }) {
-  const ends = useWorkLogRailEnds();
-  return (
-    <WorkLogRail ends={{ above: ends.above, below: !expanded || ends.below }}>
-      {children}
-    </WorkLogRail>
-  );
-}
-
-const MAX_SUBAGENT_BRANCHES = 4;
-
-const SUBAGENT_BRANCH_STATUS: Record<OrchestrationV2TurnItem["status"], string> = {
-  pending: "queued",
-  running: "working",
-  waiting: "waiting",
-  idle: "idle",
-  completed: "done",
-  failed: "failed",
-  cancelled: "stopped",
-  interrupted: "stopped",
-};
-
-/** One subagent on the branch lane: its name, then how it is doing. */
-function SubagentBranchRow({
-  title,
-  status,
-  first,
-  last,
-  onOpen,
-}: {
-  title: string;
-  status?: OrchestrationV2TurnItem["status"] | undefined;
-  first: boolean;
-  last: boolean;
-  onOpen: (() => void) | undefined;
-}) {
-  const ends = useWorkLogRailEnds();
-  return (
-    <WorkLogRail ends={{ above: true, below: !last || ends.below }}>
-      <WorkLogRow
-        {...(onOpen
-          ? {
-              role: "button" as const,
-              tabIndex: 0,
-              "aria-label": status === undefined ? title : `Open ${title}`,
-              onClick: onOpen,
-              onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onOpen();
-                }
-              },
-            }
-          : {})}
-        marker={status === "failed" ? "dead-end" : "dot"}
-        lane={first ? "branch-start" : "branch"}
-        label={
-          <span className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate">{title}</span>
-            {status === undefined ? null : (
-              <span className="shrink-0 text-xs">{SUBAGENT_BRANCH_STATUS[status]}</span>
-            )}
-          </span>
-        }
-      />
-    </WorkLogRail>
-  );
-}
 
 const WorkGroupSection = memo(function WorkGroupSection({
   anchorKey,
@@ -5038,6 +4931,23 @@ function useIncrementalTimelineRows(
   );
   setState({ identity, input, projection });
   return projection.rows;
+}
+
+/** The rows with the pull request cards placed in them; the same array while neither changes. */
+function useRowsWithPullRequests(
+  rows: MessagesTimelineRow[],
+  pullRequests: ReadonlyArray<TimelinePullRequest>,
+): MessagesTimelineRow[] {
+  const signature = pullRequests.map((entry) => `${entry.key}\0${entry.anchorAt}`).join("\n");
+  const [state, setState] = useState<{
+    readonly source: MessagesTimelineRow[] | null;
+    readonly signature: string;
+    readonly value: MessagesTimelineRow[];
+  }>({ source: null, signature: "", value: rows });
+  if (state.source === rows && state.signature === signature) return state.value;
+  const value = pullRequests.length === 0 ? rows : insertPullRequestRows(rows, pullRequests);
+  setState({ source: rows, signature, value });
+  return value;
 }
 
 function useStableRows(rows: MessagesTimelineRow[], identity: string): MessagesTimelineRow[] {

@@ -4,8 +4,16 @@ import { useAtomValue } from "@effect/atom-react";
 
 import { appAtomRegistry } from "./atom-registry";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId, ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ScopedProjectRef,
+  ScopedThreadRef,
+  ServerConfig,
+  ThreadId,
+} from "@t3tools/contracts";
+import { hasThreadLinks, relabelThreadLinks } from "@t3tools/shared/threadLinks";
 import { Atom } from "effect/reactivity";
+import { useMemo } from "react";
 
 import { environmentProjects } from "./projects";
 import { environmentServerConfigsAtom, serverEnvironment } from "./server";
@@ -20,6 +28,26 @@ const EMPTY_THREAD_SHELL_ATOM = Atom.make<EnvironmentThreadShell | null>(null).p
 const EMPTY_SERVER_CONFIG_ATOM = Atom.make<ServerConfig | null>(null).pipe(
   Atom.withLabel("mobile-server-config:empty"),
 );
+const EMPTY_THREAD_TITLES: ReadonlyMap<ThreadId, string> = new Map();
+const EMPTY_THREAD_TITLES_ATOM = Atom.make(EMPTY_THREAD_TITLES).pipe(
+  Atom.withLabel("mobile-thread-titles:empty"),
+);
+
+// Keeps the previous map while no title changed, so shell updates that only touch
+// activity do not re-render every message holding a thread link.
+const threadTitlesAtom = Atom.family((environmentId: EnvironmentId) => {
+  let previous = EMPTY_THREAD_TITLES;
+  return Atom.make((get) => {
+    const index = get(environmentThreadShells.environmentThreadIndexAtom(environmentId));
+    const unchanged =
+      index.size === previous.size &&
+      Array.from(index).every(([threadId, shell]) => previous.get(threadId) === shell.title);
+    if (!unchanged) {
+      previous = new Map(Array.from(index, ([threadId, shell]) => [threadId, shell.title]));
+    }
+    return previous;
+  }).pipe(Atom.withLabel(`mobile-thread-titles:${environmentId}`));
+});
 
 /** Resolves when the project event reaches the live client store. */
 export function waitForProject(
@@ -66,6 +94,20 @@ export function useProject(ref: ScopedProjectRef | null): EnvironmentProject | n
 export function useThreadShell(ref: ScopedThreadRef | null): EnvironmentThreadShell | null {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_SHELL_ATOM : environmentThreadShells.threadShellAtom(ref),
+  );
+}
+
+/** Thread links show the linked thread's current title, as on web. */
+export function useLiveThreadLinkLabels(markdown: string, environmentId: EnvironmentId): string {
+  const titles = useAtomValue(
+    hasThreadLinks(markdown) ? threadTitlesAtom(environmentId) : EMPTY_THREAD_TITLES_ATOM,
+  );
+  return useMemo(
+    () =>
+      titles.size === 0
+        ? markdown
+        : relabelThreadLinks(markdown, (threadId) => titles.get(threadId)),
+    [markdown, titles],
   );
 }
 

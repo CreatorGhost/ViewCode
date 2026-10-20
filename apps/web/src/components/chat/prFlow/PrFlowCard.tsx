@@ -1,6 +1,7 @@
-import { MinusIcon, TriangleAlertIcon, XIcon } from "lucide-react";
-import { type CSSProperties, type ReactNode, useState } from "react";
+import { ChevronDownIcon, ChevronUpIcon, MinusIcon, TriangleAlertIcon, XIcon } from "lucide-react";
+import { createContext, type CSSProperties, type ReactNode, use, useEffect, useState } from "react";
 
+import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { formatRelativeElapsed } from "~/timestampFormat";
 import { observeVisibleAnimation } from "~/lib/visibleAnimation";
@@ -40,6 +41,12 @@ export interface PrFlowCardActions {
 }
 
 /**
+ * Whether the card's live states shine. Only the thread's current pull request is live; an older
+ * one the reader expanded shows the same states still.
+ */
+const PrFlowLiveContext = createContext(true);
+
+/**
  * A pull request in the chat, from the first commit to merged: its commits on a small graph
  * against the base, its checks, and one footer line with what is happening and the next action.
  * `compact` keeps the header and the footer, for the Review panel and old merges.
@@ -47,10 +54,18 @@ export interface PrFlowCardActions {
 export function PrFlowCard({
   flow,
   compact = false,
+  live = true,
+  onCollapse,
   onResolveConflicts,
   onMerge,
   onOpen,
-}: { flow: PrFlow; compact?: boolean } & PrFlowCardActions) {
+}: {
+  flow: PrFlow;
+  compact?: boolean;
+  live?: boolean;
+  /** Folds the card to its one line (PrFlowCollapsedRow). */
+  onCollapse?: (() => void) | undefined;
+} & PrFlowCardActions) {
   const status = prFlowStatus(flow);
   const showChecks =
     !compact &&
@@ -58,24 +73,32 @@ export function PrFlowCard({
     flow.checks.list.length > 0 &&
     prFlowReached(flow.phase, "testing");
   return (
-    <div className="flex flex-col gap-1.5 rounded-xl border bg-card p-3 text-sm">
-      <PrFlowHeader flow={flow} />
-      {compact || flow.rows.length === 0 ? null : <PrFlowRows flow={flow} status={status} />}
-      {showChecks && flow.checks ? (
-        <PrFlowCheckChips checks={flow.checks.list} onOpen={onOpen} />
-      ) : null}
-      <PrFlowFooter
-        flow={flow}
-        status={status}
-        onResolveConflicts={onResolveConflicts}
-        onMerge={onMerge}
-        onOpen={onOpen}
-      />
-    </div>
+    <PrFlowLiveContext value={live}>
+      <div className="flex flex-col gap-1.5 rounded-xl border bg-card p-3 text-sm">
+        <PrFlowHeader flow={flow} onCollapse={onCollapse} />
+        {compact || flow.rows.length === 0 ? null : <PrFlowRows flow={flow} status={status} />}
+        {showChecks && flow.checks ? (
+          <PrFlowCheckChips checks={flow.checks.list} onOpen={onOpen} />
+        ) : null}
+        <PrFlowFooter
+          flow={flow}
+          status={status}
+          onResolveConflicts={onResolveConflicts}
+          onMerge={onMerge}
+          onOpen={onOpen}
+        />
+      </div>
+    </PrFlowLiveContext>
   );
 }
 
-function PrFlowHeader({ flow }: { flow: PrFlow }) {
+function PrFlowHeader({
+  flow,
+  onCollapse,
+}: {
+  flow: PrFlow;
+  onCollapse?: (() => void) | undefined;
+}) {
   const state =
     flow.number === null
       ? null
@@ -121,6 +144,17 @@ function PrFlowHeader({ flow }: { flow: PrFlow }) {
           />
           {state === "merged" ? "Merged" : state === "draft" ? "Draft" : "Open"}
         </BlurSwap>
+      )}
+      {onCollapse === undefined ? null : (
+        <Button
+          size="icon-micro"
+          variant="ghost-muted"
+          aria-label="Collapse the pull request card"
+          className={state === null ? "ml-auto self-center" : "self-center"}
+          onClick={onCollapse}
+        >
+          <ChevronUpIcon />
+        </Button>
       )}
     </div>
   );
@@ -366,6 +400,7 @@ function CommitRowContent({
   const conflictPhase = flow.phase === "conflicts" || flow.phase === "resolving";
   const conflicting = conflictPhase && row.conflicts > 0 && !row.resolved;
   const merged = flow.phase === "merged" && row.lane === "head";
+  const live = use(PrFlowLiveContext);
   const age = formatRelativeElapsed(Math.max(0, nowMs - Date.parse(row.authoredAt)));
   return (
     <>
@@ -395,8 +430,11 @@ function CommitRowContent({
       {conflicting ? (
         <span
           key="conflicts"
-          ref={observeVisibleAnimation}
-          className="pr-flow-glow pr-flow-glow-badge blur-swap flex size-4.5 shrink-0 items-center justify-center rounded-full border border-warning/50 bg-warning-surface text-2xs text-warning-foreground tabular-nums"
+          ref={live ? observeVisibleAnimation : undefined}
+          className={cn(
+            live && "pr-flow-glow pr-flow-glow-badge",
+            "blur-swap flex size-4.5 shrink-0 items-center justify-center rounded-full border border-warning/50 bg-warning-surface text-2xs text-warning-foreground tabular-nums",
+          )}
         >
           {row.conflicts}
         </span>
@@ -420,9 +458,10 @@ function MergingRowContent({
   row: Extract<PrFlowRow, { kind: "merging" }>;
   head: string;
 }) {
+  const live = use(PrFlowLiveContext);
   return (
     <>
-      <ShimmerLabel live text={row.subject}>
+      <ShimmerLabel live={live} text={row.subject}>
         <span className="block truncate text-muted-foreground">{row.subject}</span>
       </ShimmerLabel>
       <span
@@ -445,8 +484,11 @@ function MergingRowContent({
         style={{ left: GRAPH_WIDTH + 8 }}
       >
         <span
-          ref={observeVisibleAnimation}
-          className="pr-flow-progress pr-flow-bar-shine block h-full origin-left bg-success"
+          ref={live ? observeVisibleAnimation : undefined}
+          className={cn(
+            "pr-flow-progress block h-full origin-left bg-success",
+            live && "pr-flow-bar-shine",
+          )}
           style={{ transform: `scaleX(${row.total === 0 ? 0 : row.done / row.total})` }}
         />
       </span>
@@ -665,7 +707,7 @@ function PrFlowFooter({
       status.label
     );
   // Open conflicts wait on the reader; the rest is work in flight. Both shine until they settle.
-  const live = status.tone === "busy" || flow.phase === "conflicts";
+  const live = use(PrFlowLiveContext) && (status.tone === "busy" || flow.phase === "conflicts");
   const liveText =
     flow.phase === "conflicts" && conflicts !== null && conflicts.files.length > 0
       ? `${status.short} with ${base}`
@@ -701,8 +743,11 @@ function PrFlowFooter({
             className="block h-0.5 w-56 max-w-full overflow-hidden rounded-full bg-muted"
           >
             <span
-              ref={observeVisibleAnimation}
-              className="pr-flow-progress pr-flow-bar-shine block h-full origin-left bg-success"
+              ref={live ? observeVisibleAnimation : undefined}
+              className={cn(
+                "pr-flow-progress block h-full origin-left bg-success",
+                live && "pr-flow-bar-shine",
+              )}
               style={{ transform: `scaleX(${checks.done / checks.total})` }}
             />
           </span>
@@ -738,14 +783,16 @@ function ShimmerLabel({
   band?: string | undefined;
   children: ReactNode;
 }) {
+  const cardLive = use(PrFlowLiveContext);
+  const shining = live && cardLive;
   return (
     <span
-      ref={live ? observeVisibleAnimation : undefined}
-      className={cn("block w-fit max-w-full min-w-0", live && glow && "pr-flow-glow")}
+      ref={shining ? observeVisibleAnimation : undefined}
+      className={cn("block w-fit max-w-full min-w-0", shining && glow && "pr-flow-glow")}
     >
       <span className="relative block overflow-hidden whitespace-nowrap">
         {children}
-        {live ? <ActivityShimmerOverlay className={band}>{text}</ActivityShimmerOverlay> : null}
+        {shining ? <ActivityShimmerOverlay className={band}>{text}</ActivityShimmerOverlay> : null}
       </span>
     </span>
   );
@@ -831,5 +878,129 @@ function OpenButton({
       {host.icon}
       {host.label}
     </Button>
+  );
+}
+
+/**
+ * A pull request folded to one line: merged, closed, or folded by the reader. Everything comes
+ * from the thread's link snapshot, so it reads nothing and nothing in it moves.
+ */
+export function PrFlowCollapsedRow({
+  number,
+  state,
+  title,
+  base,
+  additions,
+  deletions,
+  url,
+  onOpen,
+  onExpand,
+}: {
+  number: number;
+  state: "open" | "merged" | "closed";
+  title: string;
+  base: string | null;
+  additions: number | null;
+  deletions: number | null;
+  url: string;
+  onOpen?: ((url: string) => void) | undefined;
+  onExpand?: (() => void) | undefined;
+}) {
+  const presentation =
+    state === "merged"
+      ? {
+          Icon: PullRequestGlyph.merged,
+          tone: "text-branch",
+          label: `Merged into ${base ?? "base"}`,
+        }
+      : state === "closed"
+        ? { Icon: PullRequestGlyph.closed, tone: "text-muted-foreground", label: "Closed" }
+        : { Icon: PullRequestGlyph.pullRequest, tone: "text-success-foreground", label: "Open" };
+  const host = hostOf(url);
+  return (
+    <div className="flex h-10 items-center gap-2 rounded-xl border bg-card ps-3 pe-1.5 text-sm">
+      <presentation.Icon aria-hidden className={cn("size-4 shrink-0", presentation.tone)} />
+      <span className="shrink-0 font-medium">#{number}</span>
+      <span className={cn("shrink-0", presentation.tone)}>{presentation.label}</span>
+      <span className="min-w-0 truncate text-muted-foreground">{title}</span>
+      {additions === null || deletions === null ? null : (
+        <span className="ml-auto shrink-0 font-mono text-xs">
+          <span className="text-diff-addition-foreground">+{additions}</span>{" "}
+          <span className="text-diff-deletion-foreground">−{deletions}</span>
+        </span>
+      )}
+      {onOpen === undefined ? null : (
+        <Button
+          size="xs"
+          variant="ghost-muted"
+          className={additions === null || deletions === null ? "ml-auto" : undefined}
+          onClick={() => onOpen(url)}
+        >
+          {host.icon}
+          {host.label}
+        </Button>
+      )}
+      {onExpand === undefined ? null : (
+        <Button
+          size="icon-micro"
+          variant="ghost-muted"
+          aria-label="Expand the pull request card"
+          onClick={onExpand}
+        >
+          <ChevronDownIcon />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Swaps a pull request between its one line and its full card. Folding closes the card on grid
+ * rows (1fr to 0fr, never height) and only then unmounts it, so its reads stop; unfolding opens
+ * it the same way. A card that starts folded never mounts the full card at all.
+ */
+const FOLD_FALLBACK_MS = 600;
+const afterFold = <T extends { readonly folded: boolean; readonly fullMounted: boolean }>(
+  current: T,
+): T => (current.folded ? { ...current, fullMounted: false } : current);
+
+export function PrFlowFoldFrame({
+  folded,
+  collapsed,
+  full,
+}: {
+  folded: boolean;
+  collapsed: ReactNode;
+  /** Mounted only while unfolded (or folding): an element, so a folded card costs nothing. */
+  full: ReactNode;
+}) {
+  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const [view, setView] = useState({ folded, fullMounted: !folded, moved: false });
+  if (view.folded !== folded) {
+    setView({ folded, fullMounted: !folded || !reducedMotion, moved: true });
+  }
+  const unmountFull = () => setView(afterFold);
+  // The fold's transition end unmounts the card; this catches a transition that never ran.
+  const closing = view.folded && view.fullMounted;
+  useEffect(() => {
+    if (!closing) return;
+    const timer = window.setTimeout(() => setView(afterFold), FOLD_FALLBACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [closing]);
+  return (
+    <div>
+      {folded ? <div className={view.moved ? "blur-swap" : undefined}>{collapsed}</div> : null}
+      {view.fullMounted ? (
+        <div
+          className={cn("pr-flow-fold", !folded && view.moved && "pr-flow-open")}
+          data-open={!folded}
+          onTransitionEnd={(event) => {
+            if (event.target === event.currentTarget) unmountFull();
+          }}
+        >
+          <div>{full}</div>
+        </div>
+      ) : null}
+    </div>
   );
 }

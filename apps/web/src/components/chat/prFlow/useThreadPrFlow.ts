@@ -5,12 +5,12 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { projectScriptCwd } from "@t3tools/shared/projectScripts";
 import {
   resolveThreadCurrentPullRequestLink,
+  threadPullRequestKeyOf,
   visibleThreadPullRequests,
 } from "@t3tools/shared/threadPullRequests";
 import { Atom } from "effect/reactivity";
 import { useEffect, useRef } from "react";
 
-import { useNowMinute } from "../../../hooks/useNowMinute";
 import { useProject, useThreadProjectionSelector, useThreadShell } from "../../../state/entities";
 import { pullRequestEnvironment } from "../../../state/pullRequests";
 import { useEnvironmentQuery } from "../../../state/query";
@@ -31,8 +31,6 @@ import {
   prFlowRunningCommand,
 } from "./prFlowModel";
 
-/** A merge this recent still gets the whole card; older ones shrink and leave the composer. */
-const RECENT_MERGE_MS = 15 * 60_000;
 /** While the checkout is mid-merge, how often its unresolved files are read again. */
 const MERGE_POLL_MS = 10_000;
 
@@ -42,9 +40,10 @@ const MERGE_POLL_MS = 10_000;
  */
 const prFlowLocalAtom = Atom.family((_threadKey: string) =>
   Atom.make<{
-    readonly merging: boolean;
+    /** The pull request (its thread key) being merged from this client. */
+    readonly merging: string | null;
     readonly asked: { readonly number: number; readonly userMessages: number } | null;
-  }>({ merging: false, asked: null }).pipe(
+  }>({ merging: null, asked: null }).pipe(
     Atom.setIdleTTL(5 * 60_000),
     Atom.withLabel("web-pr-flow:local"),
   ),
@@ -66,8 +65,8 @@ const selectUserMessages = (thread: EnvironmentThread | null) =>
 
 export interface ThreadPrFlow {
   readonly flow: PrFlow | null;
-  /** A merge that is no longer news: header and footer only, and no composer chip. */
-  readonly staleMerge: boolean;
+  /** The git menu is opening a pull request the thread has no link for yet. */
+  readonly creating: boolean;
   readonly resolveConflicts: () => void;
   readonly merge: () => void;
 }
@@ -75,12 +74,18 @@ export interface ThreadPrFlow {
 /**
  * The thread's pull request as one flow: the git menu's progress while it opens one, then the
  * host's state, the checkout's commits and conflicts, the host's checks and what the agent is
- * running. `detailed` reads the commits and checks; the compact card does without. `follow`
- * refetches the commits as the agent's git commands finish: one reader per thread does it.
+ * running. `pullRequest` is one pull request by its thread key, or "current" for the thread's
+ * current one (which also follows the git menu while it opens one). `detailed` reads the commits
+ * and checks; `follow` refetches the commits as the agent's git commands finish, for the one
+ * live card per thread.
  */
 export function useThreadPrFlow(
   threadRef: ScopedThreadRef,
-  options: { readonly detailed: boolean; readonly follow: boolean },
+  options: {
+    readonly pullRequest: "current" | string;
+    readonly detailed: boolean;
+    readonly follow: boolean;
+  },
 ): ThreadPrFlow {
   const { environmentId } = threadRef;
   const shell = useThreadShell(threadRef);
@@ -95,9 +100,13 @@ export function useThreadPrFlow(
           worktreePath: shell?.worktreePath ?? null,
         });
   const action = useAtomValue(vcsActionManager.stateAtom({ environmentId, cwd: gitCwd }));
-  const link = resolveThreadCurrentPullRequestLink(
-    visibleThreadPullRequests(shell?.pullRequests ?? []),
-  );
+  const visible = visibleThreadPullRequests(shell?.pullRequests ?? []);
+  const link =
+    options.pullRequest === "current"
+      ? resolveThreadCurrentPullRequestLink(visible)
+      : (visible.find((candidate) => threadPullRequestKeyOf(candidate) === options.pullRequest) ??
+        null);
+  const linkKey = link === null ? null : threadPullRequestKeyOf(link);
   const snapshot = link?.snapshot ?? null;
   const reference =
     shell === null || link === null
@@ -120,17 +129,14 @@ export function useThreadPrFlow(
   const userMessages = useThreadProjectionSelector(threadRef, selectUserMessages);
   // A Resolve click counts until its message reaches the thread; from then on the thread says it.
   const asked = local.asked;
-  const nowMinute = useNowMinute();
 
   const creating =
-    action.isRunning && (action.action === "create_pr" || action.action === "commit_push_pr");
-  const mergedAt = snapshot?.mergedAt ? Date.parse(snapshot.mergedAt) : Number.NaN;
-  const staleMerge =
-    snapshot?.state === "merged" && !(Date.parse(nowMinute) - mergedAt < RECENT_MERGE_MS);
+    options.pullRequest === "current" &&
+    action.isRunning &&
+    (action.action === "create_pr" || action.action === "commit_push_pr");
   const detailed =
     options.detailed &&
     !creating &&
-    !staleMerge &&
     snapshot !== null &&
     snapshot.state !== "closed" &&
     reference !== null;
@@ -194,7 +200,7 @@ export function useThreadPrFlow(
             resolveAsked:
               resolvingNumber === link.number ||
               (asked?.number === link.number && asked.userMessages === userMessages),
-            merging: local.merging,
+            merging: linkKey !== null && local.merging === linkKey,
             command,
           },
         );
@@ -221,10 +227,10 @@ export function useThreadPrFlow(
   };
 
   const merge = () => {
-    if (local.merging) return;
-    setLocal((current) => ({ ...current, merging: true }));
-    void perform("merge").finally(() => setLocal((current) => ({ ...current, merging: false })));
+    if (local.merging !== null || linkKey === null) return;
+    setLocal((current) => ({ ...current, merging: linkKey }));
+    void perform("merge").finally(() => setLocal((current) => ({ ...current, merging: null })));
   };
 
-  return { flow, staleMerge, resolveConflicts, merge };
+  return { flow, creating, resolveConflicts, merge };
 }

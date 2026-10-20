@@ -7,6 +7,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { isProviderNativeSubagentThread, OrchestrationV2ThreadShell } from "@t3tools/contracts";
+import { runtimeRequestNeed } from "@t3tools/shared/threadNeedsYou";
 import * as Schema from "effect/Schema";
 import { Atom } from "effect/reactivity";
 
@@ -48,17 +49,16 @@ const isChildRunLive = (
 /** Provider-native
     subagents ask on their parent, so they are skipped. */
 function subagentRequest(thread: OrchestrationV2ThreadShell): PendingSubagentRequest | null {
-  const kind = thread.pendingRuntimeRequest?.kind;
+  const need = runtimeRequestNeed(thread.pendingRuntimeRequest?.kind);
   if (
-    kind === undefined ||
-    kind === "auth_refresh" ||
+    need === null ||
     thread.lineage.relationshipToParent !== "subagent" ||
     isProviderNativeSubagentThread(thread) ||
     !isChildRunLive(thread)
   ) {
     return null;
   }
-  return kind === "user_input" ? "user_input" : "approval";
+  return need === "question" ? "user_input" : "approval";
 }
 
 export function pendingSubagentRequestsByThread(

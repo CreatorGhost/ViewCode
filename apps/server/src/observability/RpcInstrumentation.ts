@@ -224,6 +224,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.agentsDiscard]: "viewcode",
   [WS_METHODS.usageResumeCancel]: "viewcode",
   [WS_METHODS.usageResumeNow]: "viewcode",
+  [WS_METHODS.rockbotOpen]: "viewcode",
   [WS_METHODS.pushRegister]: "viewcode",
   [WS_METHODS.pushUnregister]: "viewcode",
   [WS_METHODS.viewcodeRelaySetupStart]: "viewcode",

@@ -297,6 +297,11 @@ const OrchestratorMcpProjectTarget = Schema.optional(
 
 export const OrchestratorMcpThreadListInput = Schema.Struct({
   projectId: OrchestratorMcpProjectTarget,
+  allProjects: Schema.optional(
+    Schema.Boolean.annotate({
+      description: "List threads in every project of this environment; projectId is ignored.",
+    }),
+  ),
   statuses: Schema.optional(
     Schema.Array(OrchestratorMcpThreadStatus).check(Schema.isMaxLength(10)),
   ),
@@ -318,8 +323,14 @@ export const OrchestratorMcpThreadPullRequest = Schema.Struct({
 });
 export type OrchestratorMcpThreadPullRequest = typeof OrchestratorMcpThreadPullRequest.Type;
 
+/** The shared "needs you" rule: a pending approval or question, never a failure. */
+export const OrchestratorMcpThreadNeed = Schema.Literals(["approval", "question"]);
+export type OrchestratorMcpThreadNeed = typeof OrchestratorMcpThreadNeed.Type;
+
 export const OrchestratorMcpThreadListItem = Schema.Struct({
   threadId: ThreadId,
+  /** Missing on older servers. */
+  projectId: Schema.optional(ProjectId),
   title: Schema.String,
   createdBy: OrchestrationV2Actor,
   creationSource: OrchestrationV2CreationSource,
@@ -336,6 +347,8 @@ export const OrchestratorMcpThreadListItem = Schema.Struct({
   settledAt: Schema.NullOr(IsoDateTime),
   snoozed: Schema.Boolean,
   snoozedUntil: Schema.NullOr(IsoDateTime),
+  /** What the thread itself waits on the user for. Missing on older servers. */
+  needsYou: Schema.optional(Schema.NullOr(OrchestratorMcpThreadNeed)),
   parentThreadId: Schema.NullOr(ThreadId),
   relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
   itemCount: NonNegativeInt,
@@ -345,7 +358,8 @@ export const OrchestratorMcpThreadListItem = Schema.Struct({
 export type OrchestratorMcpThreadListItem = typeof OrchestratorMcpThreadListItem.Type;
 
 export const OrchestratorMcpThreadListResult = Schema.Struct({
-  projectId: ProjectId,
+  /** Null when allProjects listed the whole environment. */
+  projectId: Schema.NullOr(ProjectId),
   currentThreadId: Schema.NullOr(ThreadId),
   threads: Schema.Array(OrchestratorMcpThreadListItem),
   nextCursor: Schema.NullOr(NonNegativeInt),
@@ -353,12 +367,60 @@ export const OrchestratorMcpThreadListResult = Schema.Struct({
 });
 export type OrchestratorMcpThreadListResult = typeof OrchestratorMcpThreadListResult.Type;
 
+export const OrchestratorMcpAttentionListInput = Schema.Struct({
+  projectId: Schema.optional(
+    ProjectId.annotate({ description: "Limit to one project. Omit for the whole environment." }),
+  ),
+  limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(100))),
+});
+export type OrchestratorMcpAttentionListInput = typeof OrchestratorMcpAttentionListInput.Type;
+
+/** `approval` and `question` are the shared "needs you" rule; the rest is progress. */
+export const OrchestratorMcpAttention = Schema.Literals([
+  "approval",
+  "question",
+  "failed",
+  "working",
+]);
+export type OrchestratorMcpAttention = typeof OrchestratorMcpAttention.Type;
+
+export const OrchestratorMcpAttentionItem = Schema.Struct({
+  threadId: ThreadId,
+  projectId: ProjectId,
+  title: Schema.String,
+  attention: OrchestratorMcpAttention,
+  /** When the request was raised, the run started, or the run failed. */
+  since: Schema.NullOr(IsoDateTime),
+  status: OrchestratorMcpThreadStatus,
+  lastError: Schema.NullOr(Schema.String),
+  parentThreadId: Schema.NullOr(ThreadId),
+  relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
+  /** A ready-made `[title](t3-thread://v1/<threadId>)` link for answers to the user. */
+  link: Schema.String,
+});
+export type OrchestratorMcpAttentionItem = typeof OrchestratorMcpAttentionItem.Type;
+
+export const OrchestratorMcpAttentionListResult = Schema.Struct({
+  needsYou: NonNegativeInt,
+  failed: NonNegativeInt,
+  working: NonNegativeInt,
+  items: Schema.Array(OrchestratorMcpAttentionItem),
+  truncated: Schema.Boolean,
+});
+export type OrchestratorMcpAttentionListResult = typeof OrchestratorMcpAttentionListResult.Type;
+
 export const OrchestratorMcpThreadReadInput = Schema.Struct({
   threadId: ThreadId,
   itemId: Schema.optional(TurnItemId),
   textOffset: Schema.optional(NonNegativeInt),
   view: Schema.optional(Schema.Literals(["messages", "activity"])),
   afterPosition: Schema.optional(NonNegativeInt),
+  recent: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Return the newest `limit` items instead of the oldest. Not combinable with afterPosition or itemId.",
+    }),
+  ),
   limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(100))),
   runLimit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(50))),
   maxCharsPerItem: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(50_000))),
@@ -394,6 +456,8 @@ export const OrchestratorMcpThreadDetail = Schema.Struct({
   settledAt: Schema.NullOr(IsoDateTime),
   snoozed: Schema.Boolean,
   snoozedUntil: Schema.NullOr(IsoDateTime),
+  /** What the thread itself waits on the user for. Missing on older servers. */
+  needsYou: Schema.optional(Schema.NullOr(OrchestratorMcpThreadNeed)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -672,6 +736,8 @@ export class OrchestratorMcpFailure extends Schema.TaggedError<OrchestratorMcpFa
       "orchestration_error",
       "thread_credential_required",
       "target_required",
+      "send_loop_guard",
+      "user_declined",
     ]),
     message: Schema.String,
   },

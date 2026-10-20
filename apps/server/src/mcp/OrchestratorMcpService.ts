@@ -6,6 +6,7 @@ import {
   type ModelSelection,
   NodeId,
   TurnItemId,
+  type OrchestrationV2ConversationMessage,
   type OrchestrationV2Run,
   type OrchestrationV2Subagent,
   type OrchestrationV2ThreadProjection,
@@ -35,6 +36,9 @@ import {
   type OrchestratorMcpUpdateScheduledTaskInput,
   type OrchestratorMcpListScheduledTasksInput,
   type ProjectId,
+  type OrchestratorMcpAttentionItem,
+  type OrchestratorMcpAttentionListInput,
+  type OrchestratorMcpAttentionListResult,
   type OrchestratorMcpThreadDetail,
   type OrchestratorMcpThreadPullRequest,
   type OrchestratorMcpThreadInterruptInput,
@@ -92,6 +96,9 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
+import * as RockBotConfirmation from "../rockbot/RockBotConfirmation.ts";
+import { formatThreadLink } from "@t3tools/shared/threadLinks";
+import { runtimeRequestNeed } from "@t3tools/shared/threadNeedsYou";
 import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -182,6 +189,11 @@ export interface OrchestratorMcpServiceShape {
     scope: McpInvocationScope,
     input: OrchestratorMcpThreadReadInput,
   ) => Effect.Effect<OrchestratorMcpThreadReadResult, OrchestratorMcpFailure>;
+  /** What needs the user, what failed and what is working, across the environment. */
+  readonly listAttention: (
+    scope: McpInvocationScope,
+    input: OrchestratorMcpAttentionListInput,
+  ) => Effect.Effect<OrchestratorMcpAttentionListResult, OrchestratorMcpFailure>;
   readonly sendToThread: (
     scope: McpInvocationScope,
     input: OrchestratorMcpThreadSendInput,
@@ -734,6 +746,7 @@ function listItemFromShell(
 ): OrchestratorMcpThreadListItem {
   return {
     threadId: shell.id,
+    projectId: shell.projectId,
     title: shell.title,
     createdBy: shell.createdBy,
     creationSource: shell.creationSource,
@@ -747,6 +760,7 @@ function listItemFromShell(
     pullRequests: threadPullRequests(shell.pullRequests),
     ...threadSettlement(shell),
     ...threadSnooze(shell, nowMs),
+    needsYou: runtimeRequestNeed(shell.pendingRuntimeRequest?.kind),
     parentThreadId: shell.lineage.parentThreadId,
     relationshipToParent: shell.lineage.relationshipToParent,
     itemCount: shell.visibleItemCount,
@@ -754,6 +768,95 @@ function listItemFromShell(
     updatedAt: DateTime.formatIso(shell.updatedAt),
   };
 }
+
+const WORKING_RUN_STATUSES: ReadonlySet<string> = new Set([
+  "preparing",
+  "queued",
+  "starting",
+  "running",
+  "waiting",
+]);
+const ATTENTION_RANK = { approval: 0, question: 0, failed: 1, working: 2 } as const;
+
+/**
+ * A thread's entry in t3_attention_list, or null when it has nothing to report. A
+ * pending approval or question always shows; a failure or a running turn shows
+ * only while the user still keeps the thread in view (not settled, not snoozed).
+ */
+export function attentionItemFromShell(
+  shell: OrchestrationV2ThreadShell,
+  nowMs: number,
+): OrchestratorMcpAttentionItem | null {
+  const status = shell.activityRunStatus ?? shell.status;
+  const need = runtimeRequestNeed(shell.pendingRuntimeRequest?.kind);
+  const hidden = threadSettlement(shell).settled || isSnoozed(shell, nowMs);
+  const entry =
+    need !== null
+      ? { attention: need, since: shell.pendingRuntimeRequest?.createdAt ?? null }
+      : hidden
+        ? null
+        : WORKING_RUN_STATUSES.has(status)
+          ? {
+              attention: "working" as const,
+              since: shell.activityRunStartedAt ?? shell.latestRunStartedAt ?? null,
+            }
+          : status === "failed"
+            ? { attention: "failed" as const, since: shell.latestRunCompletedAt ?? null }
+            : null;
+  if (entry === null) return null;
+  return {
+    threadId: shell.id,
+    projectId: shell.projectId,
+    title: shell.title,
+    attention: entry.attention,
+    since: entry.since === null ? null : DateTime.formatIso(entry.since),
+    status,
+    lastError: entry.attention === "failed" ? (shell.lastError ?? null) : null,
+    parentThreadId: shell.lineage.parentThreadId,
+    relationshipToParent: shell.lineage.relationshipToParent,
+    link: formatThreadLink(shell.id, shell.title),
+  };
+}
+
+/** Needs first, longest waiting first; then failures and work, newest first. */
+export function sortAttentionItems(
+  items: ReadonlyArray<OrchestratorMcpAttentionItem>,
+): OrchestratorMcpAttentionItem[] {
+  // `since` is a UTC ISO string, so string order is time order.
+  return items.toSorted((left, right) => {
+    const rank = ATTENTION_RANK[left.attention] - ATTENTION_RANK[right.attention];
+    if (rank !== 0) return rank;
+    const oldestFirst = (left.since ?? "").localeCompare(right.since ?? "");
+    return (
+      (ATTENTION_RANK[left.attention] === 0 ? oldestFirst : -oldestFirst) ||
+      left.threadId.localeCompare(right.threadId)
+    );
+  });
+}
+
+/**
+ * Messages other threads sent into this one since the user last wrote in it. Each
+ * agent-to-agent send adds one, so a ping-pong between threads keeps climbing
+ * until the user steps in.
+ */
+export function agentSendHopsSinceUser(
+  messages: ReadonlyArray<
+    Pick<OrchestrationV2ConversationMessage, "createdBy" | "senderThreadId" | "createdAt">
+  >,
+): number {
+  let hops = 0;
+  for (const message of messages.toSorted(
+    (left, right) =>
+      DateTime.toEpochMillis(right.createdAt) - DateTime.toEpochMillis(left.createdAt),
+  )) {
+    if (message.senderThreadId !== undefined) hops += 1;
+    else if (message.createdBy === "user") break;
+  }
+  return hops;
+}
+
+/** The same automatic-hop budget as agent messaging (`AGENT_MESSAGE_MAX_HOPS`). */
+export const THREAD_SEND_MAX_HOPS = 24;
 
 function threadDetail(
   projection: Pick<OrchestrationV2ThreadProjection, "thread" | "runs" | "runtimeRequests">,
@@ -798,6 +901,7 @@ function threadDetail(
     archived: projection.thread.archivedAt !== null,
     ...threadSettlement(projection.thread),
     ...threadSnooze(shell, nowMs),
+    needsYou: runtimeRequestNeed(shell.pendingRuntimeRequest?.kind),
     createdAt: DateTime.formatIso(projection.thread.createdAt),
     updatedAt: DateTime.formatIso(projection.thread.updatedAt),
   };
@@ -2441,10 +2545,11 @@ const make = Effect.gen(function* () {
     listThreads: (scope, input) =>
       Effect.gen(function* () {
         const { parent } = yield* loadCaller(scope);
-        const projectId = yield* resolveProjectTarget(parent, input.projectId);
+        const projectId =
+          input.allProjects === true ? null : yield* resolveProjectTarget(parent, input.projectId);
         const projectThreads = yield* threadManagement
           .listProjectThreads({
-            projectId,
+            ...(projectId === null ? {} : { projectId }),
             includeSubagents: input.includeSubagents !== false,
           })
           .pipe(
@@ -2484,8 +2589,50 @@ const make = Effect.gen(function* () {
           total: filtered.length,
         } satisfies OrchestratorMcpThreadListResult;
       }),
+    listAttention: (scope, input) =>
+      Effect.gen(function* () {
+        const { parent } = yield* loadCaller(scope);
+        const threads = yield* threadManagement
+          .listProjectThreads({
+            ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
+            includeSubagents: true,
+          })
+          .pipe(
+            Effect.mapError((error) =>
+              failure("orchestration_error", `Unable to list threads: ${errorMessage(error)}`),
+            ),
+          );
+        const nowMs = yield* Clock.currentTimeMillis;
+        // The caller is busy answering this very call; reporting it as working is noise.
+        const items = sortAttentionItems(
+          threads.flatMap((shell) => {
+            if (shell.id === parent?.thread.id) return [];
+            const item = attentionItemFromShell(shell, nowMs);
+            return item === null ? [] : [item];
+          }),
+        );
+        const count = (attention: ReadonlyArray<OrchestratorMcpAttentionItem["attention"]>) =>
+          items.filter((item) => attention.includes(item.attention)).length;
+        const limit = input.limit ?? DEFAULT_THREAD_LIST_LIMIT;
+        return {
+          needsYou: count(["approval", "question"]),
+          failed: count(["failed"]),
+          working: count(["working"]),
+          items: items.slice(0, limit),
+          truncated: items.length > limit,
+        } satisfies OrchestratorMcpAttentionListResult;
+      }),
     readThread: (scope, input) =>
       Effect.gen(function* () {
+        if (
+          input.recent === true &&
+          (input.afterPosition !== undefined || input.itemId !== undefined)
+        ) {
+          return yield* failure(
+            "invalid_request",
+            "recent reads the newest items; it cannot be combined with afterPosition or itemId.",
+          );
+        }
         const { parent, target, shell } = yield* loadReadableThread(scope, input.threadId);
         const view = input.view ?? "messages";
         const afterPosition = input.afterPosition ?? -1;
@@ -2496,6 +2643,7 @@ const make = Effect.gen(function* () {
             afterPosition,
             limit,
             view,
+            ...(input.recent === true ? { fromEnd: true } : {}),
             ...(input.itemId === undefined ? {} : { itemId: input.itemId }),
           })
           .pipe(Effect.mapError(threadManagementFailure));
@@ -2585,6 +2733,21 @@ const make = Effect.gen(function* () {
         yield* assertLiveCallerForOtherThread(scope, parent, target);
         yield* resolveRuntimeMode(limits.runtimeMode, target.thread.runtimeMode);
         yield* resolveInteractionMode(limits.interactionMode, target.thread.interactionMode);
+        if (parent !== undefined && parent.thread.id !== target.thread.id) {
+          const { messages } = yield* threadManagement
+            .getThreadRecords(parent.thread.id, ["messages"], { messageRoles: ["user"] })
+            .pipe(Effect.mapError(threadManagementFailure));
+          if (agentSendHopsSinceUser(messages) >= THREAD_SEND_MAX_HOPS) {
+            return yield* failure(
+              "send_loop_guard",
+              `This thread has received ${THREAD_SEND_MAX_HOPS} messages from other threads since the user last wrote in it, so it cannot send to another thread. Summarize the state for the user instead.`,
+            );
+          }
+        }
+        yield* RockBotConfirmation.confirmIfRockBot(parent?.thread, {
+          title: `Send to ${target.thread.title}`,
+          detail: input.message,
+        });
 
         const mode = input.mode ?? "auto";
         const key = yield* requestKey(input.clientRequestId);

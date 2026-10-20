@@ -71,7 +71,10 @@ import {
   createOrchestrationV2TurnItemVisibility,
   isOrchestrationV2SupersededInterrupt,
 } from "@t3tools/shared/orchestrationV2Timeline";
-import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import {
+  derivePendingBackgroundWork,
+  runningSubagentThreadIds,
+} from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -343,6 +346,8 @@ export interface ProjectionTimelinePageOptions {
   readonly itemId?: TurnItemId;
   readonly view?: "messages" | "activity";
   readonly limit: number;
+  /** The newest `limit` matches instead of the oldest; `hasMore` then means older ones exist. */
+  readonly fromEnd?: boolean;
 }
 export interface ProjectionTimelinePage {
   readonly items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
@@ -1560,6 +1565,9 @@ export function threadShellFromProjection(
       (plan) => plan.kind === "proposed_plan" && plan.status === "active",
     ),
     pendingBackgroundTasks: [...pendingBackgroundTasks],
+    runningSubagentThreadIds: [
+      ...runningSubagentThreadIds({ turnItems: projection.turnItems, runs: projection.runs }),
+    ],
     providerInstanceHistory: providerInstanceHistoryForShell({
       threadId: projection.thread.id,
       providerThreads: projection.providerThreads,
@@ -1649,6 +1657,7 @@ type ShellThreadState = {
   readonly latestUserAuthoredMessageAt: DateTime.Utc | null;
   readonly hasActionableProposedPlan: boolean;
   readonly pendingBackgroundTasks: OrchestrationV2ThreadShell["pendingBackgroundTasks"];
+  readonly runningSubagentThreadIds: OrchestrationV2ThreadShell["runningSubagentThreadIds"];
   readonly providerInstanceHistory: OrchestrationV2ThreadShell["providerInstanceHistory"];
   readonly goal: OrchestrationV2ThreadShell["goal"];
   readonly itemCount: number;
@@ -1811,6 +1820,7 @@ function shellFromState(input: {
     latestUserAuthoredMessageAt: input.state.latestUserAuthoredMessageAt,
     hasActionableProposedPlan: input.state.hasActionableProposedPlan,
     pendingBackgroundTasks: input.state.pendingBackgroundTasks,
+    runningSubagentThreadIds: input.state.runningSubagentThreadIds,
     providerInstanceHistory: input.state.providerInstanceHistory,
     goal: input.state.goal,
     itemCount: input.state.itemCount,
@@ -5191,7 +5201,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                       ))
                   : row.sourceItemId === options.itemId,
               );
-            const page = matching.slice(0, options.limit);
+            const page = options.fromEnd
+              ? matching.slice(-options.limit)
+              : matching.slice(0, options.limit);
             const items = yield* Effect.forEach(page, (row) =>
               Effect.gen(function* () {
                 if (row.synthetic !== undefined)
@@ -5656,6 +5668,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               AND json_extract(t.payload_json, '$.settledOverride') IS NULL
               AND json_extract(t.payload_json, '$.pinnedAt') IS NULL
               AND json_extract(t.payload_json, '$.autoSettleDisabledAt') IS NULL
+              AND json_extract(t.payload_json, '$.kind') IS NOT 'orchestrator'
               AND NOT EXISTS (
                 SELECT 1 FROM orchestration_v2_projection_runs active
                 WHERE active.thread_id = t.thread_id
@@ -5899,6 +5912,12 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               : DateTime.makeUnsafe(row.latest_user_authored_message_at),
           hasActionableProposedPlan: row.has_actionable_proposed_plan === 1,
           pendingBackgroundTasks,
+          // The pending-item query is already rolled-back aware, so no runs are passed.
+          runningSubagentThreadIds: [
+            ...runningSubagentThreadIds({
+              turnItems: pendingTurnItemsByThreadId.get(thread.id) ?? [],
+            }),
+          ],
           providerInstanceHistory: providerInstanceHistoryForShell({
             threadId: thread.id,
             providerThreads: providerThreadsByThreadId.get(thread.id) ?? [],
@@ -6240,6 +6259,7 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 thread.settledOverride === null &&
                 thread.pinnedAt == null &&
                 thread.autoSettleDisabledAt == null &&
+                thread.kind !== "orchestrator" &&
                 !runs.some(isActivityRunForShell) &&
                 !runtimeRequests.some((request) => request.status === "pending"),
             )
@@ -6805,7 +6825,9 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 : row.sourceItemId === options.itemId,
             );
             return {
-              items: matching.slice(0, options.limit),
+              items: options.fromEnd
+                ? matching.slice(-options.limit)
+                : matching.slice(0, options.limit),
               totalItems: projection.visibleTurnItems.length,
               hasMore: matching.length > options.limit,
             };

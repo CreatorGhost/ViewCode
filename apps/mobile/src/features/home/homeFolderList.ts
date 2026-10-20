@@ -1,5 +1,5 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
-
+import { threadOwnNeed } from "@t3tools/shared/threadNeedsYou";
 
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
@@ -64,7 +64,7 @@ export type { HomeAgentStatus };
 
 type AgentControlByThreadKey = ReadonlyMap<string, Pick<AgentControlState, "paused" | "queued">>;
 
-/** Home's status chips. `needs-you` is a decision or a failure waiting on the user. */
+/** Home's status chips. `needs-you` is an approval or a question waiting on the user. */
 export type HomeStatusFilter = "all" | "working" | "needs-you";
 
 export function matchesHomeStatusFilter(
@@ -75,10 +75,7 @@ export function matchesHomeStatusFilter(
   filter: HomeStatusFilter,
 ): boolean {
   if (filter === "all") return true;
-  const status = resolveHomeAgentStatus(thread);
-  return filter === "working"
-    ? status === "working"
-    : status === "needs-you" || status === "failed";
+  return resolveHomeAgentStatus(thread) === filter;
 }
 
 /** Lead trees each chip would keep, for the chip badges. */
@@ -122,7 +119,7 @@ export function resolveHomeAgentStatus(
     "hasPendingApprovals" | "hasPendingUserInput" | "session" | "latestTurn"
   >,
 ): HomeAgentStatus {
-  if (thread.hasPendingApprovals || thread.hasPendingUserInput) return "needs-you";
+  if (threadOwnNeed(thread) !== null) return "needs-you";
   const status = thread.session?.status;
   if (status === "running" || status === "starting" || thread.latestTurn?.state === "running") {
     return "working";

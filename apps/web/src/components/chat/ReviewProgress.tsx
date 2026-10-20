@@ -8,12 +8,12 @@ import {
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   collectChildAgents,
-  resolveSpawnedAgentRowStatus,
+  resolveEffectiveAgentStatus,
   SPAWNED_AGENT_STATUS_LABEL,
 } from "@t3tools/client-runtime/state/child-agents";
 import { AGENT_REVIEW_MODES, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { memo, useMemo, useState } from "react";
+import { memo, useState } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { cn } from "~/lib/utils";
@@ -95,7 +95,10 @@ export function ReviewStatusBar({
   // belongs to is in the same agent tree, so this never acts on the tree as a whole.
   const stopReview = async () => {
     setStopping(true);
-    const plan = reviewStopPlan(readThreadShells().map((thread) => scopeThreadShell(thread.environmentId, thread.source)), { environmentId, threadId: review.threadId });
+    const plan = reviewStopPlan(
+      readThreadShells().map((thread) => scopeThreadShell(thread.environmentId, thread.source)),
+      { environmentId, threadId: review.threadId },
+    );
     for (const threadId of plan.stop) {
       await actions.stop(scopeThreadRef(environmentId, threadId), "thread");
     }
@@ -213,7 +216,16 @@ export const ReviewWorkLine = memo(function ReviewWorkLine({
   const ref = scopeThreadRef(environmentId, threadId);
   const activities = useAtomValue(environmentThreadDetails.activitiesAtom(ref));
   const projection = Option.getOrNull(useEnvironmentThread(environmentId, threadId).data);
-  const entries = projection === null ? [] : deriveTimelineEntriesFromVisibleTurnItems({visibleTurnItems:projection.visibleTurnItems,optimisticMessages:[],attempts:projection.attempts,nodes:projection.nodes,plans:projection.plans}).flatMap((row) => row.kind === "work" ? [row.entry] : []);
+  const entries =
+    projection === null
+      ? []
+      : deriveTimelineEntriesFromVisibleTurnItems({
+          visibleTurnItems: projection.visibleTurnItems,
+          optimisticMessages: [],
+          attempts: projection.attempts,
+          nodes: projection.nodes,
+          plans: projection.plans,
+        }).flatMap((row) => (row.kind === "work" ? [row.entry] : []));
   const line = reviewWorkLine(activities ?? [], undefined, entries);
   return line === null ? null : <span className="min-w-0 truncate ps-3.5">{line}</span>;
 });
@@ -232,10 +244,10 @@ export const ReviewAgentList = memo(function ReviewAgentList({
 }) {
   const threads = useThreadShells();
   const agents = collectChildAgents(threads, { environmentId, threadId }).map((agent) => ({
-        id: agent.thread.id,
-        name: agent.thread.title,
-        status: resolveSpawnedAgentRowStatus(agent.thread, "started"),
-      }));
+    id: agent.thread.id,
+    name: agent.thread.title,
+    status: resolveEffectiveAgentStatus(agent.thread, { record: agent.record }),
+  }));
   const [expanded, setExpanded] = useState(false);
   if (agents.length === 0) return null;
   // A deep review starts many lenses; past a few, one line counts them until asked for the list.

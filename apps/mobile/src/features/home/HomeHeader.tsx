@@ -78,6 +78,7 @@ export function HomeHeader(props: HomeHeaderProps) {
       <NativeStackScreenOptions
         optionsVersion={[
           filterMenu.items,
+          props.onOpenRockBot === undefined,
           selectedTerminalTarget?.scopeKey ?? null,
           terminalMenuTargets.map((target) => [target.scopeKey, target.threadId]),
         ]}
@@ -101,6 +102,18 @@ export function HomeHeader(props: HomeHeaderProps) {
             terminalItem,
           ],
           unstable_headerRightItems: () => [
+            ...(props.onOpenRockBot === undefined
+              ? []
+              : [
+                  withNativeGlassHeaderItem({
+                    accessibilityLabel: "Open RockBot",
+                    icon: { name: "sparkles", type: "sfSymbol" } as const,
+                    identifier: "home-rockbot",
+                    label: "",
+                    onPress: props.onOpenRockBot,
+                    type: "button",
+                  }),
+                ]),
             withNativeGlassHeaderItem({
               accessibilityLabel: "Open usage",
               icon: { name: "chart.bar.xaxis", type: "sfSymbol" } as const,
