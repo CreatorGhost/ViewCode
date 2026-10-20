@@ -84,6 +84,22 @@ describe("ViewCode project groups over native priority reads", () => {
     });
   });
 
+  it("gives a fork's upstream rows their own group that says they are the upstream's", () => {
+    const own = { ...row(70, "viewcode"), repository: "CreatorGhost/ViewCode" };
+    const upstream = { ...row(16, "viewcode"), repository: "pingdotgg/t3code", upstream: true };
+    const groups = viewCodePullRequestProjectGroups(
+      [{ key: "others", label: "Others", entries: [upstream, own] }],
+      new Map([["local:viewcode", "ViewCode"]]),
+      "",
+    );
+    expect(
+      groups.map((group) => [group.key, group.label, group.repositoryLabel, group.entries.length]),
+    ).toEqual([
+      ["local:viewcode", "ViewCode", "CreatorGhost/ViewCode", 1],
+      ["local:viewcode:upstream", "ViewCode", "pingdotgg/t3code (upstream)", 1],
+    ]);
+  });
+
   it("qualifies non-GitHub hosts and avoids repeating a repository already named by the folder", () => {
     const groups = viewCodePullRequestProjectGroups(
       [
