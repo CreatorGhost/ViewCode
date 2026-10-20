@@ -30,7 +30,9 @@ import {
   workLogChips,
   workLogHeaderLabel,
   workLogLiveLabel,
+  workLogLiveStepStart,
   workLogStepRuns,
+  workLogTurnFoldOpen,
   type WorkLogChipSet,
 } from "@t3tools/client-runtime/work-log/thinking-log";
 export {
@@ -1430,10 +1432,11 @@ export function deriveMessagesTimelineRows(input: {
   // The turn that just finished stays open, so its steps read on under the "Worked for" header
   // until the user closes it or the next turn starts.
   const turnFoldExpanded = (runId: RunId) =>
-    (input.expandedRunIds?.has(runId) ?? false) ||
-    (input.keepLatestTurnOpen === true &&
-      runId === input.latestRun?.runId &&
-      !(input.collapsedRunIds?.has(runId) ?? false));
+    workLogTurnFoldOpen(runId, {
+      expanded: input.expandedRunIds,
+      collapsed: input.collapsedRunIds,
+      latest: input.keepLatestTurnOpen === true ? input.latestRun?.runId : null,
+    });
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorEntryId.values()) {
     if (!turnFoldExpanded(fold.runId)) {
@@ -1502,18 +1505,11 @@ export function deriveMessagesTimelineRows(input: {
     }).at(-1) ?? [];
   // Finished calls of the same kind ("Ran 2 commands") keep their own row; the live row starts at
   // the first call still running, with the thought that led into it.
-  const firstRunningIndex = lastActiveRun.findIndex(
-    (entry) => isVisibleActiveEntry(entry) && workEntryIsActiveTurnActivity(entry.entry),
-  );
-  const lastFinishedIndex =
-    firstRunningIndex < 0
-      ? -1
-      : lastActiveRun
-          .slice(0, firstRunningIndex)
-          .findLastIndex(
-            (entry) => isVisibleActiveEntry(entry) && entry.entry.itemType !== "reasoning",
-          );
-  const liveRun = firstRunningIndex < 0 ? [] : lastActiveRun.slice(lastFinishedIndex + 1);
+  const liveStart = workLogLiveStepStart(lastActiveRun, {
+    running: (entry) => isVisibleActiveEntry(entry) && workEntryIsActiveTurnActivity(entry.entry),
+    thought: (entry) => !isVisibleActiveEntry(entry) || entry.entry.itemType === "reasoning",
+  });
+  const liveRun = liveStart < 0 ? [] : lastActiveRun.slice(liveStart);
   const visibleLiveRun = liveRun.filter(isVisibleActiveEntry);
   const liveEntry = visibleLiveRun.findLast((entry) => workEntryIsActiveTurnActivity(entry.entry));
   const liveThought = visibleLiveRun.findLast(
