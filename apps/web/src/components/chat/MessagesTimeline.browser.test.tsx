@@ -8,7 +8,16 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import type { LegendListRef } from "@legendapp/list/react";
-import { act, createRef, Profiler, useState, type ComponentProps, type ReactElement } from "react";
+import {
+  act,
+  createRef,
+  Profiler,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactElement,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -1286,6 +1295,131 @@ describe("MessagesTimeline scroll position", () => {
     await click(toggle());
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     expect(composerState()).toBe("collapsed");
+  });
+});
+
+describe("MessagesTimeline live follow", () => {
+  const frames = async (count: number) => {
+    for (let index = 0; index < count; index += 1) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+  };
+  const history = Array.from({ length: 8 }, (_, index) =>
+    message(
+      `Message ${index}\n\n${"Long paragraph. ".repeat(80)}`,
+      { role: "assistant" },
+      `history-${index}`,
+    ),
+  );
+  const status = message("Waiting on 2 subagents", { role: "assistant" }, "status");
+
+  // Mirrors ChatView: an upward wheel stops following at once, and arriving
+  // back at the end resumes it.
+  async function renderWorkingChat() {
+    const props = baseProps();
+    const controls: { update?: (next: { text: string; status: boolean }) => void } = {};
+    function Chat() {
+      const [content, setContent] = useState({ text: "Working.", status: true });
+      const [following, setFollowing] = useState(true);
+      const followingRef = useRef(true);
+      const atEndRef = useRef(true);
+      useEffect(() => {
+        controls.update = setContent;
+      }, []);
+      const stopFollowing = (event: React.WheelEvent) => {
+        if (event.deltaY >= 0) return;
+        followingRef.current = false;
+        setFollowing(false);
+      };
+      const onIsAtEndChange = (isAtEnd: boolean) => {
+        if ((!isAtEnd && followingRef.current) || atEndRef.current === isAtEnd) return;
+        atEndRef.current = isAtEnd;
+        if (!isAtEnd) return;
+        followingRef.current = true;
+        setFollowing(true);
+      };
+      return (
+        <div className="contents" data-following={following} onWheelCapture={stopFollowing}>
+          <MessagesTimeline
+            {...props}
+            isWorking
+            activeTurnInProgress
+            liveFollowEnabled={following}
+            onIsAtEndChange={onIsAtEndChange}
+            timelineEntries={[
+              ...history,
+              message(content.text, { role: "assistant", streaming: true }, "streaming"),
+              ...(content.status ? [status] : []),
+            ]}
+          />
+        </div>
+      );
+    }
+    await renderElement(<Chat />);
+    await vi.waitFor(() => {
+      const viewport = props.listRef.current?.getScrollableNode();
+      expect(viewport?.scrollHeight ?? 0).toBeGreaterThan(viewport?.clientHeight ?? 0);
+    });
+    const list = props.listRef.current!;
+    const viewport = list.getScrollableNode()!;
+    const distanceFromEnd = () =>
+      viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+    await vi.waitFor(() => expect(distanceFromEnd()).toBeLessThanOrEqual(1));
+    let text = "Working.";
+    let showStatus = true;
+    const stream = async (change: { status?: boolean } = {}) => {
+      text += `\n\n${"Streaming words arrive. ".repeat(4)}`;
+      showStatus = change.status ?? showStatus;
+      await act(async () => controls.update?.({ text, status: showStatus }));
+    };
+    const lastRowHeight = () => {
+      const state = list.getState();
+      return state.sizeAtIndex(state.data.length - 1) ?? 0;
+    };
+    const settle = async () => {
+      await act(async () => controls.update?.({ text: "Working.", status: false }));
+    };
+    const following = () =>
+      container.querySelector("[data-following]")?.getAttribute("data-following") === "true";
+    return { following, viewport, distanceFromEnd, stream, settle, lastRowHeight };
+  }
+
+  it("keeps a small scroll-up in place while the content below settles and grows", async () => {
+    const { following, viewport, distanceFromEnd, stream, settle, lastRowHeight } =
+      await renderWorkingChat();
+    const statusHeight = lastRowHeight();
+    expect(statusHeight).toBeGreaterThan(24);
+
+    // Small enough that the status row going away leaves the reader 20px
+    // short of the end: near it, but not at it.
+    await userEvent.wheel(viewport, { delta: { y: -(statusHeight + 20) } });
+    await frames(4);
+    expect(following()).toBe(false);
+    const readingAt = viewport.scrollTop;
+
+    await settle();
+    await frames(4);
+    for (let chunk = 0; chunk < 4; chunk += 1) {
+      await stream();
+      await frames(4);
+    }
+
+    expect(following()).toBe(false);
+    expect(viewport.scrollTop).toBeLessThanOrEqual(readingAt + 1);
+    expect(distanceFromEnd()).toBeGreaterThan(40);
+  });
+
+  it("follows again once the reader scrolls back to the end", async () => {
+    const { following, viewport, distanceFromEnd, stream } = await renderWorkingChat();
+    await userEvent.wheel(viewport, { delta: { y: -40 } });
+    await stream();
+    await vi.waitFor(() => expect(distanceFromEnd()).toBeGreaterThan(40));
+    expect(following()).toBe(false);
+
+    await userEvent.wheel(viewport, { delta: { y: 5000 } });
+    await vi.waitFor(() => expect(following()).toBe(true));
+    await stream();
+    await vi.waitFor(() => expect(distanceFromEnd()).toBeLessThanOrEqual(1));
   });
 });
 

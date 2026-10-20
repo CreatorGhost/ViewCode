@@ -36,6 +36,7 @@ import {
   normalizeCompactToolLabel,
   resolveAssistantMessageCopyState,
   resolveTimelineIsAtEnd,
+  TIMELINE_FOLLOW_REARM_PX,
   resolveTimelineMinimapHasPersistentGutter,
   resolveTimelineMinimapHeightStyle,
   resolveTimelineMinimapHitStripWidth,
@@ -5773,6 +5774,19 @@ describe("timeline end and minimap geometry", () => {
     ).toBe(false);
     expect(resolveTimelineIsAtEnd({ isNearEnd: true, isAtEnd: false })).toBe(false);
     expect(resolveTimelineIsAtEnd({ isAtEnd: false })).toBe(false);
+  });
+
+  it("resumes following only at the very end, not anywhere in the near-end band", () => {
+    const reader = (gap: number) => ({
+      contentLength: 2000,
+      scroll: 1200 - gap,
+      scrollLength: 800,
+    });
+    expect(resolveTimelineIsAtEnd(reader(30))).toBe(true);
+    expect(resolveTimelineIsAtEnd(reader(30), TIMELINE_FOLLOW_REARM_PX)).toBe(false);
+    expect(resolveTimelineIsAtEnd(reader(5), TIMELINE_FOLLOW_REARM_PX)).toBe(false);
+    expect(resolveTimelineIsAtEnd(reader(3), TIMELINE_FOLLOW_REARM_PX)).toBe(true);
+    expect(resolveTimelineIsAtEnd(reader(0), TIMELINE_FOLLOW_REARM_PX)).toBe(true);
   });
 
   it("maps the minimap rail to rows and sizes its hit strip from the free gutter", () => {
