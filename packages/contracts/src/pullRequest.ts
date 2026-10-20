@@ -325,6 +325,11 @@ export const PullRequestListEntry = Schema.Struct({
   projectId: ProjectId,
   projectTitle: TrimmedNonEmptyString,
   repository: TrimmedNonEmptyString,
+  /**
+   * The project's checkout is a fork and this row is from the repository its `upstream` remote
+   * tracks, not from the fork, whose own rows are listed beside it.
+   */
+  upstream: Schema.optional(Schema.Boolean),
   number: PositiveInt,
   title: TrimmedNonEmptyString,
   url: TrimmedNonEmptyString,

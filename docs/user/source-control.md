@@ -188,6 +188,11 @@ Open **Pull requests** to review changes and comments, request reviewers, check 
 or merge. You can edit review titles and descriptions and your own comments where the host allows it.
 GitLab calls these merge requests.
 
+For a fork, a checkout whose `upstream` remote is on the same host as `origin`, the list shows the
+fork's own pull requests and, under a separate heading marked upstream, the upstream repository's.
+A repository the list cannot read is named above the list with the reason, such as no signed-in
+account being able to see it or an SSH host alias that could not be resolved.
+
 On mobile, **Pull requests** lists reviews across your connected environments. Open a review
 to read its description, activity, commits, and changed files. Line comments stay as drafts
 until you submit the review. **Work on PR** opens a chat with the review attached; sending

@@ -95,6 +95,7 @@ import {
 import * as PullRequestReadCache from "./PullRequestReadCache.ts";
 import * as PullRequestProviderRegistry from "./PullRequestProviderRegistry.ts";
 import * as ViewedFiles from "./pullRequestViewedFiles.ts";
+import { isUnresolvedSshAlias } from "../sourceControl/sshAliasRemote.ts";
 
 export interface PullRequestMergeEvent extends PullRequestRef {
   readonly mergedAt: string;
@@ -309,6 +310,8 @@ export interface SupportedProject {
    */
   readonly remote: string;
   readonly repositoryKey: string | null;
+  /** The repository a fork's `upstream` remote tracks; the fork itself is listed beside it. */
+  readonly upstream?: true;
 }
 
 interface WorkspaceProjects {
@@ -395,6 +398,42 @@ function providerDetail(error: PullRequestProviderError): string {
       error.reason === "missing-tool" ? "cli-missing" : "cli-unauthenticated",
     ) ?? error.detail
   );
+}
+
+const SOURCE_CONTROL_NAMES: Partial<Record<string, string>> = {
+  github: "GitHub",
+  gitlab: "GitLab",
+  bitbucket: "Bitbucket",
+  "azure-devops": "Azure DevOps",
+  forgejo: "Forgejo",
+};
+
+/**
+ * Why a listed repository has no rows, in words that say what to do. `error` is the host's
+ * reader lookup or the repository's own read; null when the host named no reader at all.
+ */
+function unreadableRepositoryMessage(
+  project: Pick<SupportedProject, "api" | "host" | "repository" | "project">,
+  error: PullRequestProviderError | null,
+): string {
+  const { host, repository } = project;
+  const remoteUrl = project.project.repositoryIdentity?.locator.remoteUrl;
+  // Keyed on the alias, the repository is looked for on a host no account is signed in to.
+  if (remoteUrl !== undefined && isUnresolvedSshAlias(remoteUrl, host)) {
+    return `${repository} could not be read: ${host} is an SSH alias that did not resolve to a real host, so no signed-in account was tried. Check that \`ssh -G ${host}\` shows its HostName.`;
+  }
+  const name = SOURCE_CONTROL_NAMES[project.api.kind] ?? host;
+  const where = host === "github.com" ? repository : `${repository} on ${host}`;
+  if (error === null) return `${where} could not be read: no account is signed in to ${host}.`;
+  if (error.reason === "not-found") {
+    const signIn = project.api.kind === "github" ? " with `gh auth login`" : "";
+    return `No signed-in ${name} account can see ${where}, or it no longer exists. Sign in to ${name} as an account that can see it${signIn}, then refresh.`;
+  }
+  const detail = providerDetail(error).trim();
+  const bounded = detail.length > 300 ? `${detail.slice(0, 299)}…` : detail;
+  return bounded.length === 0
+    ? `${where} could not be read.`
+    : `${where} could not be read: ${/[.!?…]$/.test(bounded) ? bounded : `${bounded}.`}`;
 }
 
 function toUnavailableError(error: PullRequestProviderError): PullRequestUnavailableError {
@@ -735,27 +774,55 @@ export const make = Effect.gen(function* () {
             if (roots === undefined) viewerRoots.set(host, [project.workspaceRoot]);
             else if (!roots.includes(project.workspaceRoot)) roots.push(project.workspaceRoot);
           }
-          const repositoryKey =
-            api?.repositoryKey?.({ canonicalKey: identity.canonicalKey }) ?? null;
-          const key = listCursorKey(host, repositoryKey ?? repository);
-          if (seen.has(key)) continue;
-          seen.add(key);
           if (api === null) {
+            const key = listCursorKey(host, repository);
+            if (seen.has(key)) continue;
+            seen.add(key);
             const counted = unimplemented.get(host);
             if (counted === undefined) unimplemented.set(host, { kind, projectCount: 1 });
             else counted.projectCount += 1;
             continue;
           }
-          supported.push({
-            cursorKey: key,
-            project,
-            api: withRateLimitBackoff(api, host, rateLimits),
-            repository,
-            host,
-            remote: repositoryKey ?? normalizeGitRemoteUrl(`https://${host}/${repository}`),
-            repositoryKey:
-              repositoryKey === null ? null : canonicalRepositoryKey(repositoryKey.toLowerCase()),
-          });
+          // A fork's identity is the repository its `upstream` remote tracks, so that is what
+          // pull request features target; the fork's own pull requests are listed beside it.
+          // Upstream only wins on origin's host, so both are read the same way.
+          const origin = identity.origin;
+          const fork =
+            origin !== undefined &&
+            identity.locator.remoteName === "upstream" &&
+            kind !== "azure-devops" &&
+            origin.canonicalKey.split("/")[0] === identity.canonicalKey.split("/")[0]
+              ? {
+                  canonicalKey: origin.canonicalKey,
+                  repository:
+                    origin.displayName ?? origin.canonicalKey.split("/").slice(1).join("/"),
+                }
+              : null;
+          const repositories = [
+            { canonicalKey: identity.canonicalKey, repository, upstream: fork !== null },
+            ...(fork === null || fork.repository.length === 0
+              ? []
+              : [{ ...fork, upstream: false }]),
+          ];
+          for (const listed of repositories) {
+            const repositoryKey =
+              api.repositoryKey?.({ canonicalKey: listed.canonicalKey }) ?? null;
+            const key = listCursorKey(host, repositoryKey ?? listed.repository);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            supported.push({
+              cursorKey: key,
+              project,
+              api: withRateLimitBackoff(api, host, rateLimits),
+              repository: listed.repository,
+              host,
+              remote:
+                repositoryKey ?? normalizeGitRemoteUrl(`https://${host}/${listed.repository}`),
+              repositoryKey:
+                repositoryKey === null ? null : canonicalRepositoryKey(repositoryKey.toLowerCase()),
+              ...(listed.upstream ? { upstream: true as const } : {}),
+            });
+          }
         }
         return { supported, unimplemented, viewerRoots };
       }),
@@ -768,9 +835,13 @@ export const make = Effect.gen(function* () {
   const requireProject = (ref: PullRequestRef): Effect.Effect<SupportedProject, PullRequestError> =>
     listWorkspaceProjects({ projectId: ref.projectId }).pipe(
       Effect.flatMap(({ supported }): Effect.Effect<SupportedProject, PullRequestError> => {
-        const own = supported[0];
         const repository = ref.repository.trim();
         const host = ref.host?.trim().toLowerCase();
+        // A fork lists its upstream and itself, so the project can hold two repositories.
+        const own =
+          supported.find(
+            (candidate) => candidate.repository.toLowerCase() === repository.toLowerCase(),
+          ) ?? supported[0];
         if (own !== undefined && own.repository.toLowerCase() === repository.toLowerCase()) {
           if (host === undefined || host === own.host) return Effect.succeed(own);
         }
@@ -1042,6 +1113,7 @@ export const make = Effect.gen(function* () {
       projectId: input.project.project.id,
       projectTitle: input.project.project.title,
       repository: input.project.repository,
+      ...(input.project.upstream ? { upstream: true } : {}),
       number: input.item.number,
       title: input.item.title,
       url: input.item.url,
@@ -1085,10 +1157,15 @@ export const make = Effect.gen(function* () {
         unimplemented,
         viewerRoots,
       } = yield* listWorkspaceProjects(input);
-      const projectCounts = new Map<string, number>();
-      for (const { host } of projects) {
-        projectCounts.set(host, (projectCounts.get(host) ?? 0) + 1);
+      const projectsByHost = new Map<string, Set<string>>();
+      for (const { host, project } of projects) {
+        const held = projectsByHost.get(host);
+        if (held === undefined) projectsByHost.set(host, new Set([project.id]));
+        else held.add(project.id);
       }
+      const projectCounts = new Map(
+        [...projectsByHost].map(([host, projectIds]) => [host, projectIds.size]),
+      );
 
       const viewerResults = yield* resolveViewers(projects, viewerRoots);
       const viewers: Record<string, string> = {};
@@ -1128,10 +1205,13 @@ export const make = Effect.gen(function* () {
       const readable = selected.filter(({ host }) => viewers[host] !== undefined);
       const unreadable = selected
         .filter(({ host }) => viewers[host] === undefined)
-        .map(({ project, repository }) => ({
-          projectId: project.id,
-          projectTitle: project.title,
-          message: `${repository} could not be read.`,
+        .map((project) => ({
+          projectId: project.project.id,
+          projectTitle: project.project.title,
+          message: unreadableRepositoryMessage(
+            project,
+            viewerResults.find((result) => result.host === project.host)?.error ?? null,
+          ),
         }));
       if (readable.length === 0) {
         const errors = viewerResults.flatMap((result) =>
@@ -1209,19 +1289,30 @@ export const make = Effect.gen(function* () {
                       : null,
                 };
               }),
-              Effect.orElseSucceed((): RepositoryBatch => ({
-                key,
-                entries: [],
-                errors: [
-                  {
-                    projectId: project.project.id,
-                    projectTitle: project.project.title,
-                    message: `${project.repository} could not be read.`,
-                  },
-                ],
-                truncated: false,
-                nextCursor: null,
-              })),
+              Effect.tapError((error) =>
+                Effect.logWarning("A repository's pull requests could not be read", {
+                  repository: project.repository,
+                  host: project.host,
+                  reason: error.reason,
+                  detail: error.detail.slice(0, 500),
+                }),
+              ),
+              // One unreadable repository must not blank the page.
+              Effect.catch((error) =>
+                Effect.succeed<RepositoryBatch>({
+                  key,
+                  entries: [],
+                  errors: [
+                    {
+                      projectId: project.project.id,
+                      projectTitle: project.project.title,
+                      message: unreadableRepositoryMessage(project, error),
+                    },
+                  ],
+                  truncated: false,
+                  nextCursor: null,
+                }),
+              ),
             );
         }
       };
@@ -2387,21 +2478,22 @@ export const make = Effect.gen(function* () {
     Effect.gen(function* () {
       if (input.refs.length === 0) return { stats: [] };
       const { supported } = yield* listWorkspaceProjects({});
-      const byProject = new Map(supported.map((project) => [project.project.id, project]));
+      // A fork's project lists two repositories, so a project id alone does not name one.
+      const repositoryOf = (projectId: string, repository: string) =>
+        `${projectId}\n${repository.trim().toLowerCase()}`;
+      const byRepository = new Map(
+        supported.map((project) => [repositoryOf(project.project.id, project.repository), project]),
+      );
       const wanted = new Map<
         string,
         { readonly project: SupportedProject; readonly number: number }
       >();
       for (const ref of input.refs) {
-        const project = byProject.get(ref.projectId);
-        if (
-          project === undefined ||
-          project.api.listChangeRequestStats === undefined ||
-          project.repository.toLowerCase() !== ref.repository.trim().toLowerCase()
-        ) {
+        const project = byRepository.get(repositoryOf(ref.projectId, ref.repository));
+        if (project === undefined || project.api.listChangeRequestStats === undefined) {
           continue;
         }
-        wanted.set(`${project.project.id} ${ref.number}`, { project, number: ref.number });
+        wanted.set(`${project.cursorKey} ${ref.number}`, { project, number: ref.number });
       }
       const byHost = new Map<string, Array<{ project: SupportedProject; number: number }>>();
       for (const entry of wanted.values()) {

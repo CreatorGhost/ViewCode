@@ -72,6 +72,19 @@ export function followsSshHostname(host: string, hostname: string): boolean {
   return !host.includes(".");
 }
 
+/**
+ * Whether `host`, the host a repository was keyed on, is still the SSH alias its remote was
+ * written with: one `resolveSshAliasRemote` would have replaced had `ssh -G` named a forge host.
+ * No real host is undotted, and no top-level domain carries a `-` or `_` (`github.com-work`).
+ */
+export function isUnresolvedSshAlias(remoteUrl: string, host: string): boolean {
+  const sshHost = sshRemoteHost(remoteUrl)?.toLowerCase();
+  if (sshHost === undefined || sshHost !== host.toLowerCase()) return false;
+  if (WELL_KNOWN_REMOTE_HOSTS.has(sshHost) || IP_LITERAL.test(sshHost)) return false;
+  const topLabel = sshHost.split(".").at(-1) ?? "";
+  return !sshHost.includes(".") || (/[-_]/.test(topLabel) && !topLabel.startsWith("xn--"));
+}
+
 /** Reads `ssh -G <host>` output, or null when ssh could not answer. */
 export type SshConfigReader = (host: string) => Effect.Effect<string | null>;
 
