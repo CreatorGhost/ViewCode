@@ -17,6 +17,7 @@ import {
   type SpawnedAgentRowStatus,
   collectChildAgents,
   countRunningChildAgents,
+  isChildAgentRunning,
   resolveEffectiveAgentStatus,
 } from "@t3tools/client-runtime/state/child-agents";
 import { useAgentControlActions } from "./useAgentControlActions";
@@ -311,7 +312,8 @@ function ActiveAgentRow(props: {
           <Button size="xs" variant="ghost" onClick={() => void actions.resume(ref, "thread")}>
             Resume
           </Button>
-        ) : running ? (
+        ) : running && isChildAgentRunning(thread) ? (
+          // An agent its lead's provider runs has no run of its own to stop; Stop all stops the lead.
           <Button
             size="icon-xs"
             variant="ghost"
