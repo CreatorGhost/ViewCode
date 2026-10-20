@@ -110,6 +110,18 @@ export function resolveSubagentMetadata(input: {
   return { modelLabel, workspace };
 }
 
+// Reports often open with a markdown heading and bold labels; a one-line preview
+// shows their text, not the syntax.
+function plainMarkdownLine(markdown: string): string {
+  return markdown
+    .replace(/^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+)/gmu, "")
+    .replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/gu, "$1")
+    .replace(/(\*\*|__)(.+?)\1/gu, "$2")
+    .replace(/`([^`\n]+)`/gu, "$1")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
 export function subagentDetailPreview(input: {
   readonly status: OrchestrationV2TurnItemStatus;
   readonly result?: string | null | undefined;
@@ -119,7 +131,7 @@ export function subagentDetailPreview(input: {
   const progress = input.progress?.trim();
   const detail =
     (isTerminalSubagentStatus(input.status) ? result || progress : progress || result) || "";
-  const compact = detail.replace(/\s+/gu, " ");
+  const compact = plainMarkdownLine(detail);
   return compact.length > 280 ? `${compact.slice(0, 280).trimEnd()}…` : compact || null;
 }
 

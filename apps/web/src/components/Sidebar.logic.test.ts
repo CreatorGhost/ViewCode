@@ -6,6 +6,7 @@ import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
+  agentTimeLabel,
   animateSidebarLayoutChanges,
   archiveSelectedThreadEntries,
   buildBulkTitleRegenerationContextMenuItem,
@@ -1203,6 +1204,31 @@ describe("resolveWorkingStartedAt", () => {
 
   it("returns null with neither a running run nor a runtime", () => {
     expect(resolveWorkingStartedAt({ latestRun: null, runtime: null })).toBeNull();
+  });
+});
+
+describe("agentTimeLabel", () => {
+  const nowMs = Date.parse("2026-10-20T19:44:12.000Z");
+  const startedAt = "2026-10-20T19:43:47.000Z";
+  const base = {
+    latestTurn: null,
+    hasPendingApprovals: false,
+    createdAt: startedAt,
+    updatedAt: "2026-10-20T19:44:11.000Z",
+  };
+
+  it("times a working provider-native subagent, which has no run, from when its lead started it", () => {
+    const appOwned = agentTimeLabel(
+      { ...base, latestTurn: { requestedAt: startedAt, startedAt, completedAt: null } },
+      "working",
+      nowMs,
+    );
+    expect(agentTimeLabel(base, "working", nowMs)).toBe(appOwned);
+    expect(appOwned).not.toBe("starting");
+  });
+
+  it("reads a finished agent's age from its completion, else its last update", () => {
+    expect(agentTimeLabel(base, "done", nowMs)).toBe("just now");
   });
 });
 

@@ -10,9 +10,11 @@ import {
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationLatestTurn } from "@t3tools/client-runtime/viewcodeThread";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/reactivity";
 import { planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";
+import type { AgentStatusGroup } from "@t3tools/client-runtime/state/thread-arrangement";
 import {
   effectiveSnoozed,
   type ThreadSnoozeShell,
@@ -24,6 +26,7 @@ import {
   type ThreadSortInput,
 } from "../lib/threadSort";
 import type { SidebarThreadSummary, Thread } from "../types";
+import { formatRelativeTimeLabel } from "../timestampFormat";
 import { cn, normalizeSearchText } from "../lib/utils";
 import { isLatestRunSettled } from "../session-logic";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
@@ -1082,6 +1085,38 @@ export function resolveWorkingStartedAt(
   thread: Pick<SidebarThreadSummary, "latestRun" | "runtime">,
 ): string | null {
   return resolveThreadWorkingStartedAt(thread);
+}
+
+export function compactSidebarTimeLabel(label: string): string {
+  if (label === "just now") return "now";
+  return label.endsWith(" ago") ? label.slice(0, -4) : label;
+}
+
+/**
+ * What an agent row's trailing text says: how long it has run, what it waits for, or how long
+ * ago it finished. A provider-native subagent's thread never gets a run of its own, so while its
+ * lead runs it the time counts from the thread's creation, when the lead started it.
+ */
+export function agentTimeLabel(
+  thread: {
+    readonly latestTurn: Pick<
+      OrchestrationLatestTurn,
+      "startedAt" | "requestedAt" | "completedAt"
+    > | null;
+    readonly hasPendingApprovals: boolean;
+    readonly createdAt: string;
+    readonly updatedAt: string;
+  },
+  group: AgentStatusGroup,
+  nowMs: number,
+): string {
+  if (group === "needs-you") return thread.hasPendingApprovals ? "approval" : "question";
+  const turn = thread.latestTurn;
+  if (group === "working") {
+    const started = turn?.startedAt ?? turn?.requestedAt ?? thread.createdAt;
+    return compactSidebarTimeLabel(formatRelativeTimeLabel(started, nowMs));
+  }
+  return formatRelativeTimeLabel(turn?.completedAt ?? thread.updatedAt, nowMs);
 }
 
 export function formatWorkingDurationLabel(elapsedMs: number): string {

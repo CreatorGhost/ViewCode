@@ -2269,8 +2269,32 @@ function claudeCommandOutputText(output: ClaudeNativeToolOutput): string {
   return claudeNativeToolOutputText(output);
 }
 
+/**
+ * A subagent that hands back through SubagentHandback leaves only a pointer in its
+ * task_notification summary and Agent result ("This agent's report was delivered to you as a
+ * message from …"); the report itself rides along beside it. Undefined when the agent did not
+ * hand back that way, empty when it did but the report is missing.
+ */
+function claudeHandbackReportText(
+  source: unknown,
+  reportKey: "handback_report" | "handbackReport",
+): string | undefined {
+  if (field(source, "handback") !== "send") return undefined;
+  return text(field(field(source, reportKey), "text")) ?? "";
+}
+
+function claudeTaskNotificationResult(message: { readonly summary: string }): {
+  readonly result?: string;
+} {
+  const report = claudeHandbackReportText(message, "handback_report");
+  if (report === undefined) return { result: message.summary };
+  return report.length === 0 ? {} : { result: report };
+}
+
 function claudeSubagentResultText(output: ClaudeNativeToolOutput): string {
   const value = claudeNativeToolOutputValue(output);
+  const report = claudeHandbackReportText(value, "handbackReport");
+  if (report !== undefined) return report;
   const content = Array.isArray(value)
     ? value
     : typeof value === "object" && value !== null && "content" in value
@@ -6443,7 +6467,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   : "failed",
               ...(completion === undefined
                 ? {}
-                : { workflowFrame: completion, result: completion.summary }),
+                : { workflowFrame: completion, ...claudeTaskNotificationResult(completion) }),
               onlyIfRunningInRun: subagent.task.runId,
             });
           }
@@ -6594,9 +6618,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             return;
           }
           const notificationSummary =
-            isNotification && typeof message.summary === "string" && message.summary.length > 0
-              ? message.summary
-              : null;
+            (isNotification ? claudeTaskNotificationResult(message).result : undefined) || null;
           if (isPendingTaskNotification) {
             yield* recordWakeReport(
               wakeInput.nativeThreadId,
@@ -7010,7 +7032,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   ...(message.tool_use_id === undefined ? {} : { toolUseId: message.tool_use_id }),
                   workflowFrame: message,
                   nativeOutcome: message,
-                  result: message.summary,
+                  ...claudeTaskNotificationResult(message),
                   status: claudeTaskOutcome(message.status),
                   onlyIfRunningInRun: registered.task.runId,
                 });
@@ -7611,7 +7633,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 ...(message.tool_use_id === undefined ? {} : { toolUseId: message.tool_use_id }),
                 workflowFrame: message,
                 nativeOutcome: message,
-                result: message.summary,
+                ...claudeTaskNotificationResult(message),
                 status:
                   message.status === "completed"
                     ? "completed"
