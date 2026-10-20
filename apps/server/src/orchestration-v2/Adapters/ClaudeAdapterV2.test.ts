@@ -10694,6 +10694,134 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     ),
   );
 
+  // Recorded from Claude Code 2.1.304: a subagent that ends with SubagentHandback leaves only a
+  // pointer in its task_notification summary and Agent result; the report rides beside it.
+  it.effect.each([true, false])(
+    "shows a handed-back subagent's report, not the pointer to it (notification first: %s)",
+    (withNotification) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const TASK_ID = "a0773bf1224f2c437";
+          const TOOL_USE_ID = "toolu_01NbZWMG7qTD6K79xbXpQ2zT";
+          const POINTER = `This agent's report was delivered to you as a message from "${TASK_ID}" (its SubagentHandback call). Read it there; it is not repeated here.\n`;
+          const REPORT = "## Review of `src/session.ts`\n\nThe file is a four-line stub.";
+          const harness = yield* makeWakeHarness;
+          const now = yield* DateTime.now;
+          const subagentEvents = () =>
+            harness.events.filter(
+              (
+                event,
+              ): event is Extract<
+                ProviderAdapter.ProviderAdapterV2Event,
+                { type: "subagent.updated" }
+              > => event.type === "subagent.updated",
+            );
+
+          yield* harness.runtime.startTurn(
+            makeClaudeTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now,
+              attemptId: RunAttemptId.make("attempt-claude-handback-report"),
+              text: "Review src/session.ts with a subagent.",
+              attachments: [],
+            }),
+          );
+          yield* harness.offerAndWait(
+            claudeSdkFrame({
+              type: "system",
+              subtype: "task_started",
+              task_id: TASK_ID,
+              tool_use_id: TOOL_USE_ID,
+              description: "Review src/session.ts",
+              subagent_type: "general-purpose",
+              task_type: "local_agent",
+              prompt: "Read src/session.ts and review it.",
+              uuid: "00000000-0000-4000-8000-000000005001",
+              session_id: WAKE_NATIVE_SESSION,
+            }),
+          );
+          if (withNotification) {
+            yield* harness.offerAndWait(
+              claudeSdkFrame({
+                type: "system",
+                subtype: "task_notification",
+                task_id: TASK_ID,
+                tool_use_id: TOOL_USE_ID,
+                status: "completed",
+                output_file: `/tmp/${TASK_ID}.output`,
+                summary: POINTER,
+                usage: { total_tokens: 32524, tool_uses: 4, duration_ms: 22598 },
+                handback: "send",
+                handback_report: { text: REPORT },
+                uuid: "00000000-0000-4000-8000-000000005002",
+                session_id: WAKE_NATIVE_SESSION,
+              }),
+            );
+          }
+          yield* harness.offerAndWait(
+            claudeSdkFrame({
+              type: "user",
+              message: {
+                role: "user",
+                content: [
+                  {
+                    type: "tool_result",
+                    tool_use_id: TOOL_USE_ID,
+                    content: [
+                      {
+                        type: "text",
+                        text: `  ${POINTER}  \nagentId: ${TASK_ID} (use SendMessage with to: '${TASK_ID}' to continue this agent)`,
+                      },
+                    ],
+                  },
+                ],
+              },
+              parent_tool_use_id: null,
+              tool_use_result: {
+                status: "completed",
+                prompt: "Read src/session.ts and review it.",
+                agentId: TASK_ID,
+                agentType: "general-purpose",
+                handback: "send",
+                handbackReport: { text: REPORT },
+                content: [{ type: "text", text: POINTER }],
+                totalDurationMs: 22600,
+                canContinueAgent: true,
+              },
+              uuid: "00000000-0000-4000-8000-000000005003",
+              session_id: WAKE_NATIVE_SESSION,
+            }),
+          );
+          yield* awaitUntil(
+            () => subagentEvents().at(-1)?.subagent.status === "completed",
+            "subagent terminal",
+          );
+
+          assert.equal(subagentEvents().at(-1)?.subagent.result, REPORT);
+          assert.isFalse(
+            subagentEvents().some((event) => event.subagent.result?.includes("delivered to you")),
+          );
+          // Both completions upsert the child's one closing message.
+          const { childThreadId } = subagentRouting(harness.events, []);
+          const childReplies = new Map(
+            harness.events.flatMap((event) =>
+              event.type === "message.updated" &&
+              event.message.role === "assistant" &&
+              event.message.threadId === childThreadId
+                ? [[event.message.id, event.message.text] as const]
+                : [],
+            ),
+          );
+          assert.deepEqual([...childReplies.values()], [REPORT]);
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+          ),
+        ),
+      ),
+  );
+
   it.effect("releases the idle pin when a post-settle subagent stops without completing", () =>
     Effect.scoped(
       Effect.gen(function* () {

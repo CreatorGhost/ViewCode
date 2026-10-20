@@ -175,9 +175,11 @@ import {
   openRemoveImportedSessionsDialog,
 } from "./agentSessions/AgentSessionDialogsHost";
 import {
+  agentTimeLabel,
   archiveSelectedThreadEntries,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
+  compactSidebarTimeLabel,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
   firstValidTimestampMs,
@@ -286,11 +288,6 @@ function connectorLeftPx(level: number): number {
   return ROW_INSET_PX + ICON_SLOT_PX / 2 + (level - 1) * ICON_SLOT_PX;
 }
 
-function compactSidebarTimeLabel(label: string): string {
-  if (label === "just now") return "now";
-  return label.endsWith(" ago") ? label.slice(0, -4) : label;
-}
-
 function threadTimeLabel(thread: SidebarThreadSummary, nowMs: number): string {
   const timestamp = thread.latestUserMessageAt ?? thread.updatedAt;
   return compactSidebarTimeLabel(formatRelativeTimeLabel(timestamp, nowMs));
@@ -355,22 +352,6 @@ function AgentStatusDot(props: { group: AgentStatusGroup }) {
       className={cn("size-1.5 shrink-0 rounded-full", AGENT_DOT_CLASS_NAME[props.group])}
     />
   );
-}
-
-// What an agent row's trailing text says: how long it has run, what it waits
-// for, or how long ago it finished.
-function agentTimeLabel(
-  thread: SidebarThreadSummary,
-  group: AgentStatusGroup,
-  nowMs: number,
-): string {
-  if (group === "needs-you") return thread.hasPendingApprovals ? "approval" : "question";
-  const turn = thread.latestTurn;
-  if (group === "working") {
-    const started = turn?.startedAt ?? turn?.requestedAt ?? null;
-    return started ? compactSidebarTimeLabel(formatRelativeTimeLabel(started, nowMs)) : "starting";
-  }
-  return formatRelativeTimeLabel(turn?.completedAt ?? thread.updatedAt, nowMs);
 }
 
 function agentSummaryLabel(counts: AgentGroupCounts): string {

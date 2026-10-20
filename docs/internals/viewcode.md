@@ -1092,8 +1092,15 @@ adopt the same model.
   lead's shell lists the agents it is running (`runningSubagentThreadIds`),
   and `resolveEffectiveAgentStatus` in `client-runtime/state/childAgents.ts`
   reads that before the child's own run. Every surface that shows an agent's
-  status (rail, Active agents bar, sidebar) goes through it. Such an agent has
-  nothing of its own to stop: only Stop all, which stops the lead, applies.
+  status (rail, Active agents bar, sidebar, mobile Home and agents strip) reads
+  that record, and the sidebar times such an agent from its thread's creation.
+  Such an agent has nothing of its own to stop: only Stop all, which stops the
+  lead, applies.
+- A Claude subagent that ends with SubagentHandback (`handback: "send"`) leaves
+  only a pointer in its `task_notification` summary and Agent tool result ("This
+  agent's report was delivered to you as a message from …"). The report rides
+  beside it (`handback_report` / `handbackReport`); `ClaudeAdapterV2` takes the
+  result from there, so no client has to recognise the pointer.
 
 ## Multi-surface and product policy
 
