@@ -66,6 +66,7 @@ import {
 } from "@t3tools/contracts";
 import {
   ArchiveIcon,
+  BotIcon,
   CheckIcon,
   ChevronRightIcon,
   CircleAlertIcon,
@@ -257,6 +258,8 @@ import { threadStatusLabel } from "./sidebar/sidebarHoverCard.logic";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { SidebarAttentionStrip } from "./sidebar/SidebarAttentionStrip";
+import { rockBotChatsForRoute } from "./rockbot/rockBotChats.logic";
+import { useOpenRockBot } from "./rockbot/useOpenRockBot";
 import { ViewCodeActiveDraftRow } from "./sidebar/ViewCodeActiveDraftRow";
 import { resolveViewCodeActiveDraft } from "./sidebar/viewCodeActiveDraft.logic";
 import { SidebarNewMenu } from "./sidebar/SidebarNewMenu";
@@ -1746,6 +1749,25 @@ const SidebarSettledGroupRow = memo(function SidebarSettledGroupRow(props: {
   );
 });
 
+/** Heads RockBot's chats in the sidebar while one is open; New chat stays visible. */
+const SidebarRockBotHeader = memo(function SidebarRockBotHeader(props: {
+  chatCount: number;
+  onNewChat: () => void;
+}) {
+  return (
+    <div className={cn(rowSurfaceBaseClassName, "h-7 cursor-default pl-2 font-medium")}>
+      <BotIcon aria-hidden className="size-3.5 shrink-0 text-sidebar-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate text-sidebar-foreground/70">RockBot</span>
+      <span className="shrink-0 text-2xs font-normal text-sidebar-muted-foreground tabular-nums">
+        {props.chatCount} {props.chatCount === 1 ? "chat" : "chats"}
+      </span>
+      <SidebarRowAction label="New RockBot chat" tooltip="New chat" onClick={props.onNewChat}>
+        <SquarePenIcon className="size-3.5" />
+      </SidebarRowAction>
+    </div>
+  );
+});
+
 const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   thread: SidebarThreadSummary;
   nowMinute: string;
@@ -2219,6 +2241,9 @@ export default function Sidebar() {
     });
   const attentionCounts = (() =>
     countSidebarAttention(visibleThreads, isThreadUnseen, agentRecordOf))();
+  // RockBot's chats stand in for the project tree while one of them is open.
+  const rockBotChats = (() => rockBotChatsForRoute(threads, routeThreadRef))();
+  const openRockBot = useOpenRockBot(rockBotChats?.[0]?.environmentId ?? null);
   const [attentionFilter, setAttentionFilter] = useState<SidebarAttentionFilter | null>(null);
   // A strip filter keeps the matching chats and agents and the chats they sit in, not
   // their other agents, and opens every fold on the way.
@@ -2475,7 +2500,8 @@ export default function Sidebar() {
     new Map(threadSearch.matches.map((match) => [threadSearchMatchKey(match), match] as const)))();
   const threadSearchResults = (() =>
     searchSidebarThreads(
-      visibleThreads,
+      // Inside RockBot, search finds RockBot chats.
+      rockBotChats ?? visibleThreads,
       threadSearchQuery,
       new Set(threadSearchMatchByKey.keys()),
     ))();
@@ -3913,7 +3939,7 @@ export default function Sidebar() {
                 activeSearchResultIndex={activeSearchResultIndex}
                 onClearSearch={clearThreadSearch}
               />
-              {isSearchingThreads ? null : (
+              {isSearchingThreads || rockBotChats !== null ? null : (
                 <SidebarAttentionStrip
                   needsYou={attentionCounts["needs-you"]}
                   working={attentionCounts.working}
@@ -3988,6 +4014,43 @@ export default function Sidebar() {
                 {threadSearch.isPending ? "Searching thread messages…" : "No threads found"}
               </p>
             )
+          ) : rockBotChats !== null ? (
+            <TooltipProvider
+              key="sidebar-rockbot-tooltips-150"
+              delay={150}
+              closeDelay={0}
+              timeout={400}
+            >
+              <SidebarRockBotHeader
+                chatCount={rockBotChats.length}
+                onNewChat={() => {
+                  if (isMobile) setOpenMobile(false);
+                  void openRockBot({ newChat: true });
+                }}
+              />
+              <ul role="presentation" className="flex flex-col gap-px">
+                {rockBotChats.map((chat) => (
+                  <li key={threadKeyOf(chat)} className="list-none">
+                    {renderThreadRow(
+                      {
+                        node: {
+                          key: threadKeyOf(chat),
+                          thread: chat,
+                          children: [],
+                          descendantCount: 0,
+                          workingDescendantCount: 0,
+                        },
+                        depth: 0,
+                        isLastSibling: true,
+                        guides: [],
+                      },
+                      undefined,
+                      false,
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </TooltipProvider>
           ) : (
             <TooltipProvider
               key="sidebar-thread-tooltips-150"
@@ -4170,7 +4233,10 @@ export default function Sidebar() {
               </ul>
             </TooltipProvider>
           )}
-          {!isSearchingThreads && attentionFilter !== null && orderedThreadKeys.length === 0 ? (
+          {!isSearchingThreads &&
+          rockBotChats === null &&
+          attentionFilter !== null &&
+          orderedThreadKeys.length === 0 ? (
             <p
               role="status"
               className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground"
@@ -4178,7 +4244,7 @@ export default function Sidebar() {
               Nothing here right now
             </p>
           ) : null}
-          {!isSearchingThreads && !hasAnyRows ? (
+          {!isSearchingThreads && rockBotChats === null && !hasAnyRows ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
               {projects.length === 0 ? (
                 <>

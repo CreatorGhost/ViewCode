@@ -22,10 +22,11 @@ export const projectRefKey = (ref: {
 /**
  * The thread to show after switching to a project folder: the one most recently viewed this
  * session, else an open tab, else the most recently active lead thread. Null means the folder
- * has no threads, so the caller opens a new one there.
+ * has no threads, so the caller opens a new one there. Null `memberProjectKeys` means every
+ * folder (All projects).
  */
 export function pickProjectSwitchThread<T extends SwitchCandidateThread>(input: {
-  readonly memberProjectKeys: ReadonlySet<string>;
+  readonly memberProjectKeys: ReadonlySet<string> | null;
   readonly threads: ReadonlyArray<T>;
   readonly recentThreadKeys: ReadonlyArray<string>;
   readonly openTabKeys: ReadonlyArray<string>;
@@ -33,7 +34,8 @@ export function pickProjectSwitchThread<T extends SwitchCandidateThread>(input: 
   const byKey = new Map<string, T>();
   for (const thread of input.threads) {
     if (thread.archivedAt !== null || thread.source.kind != null) continue;
-    if (!input.memberProjectKeys.has(projectRefKey(thread))) continue;
+    if (input.memberProjectKeys !== null && !input.memberProjectKeys.has(projectRefKey(thread)))
+      continue;
     byKey.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), thread);
   }
   for (const key of [...input.recentThreadKeys, ...input.openTabKeys]) {
