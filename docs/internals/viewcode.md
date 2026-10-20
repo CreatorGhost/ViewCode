@@ -1109,6 +1109,12 @@ uses the optional installation package identity and preserves `viewcode-app`.
   looks fine. Use longhands (`animation-duration`, …) in `viewcode-theme.css`,
   and check animations against a production build (`vp build`, then run the
   server without `--dev-url` so it serves `apps/web/dist`).
+- **Markdown link schemes are allowed in more than one place.** Web
+  `ChatMarkdown.tsx` keeps its own sanitize schema and URL transform rather than
+  `@t3tools/shared/markdownPipeline`'s, and the mobile feed reads
+  `modules/t3-markdown-text/src/markdownLinks.ts`, not `src/lib/markdownLinks.ts`.
+  An app scheme such as `t3-thread:` must be allowed in each, or its links render
+  dead with no error.
 - **tailwind-merge** drops one of two background images in `cn(...)`; keep
   sparkle/gradient classes out of `cn()`.
 
