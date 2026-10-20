@@ -865,6 +865,13 @@ html [data-app-rail] {
   border-color: transparent;
   background-color: transparent;
 }
+/* The rail's glyphs (All projects, RockBot, Settings, Pull Requests, phone) at 18px: 16px read
+   as an afterthought beside the 34px project tiles (user feedback). */
+[data-app-rail] button:not([data-rail-project]) > svg,
+[data-app-rail] button:not([data-rail-project]) [data-rail-phone] > svg {
+  width: 18px;
+  height: 18px;
+}
 [data-app-rail] button[data-rail-project]:hover {
   background-color: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
@@ -930,6 +937,27 @@ html [data-app-rail] {
     );
   }
 }
+/*
+ * Sidebar collapse: the gap that holds the content open tweens with the sliding panel, on the
+ * drawer curve, instead of stepping after it (close) or before it (open). Frame capture showed
+ * the content sheet jumping its full width in one frame at either end, which read as fake. The
+ * chat column keeps its width inside the sheet, so the per-frame reflow only re-centres it.
+ * Same specificity as the sidebar's own classes; this file loads later.
+ */
+[data-panel-animations="true"] [data-slot="sidebar"] [data-slot="sidebar-gap"],
+[data-panel-animations="true"]
+  [data-slot="sidebar"][data-collapsible="offcanvas"]
+  [data-slot="sidebar-gap"] {
+  transition-property: width;
+  transition-duration: var(--panel-animation-duration);
+  transition-timing-function: var(--ease-drawer);
+  transition-delay: 0s;
+}
+[data-panel-animations="true"] [data-slot="sidebar"] [data-slot="sidebar-container"],
+[data-panel-animations="true"] [data-slot="sidebar"] [data-slot="sidebar-rail"] {
+  transition-timing-function: var(--ease-drawer);
+}
+
 /* A folder's sort order lives in its menu, in every theme; the row stays a name. */
 [data-folder-sort-label] {
   display: none;

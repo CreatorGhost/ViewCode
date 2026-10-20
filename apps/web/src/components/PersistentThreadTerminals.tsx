@@ -10,6 +10,7 @@ import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/proje
 import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { memo, useEffect, useState } from "react";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { usePanelAnimationSettings } from "../panelAnimations";
 import { useStableCallback } from "../hooks/useStableCallback";
 import type { TerminalContextSelection } from "../lib/terminalContext";
 import { cn } from "~/lib/utils";
@@ -117,6 +118,26 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     selectThreadTerminalUiState(state.terminalUiStateByThreadKey, threadRef),
   );
   const visible = active && terminalUiState.terminalOpen;
+  // The drawer's rows stay at zero for two frames after it opens, so xterm's mount (a 100ms+
+  // stall) happens before the open animation starts rather than eating its first frames.
+  const panelMotion = usePanelAnimationSettings().active;
+  const [paint, setPaint] = useState({ visible, painted: !panelMotion });
+  if (paint.visible !== visible) setPaint({ visible, painted: !panelMotion });
+  const awaitingPaint = visible && panelMotion && !paint.painted;
+  useEffect(() => {
+    if (!awaitingPaint) return;
+    let second = 0;
+    const first = window.requestAnimationFrame(() => {
+      second = window.requestAnimationFrame(() =>
+        setPaint((current) => (current.visible ? { ...current, painted: true } : current)),
+      );
+    });
+    return () => {
+      window.cancelAnimationFrame(first);
+      window.cancelAnimationFrame(second);
+    };
+  }, [awaitingPaint]);
+  const drawerOpen = visible && paint.painted;
   const knownTerminalSessions = useKnownTerminalSessions({
     environmentId: threadRef.environmentId,
     threadId,
@@ -252,10 +273,12 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     <div
       className={cn(
         "grid shrink-0 overflow-clip",
-        active ? (visible ? "grid-rows-[1fr]" : "grid-rows-[0fr]") : "hidden",
+        active ? (drawerOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]") : "hidden",
       )}
-      // Motion lives in index.css: height snaps, the drawer content slides.
-      data-terminal-drawer={active ? (visible ? "open" : "closed") : undefined}
+      // Motion lives in index.css: the rows tween and the drawer content slides with them.
+      data-terminal-drawer={
+        active ? (drawerOpen ? "open" : visible ? "mounting" : "closed") : undefined
+      }
     >
       <div className="min-h-0 overflow-clip">
         <ThreadTerminalDrawer
