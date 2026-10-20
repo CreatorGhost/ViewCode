@@ -4826,6 +4826,26 @@ describe("linked timeline resources", () => {
     expect(rows.find((row) => row.id === "child")?.continuesWorkLog).toBeUndefined();
   });
 
+  it("shows agents the turn is waiting on as its live step, not a thinking row", () => {
+    const spawned = (id: string, status: string) => {
+      const entry = event(id, "subagent");
+      return {
+        ...entry,
+        projectedItem: {
+          item: { ...entry.projectedItem.item, status },
+        } as OrchestrationV2ProjectedTurnItem,
+      };
+    };
+    const live = (statuses: ReadonlyArray<string>) =>
+      deriveMessagesTimelineRows({
+        ...common,
+        isWorking: true,
+        timelineEntries: statuses.map((status, index) => spawned(`agent-${index}`, status)),
+      }).map((row) => row.kind);
+    expect(live(["running", "completed"])).not.toContain("thinking");
+    expect(live(["completed", "failed"])).toContain("thinking");
+  });
+
   it("groups adjacent subagents without merging across a resource or run boundary", () => {
     const rows = deriveMessagesTimelineRows({
       ...common,

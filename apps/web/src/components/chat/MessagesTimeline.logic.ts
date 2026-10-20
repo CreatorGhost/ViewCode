@@ -1940,8 +1940,15 @@ export function deriveMessagesTimelineRows(input: {
   if (input.isWorking && !hasWorkingRow && activeTurnHeaderIndex === timelineEntries.length) {
     appendWorkingRow();
   }
-  // Nothing is running between steps, so the model is thinking about the next one.
-  if (input.isWorking && !setupOwnsWorkingSlot && !hasActiveCompaction && !hasActivityRow) {
+  // Nothing is running between steps, so the model is thinking about the next one. Agents it
+  // spawned last and still waits on are the live step themselves.
+  if (
+    input.isWorking &&
+    !setupOwnsWorkingSlot &&
+    !hasActiveCompaction &&
+    !hasActivityRow &&
+    !rowHasLiveSubagents(nextRows.at(-1))
+  ) {
     nextRows.push({
       kind: "thinking",
       id: LIVE_ACTIVITY_ROW_ID,
@@ -1967,6 +1974,13 @@ export function deriveMessagesTimelineRows(input: {
         }
       : row;
   });
+}
+
+function rowHasLiveSubagents(row: MessagesTimelineRow | undefined): boolean {
+  if (row?.kind !== "event" || row.projectedItem.item.type !== "subagent") return false;
+  return (row.subagents ?? [row.projectedItem]).some(({ item }) =>
+    ["pending", "running", "waiting"].includes(item.status),
+  );
 }
 
 /** The turn's header ("Working for", an open "Worked for") starts the rail of the steps below. */
