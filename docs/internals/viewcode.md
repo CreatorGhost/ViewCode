@@ -27,6 +27,7 @@ excluded from ViewCode are gated, not deleted.
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Provider/model handoff and account switching      | Native `ContextHandoffService`/`ProviderSwitchService`; account-scoped continuation keys in the provider drivers (covered by `provider/viewcode/accountSwitchHandoff.test.ts`) |
 | Child agents, messaging and controls              | Native delegated tasks and lineage; `agents/AgentMessagingV2.ts`, `server/viewcodeAgentsLayers.ts`, MCP `toolkits/agents/`                                                     |
+| RockBot (`kind: "orchestrator"`)                  | `rockbot/RockBotService.ts`, `rockbot/RockBotConfirmation.ts`, MCP `McpToolAccess` gate, `ViewCodeTurnGuidance.ts`; shared `state/rockbot.ts`                                  |
 | Side chats and expiry                             | Native `thread.fork` with optional kind; `ViewCodeSidechatBootstrap.ts`, `ViewCodeSidechatExpiry.ts`, shared `state/sidechat.ts`                                               |
 | Exact user-message forks                          | Native `thread.fork` with optional `sourceMessageId`; `orchestration-v2/ViewCodeMessageFork.ts` snapshots a target-local conversation prefix                                   |
 | Goals and debug mode                              | `orchestration-v2/ViewCodeGoals.ts`, `ViewCodeTurnGuidance.ts`, MCP `toolkits/goal/`                                                                                           |
@@ -145,7 +146,9 @@ of the old database only after a verified upgrade and separate backup.
   that happens to report running. A failed child yields a useful failure reply,
   and a stopped/interrupted run does not produce a spurious completion reply.
 - Agents can reach only their own tree (root thread and all descendants). A hop
-  limit (24) stops ping-pong loops; spawning counts as a hop too. V2 uses native
+  limit (24) stops ping-pong loops; spawning counts as a hop too. `t3_thread_send`
+  reaches any thread, so it enforces the same 24 from durable messages instead:
+  sends from other threads since the user last wrote in the caller. V2 uses native
   `lineage.rootThreadId` and rejects missing, ambiguous or archived destinations.
   Do not infer tree authority from an optional legacy parent alias alone.
 - Child creation and its own worktree use upstream delegated tasks. Their native
@@ -235,6 +238,26 @@ usage-resume walks. Idle side chats archive after 24 hours; the 10-minute sweep
 rechecks timestamps, active runs and pending requests under the native command
 lock before archiving. A stale sweep must not archive a newly active chat.
 Unarchive stays available through the normal native path.
+
+## RockBot
+
+RockBot is an ordinary thread with `kind: "orchestrator"`, one per environment
+(`RockBotService.open`, fixed id `rockbot`, so racing clients converge). It lives in
+the Scratch project so its agent never runs inside a repository, borrowing the latest
+project only where Scratch is unavailable, and it starts on the latest thread's model.
+Clients hide it from thread lists; the rail button, palette action and mobile header
+open it through `rockbot.open`. Settlement candidates exclude it.
+
+Its safety is the server's, not its prompt's. `McpToolAccess` refuses every writing
+tool to an orchestrator caller except the `sendsForUser` ones (`t3_thread_send`,
+`t3_pending_request_respond`), and those call `confirmIfRockBot` first. The
+confirmation copies the computer-use bridge: an `approval_request` with
+`viewcodeRockBotConfirm` in RockBot's own run, answered by the user through the
+normal approval UI, intercepted in `RuntimeRequestService` so no provider sees it,
+and polled by the waiting tool call. Do not route RockBot sends around this gate,
+and do not let a client or agent change a thread's `kind`; nothing an agent says can
+stand in for the click. A pending question dies with the tool call, and startup
+closes any left from a restart.
 
 ## Browser CLI
 
@@ -1058,6 +1081,12 @@ upstream coverage/lint ratchet is retained behind that policy until the existing
 ViewCode screens are validated for compiler adoption. Android foldable/rail and
 layout changes stay excluded with the navigation redesign.
 
+"Needs you" has one definition, `packages/shared/src/threadNeedsYou.ts`: a pending
+approval or question, never a failure or a ready plan. Thread shells, sidebar and
+rail counts, mobile Home, phone notifications and MCP `needsYou` all call it.
+Count a thread's own need; a lead shows its blocked agents' need without counting
+them again.
+
 Remote use is a first-class path. Do not bake origins into Vite bundles.
 Pairing links are credentials: never consume the owner's link while testing or
 publish it in logs/reports.
@@ -1109,6 +1138,12 @@ uses the optional installation package identity and preserves `viewcode-app`.
   looks fine. Use longhands (`animation-duration`, …) in `viewcode-theme.css`,
   and check animations against a production build (`vp build`, then run the
   server without `--dev-url` so it serves `apps/web/dist`).
+- **Markdown link schemes are allowed in more than one place.** Web
+  `ChatMarkdown.tsx` keeps its own sanitize schema and URL transform rather than
+  `@t3tools/shared/markdownPipeline`'s, and the mobile feed reads
+  `modules/t3-markdown-text/src/markdownLinks.ts`, not `src/lib/markdownLinks.ts`.
+  An app scheme such as `t3-thread:` must be allowed in each, or its links render
+  dead with no error.
 - **tailwind-merge** drops one of two background images in `cn(...)`; keep
   sparkle/gradient classes out of `cn()`.
 

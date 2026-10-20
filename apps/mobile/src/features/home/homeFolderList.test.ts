@@ -373,11 +373,11 @@ describe("home status filter", () => {
   });
 
   it("counts lead trees per chip", () => {
-    expect(countHomeStatusFilters(threads)).toEqual({ all: 5, working: 2, "needs-you": 2 });
+    expect(countHomeStatusFilters(threads)).toEqual({ all: 5, working: 2, "needs-you": 1 });
   });
 
-  it("keeps approvals and failures for needs you", () => {
-    expect(leads("needs-you").sort()).toEqual(["blocked", "broken"]);
+  it("keeps approvals and questions for needs you, not failures", () => {
+    expect(leads("needs-you")).toEqual(["blocked"]);
   });
 });
 

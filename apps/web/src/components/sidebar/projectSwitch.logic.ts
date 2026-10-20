@@ -32,7 +32,7 @@ export function pickProjectSwitchThread<T extends SwitchCandidateThread>(input: 
 }): T | null {
   const byKey = new Map<string, T>();
   for (const thread of input.threads) {
-    if (thread.archivedAt !== null || thread.source.kind === "sidechat") continue;
+    if (thread.archivedAt !== null || thread.source.kind != null) continue;
     if (!input.memberProjectKeys.has(projectRefKey(thread))) continue;
     byKey.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), thread);
   }

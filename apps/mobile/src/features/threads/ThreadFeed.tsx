@@ -30,6 +30,7 @@ import type {
   TurnId,
 } from "@t3tools/contracts";
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
+import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import {
   parseComposerContextHref,
@@ -205,6 +206,7 @@ import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { usePreparedConnection } from "../../state/session";
 import { useEnvironmentPresentation } from "../../state/presentation";
 import { useThreadSelection } from "../../state/use-thread-selection";
+import { useLiveThreadLinkLabels } from "../../state/entities";
 import { composerDocumentAttachmentRecord } from "../../lib/composerContext";
 import * as Option from "effect/Option";
 import {
@@ -868,16 +870,15 @@ interface MarkdownLinkHandlers {
 
 const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   readonly markdown: string;
+  readonly environmentId: EnvironmentId;
   readonly markdownStyles: MarkdownStyleSet;
   readonly linkHandlers: MarkdownLinkHandlers;
   readonly onUseArtifactTemplate?: ((template: CodexArtifactTemplate) => void) | undefined;
   readonly renderImage: MarkdownImageRenderer;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill> | undefined;
 }) {
-  const segments = useMemo(
-    () => splitCodexArtifactTemplateMarkdown(props.markdown),
-    [props.markdown],
-  );
+  const markdown = useLiveThreadLinkLabels(props.markdown, props.environmentId);
+  const segments = useMemo(() => splitCodexArtifactTemplateMarkdown(markdown), [markdown]);
 
   return segments.map((segment) => {
     if (segment.kind === "artifact-template") {
@@ -1211,13 +1212,7 @@ function useMarkdownStyles(
           <MarkdownLinkLabelContext.Provider value="other">
             <NativeText
               className="underline"
-              onPress={
-                linkHref
-                  ? () => {
-                      void tryOpenExternalUrl(linkHref, "markdown-link");
-                    }
-                  : undefined
-              }
+              onPress={linkHref ? () => onLinkPress(linkHref) : undefined}
               style={{ color: markdownLinkColor }}
             >
               {children}
@@ -1652,6 +1647,7 @@ function renderFeedEntry(
                 <AssistantMarkdownContent
                   key={reasoningMessage.id}
                   markdown={reasoningMessage.text}
+                  environmentId={props.environmentId}
                   markdownStyles={markdownStyles.reasoning}
                   linkHandlers={props.markdownLinkHandlers}
                   renderImage={props.renderMarkdownImage}
@@ -1865,6 +1861,7 @@ function renderFeedEntry(
           <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
             <AssistantMarkdownContent
               markdown={renderedText}
+              environmentId={props.environmentId}
               markdownStyles={styles}
               linkHandlers={props.markdownLinkHandlers}
               onUseArtifactTemplate={props.onUseArtifactTemplate}
@@ -1951,10 +1948,13 @@ function UserMessageContent(props: UserMessageContentProps) {
   const [selected, setSelected] = useState<{ contextId: string; label: string } | null>(null);
   const navigation = useNavigation();
   const { selectedThread } = useThreadSelection();
-  const text = replaceComposerContextReferences(props.text, (ref) => {
-    const available = props.context?.records.some((record) => record.contextId === ref.contextId);
-    return `[${ref.label}${available ? "" : " (unavailable)"}](t3-context://v1/${ref.kind}/${ref.contextId})`;
-  });
+  const text = useLiveThreadLinkLabels(
+    replaceComposerContextReferences(props.text, (ref) => {
+      const available = props.context?.records.some((record) => record.contextId === ref.contextId);
+      return `[${ref.label}${available ? "" : " (unavailable)"}](t3-context://v1/${ref.kind}/${ref.contextId})`;
+    }),
+    props.environmentId,
+  );
   const onLinkPress = (href: string) => {
     const reference = parseComposerContextHref(href);
     if (!reference) return props.linkHandlers.onLinkPress?.(href);
@@ -2246,6 +2246,15 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const userBubbleColor = theme["--color-user-bubble"];
   const onMarkdownLinkPress = useCallback(
     (href: string) => {
+      const linkedThreadId = parseThreadLinkHref(href);
+      if (linkedThreadId) {
+        void Haptics.selectionAsync();
+        navigation.navigate("Thread", {
+          environmentId: String(props.environmentId),
+          threadId: String(linkedThreadId),
+        });
+        return;
+      }
       const presentation = resolveMarkdownLinkPresentation(href);
       if (presentation.kind === "file") {
         const relativePath = resolveWorkspaceRelativeFilePath(

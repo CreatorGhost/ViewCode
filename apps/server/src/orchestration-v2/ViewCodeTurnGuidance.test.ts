@@ -125,4 +125,14 @@ describe("ViewCode goal/debug turn guidance", () => {
         .message,
     ).toBe(input.message);
   });
+  it("tells only RockBot threads that they are RockBot", () => {
+    const rockBot = withViewCodeTurnGuidance(
+      { ...input, appThread: { ...input.appThread, kind: "orchestrator" as const } },
+      { driver: "claudeAgent", playbookPath: null },
+    );
+    expect(rockBot.message.text).toContain("<viewcode_rockbot>");
+    expect(rockBot.message.text).toContain("t3_attention_list");
+    const ordinary = withViewCodeTurnGuidance(input, { driver: "claudeAgent", playbookPath: null });
+    expect(ordinary.message.text).not.toContain("RockBot");
+  });
 });

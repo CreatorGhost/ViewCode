@@ -7,6 +7,7 @@ import {
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 import { filterFilesystemBrowseEntries } from "@t3tools/client-runtime/state/filesystem";
+import type { ThreadKind } from "@t3tools/contracts";
 import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
@@ -287,7 +288,7 @@ export type BuildThreadActionItemsThread = Pick<
   | "title"
   | "worktreePath"
 > & {
-  kind?: "sidechat" | null;
+  kind?: ThreadKind | null;
   pullRequests?: SidebarThreadSummary["pullRequests"];
   updatedAt: string;
   latestUserMessageAt?: string | null;
@@ -307,7 +308,8 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
-    input.threads.filter((thread) => thread.archivedAt === null && thread.kind !== "sidechat"),
+    // Side chats live in their dock and RockBot has its own "Open RockBot" action.
+    input.threads.filter((thread) => thread.archivedAt === null && thread.kind == null),
     input.sortOrder,
   );
   const visibleThreads =

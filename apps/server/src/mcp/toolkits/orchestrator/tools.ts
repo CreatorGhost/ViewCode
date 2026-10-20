@@ -1,5 +1,7 @@
 import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import {
+  OrchestratorMcpAttentionListInput,
+  OrchestratorMcpAttentionListResult,
   OrchestratorMcpCapabilitiesResult,
   OrchestrationV2StopWorkflowInput,
   OrchestratorMcpCreateThreadsInput,
@@ -197,7 +199,7 @@ export const CreateThreadsTool = Tool.make("create_threads", {
 
 const ThreadListTool = Tool.make("t3_thread_list", {
   description:
-    "List ViewCode threads in a project, newest first. Omit projectId for the calling thread's project. Filter by durable run status, title, or settled state (settled=true lists threads the user or auto-settlement moved out of the active list), or snoozed state, and paginate with the returned cursor. A snoozed thread wakes early when it asks for something, fails, or completes. pullRequests lists every pull request linked to each thread; linkedPullRequest is a legacy single link and can be null while pullRequests still has entries. To link a thread for the user, write `[title](t3-thread://v1/<threadId>)` with the threadId exactly as returned, not URL-encoded; ViewCode shows the thread's current title.",
+    "List ViewCode threads in a project, newest first. Omit projectId for the calling thread's project, or set allProjects=true to list every project in this environment (each item carries its projectId). Filter by durable run status, title, or settled state (settled=true lists threads the user or auto-settlement moved out of the active list), or snoozed state, and paginate with the returned cursor. A snoozed thread wakes early when it asks for something, fails, or completes. pullRequests lists every pull request linked to each thread; linkedPullRequest is a legacy single link and can be null while pullRequests still has entries. To link a thread for the user, write `[title](t3-thread://v1/<threadId>)` with the threadId exactly as returned, not URL-encoded; ViewCode shows the thread's current title.",
   parameters: OrchestratorMcpThreadListInput,
   success: OrchestratorMcpThreadListResult,
   failure: OrchestratorMcpFailure,
@@ -209,9 +211,23 @@ const ThreadListTool = Tool.make("t3_thread_list", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true);
 
+const AttentionListTool = Tool.make("t3_attention_list", {
+  description:
+    "What needs the user across this environment, then what failed and what is working: one entry per thread, child agents included. approval and question are threads waiting on the user (the same rule as ViewCode's Needs you count), longest waiting first; failed and working follow, newest first. Settled or snoozed threads only appear while they wait on the user. Omit projectId for every project. Each item has a ready `[title](t3-thread://v1/<threadId>)` link to give the user. Use t3_thread_read with recent=true for a thread's latest messages. This tool only reads; never answer a thread's approval or question for the user.",
+  parameters: OrchestratorMcpAttentionListInput,
+  success: OrchestratorMcpAttentionListResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "List what needs attention")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true);
+
 const ThreadReadTool = Tool.make("t3_thread_read", {
   description:
-    "Read durable state and a paginated timeline from any ViewCode thread in this environment. The default messages view returns user messages, assistant messages, and proposed plans; activity returns all summarized timeline items. Reading an untruncated terminal assistant result from this parent thread's direct app-owned child acknowledges that child's automatic completion delivery. Continue with afterPosition=nextPosition. Recover long item text with itemId and textOffset=nextTextOffset until nextTextOffset is null; offsets count UTF-16 code units. The thread also reports its snooze state and, in pullRequests, every linked pull request; linkedPullRequest is a legacy single link and can be null while pullRequests still has entries. To link a thread for the user, write `[title](t3-thread://v1/<threadId>)` with the threadId exactly as returned, not URL-encoded; ViewCode shows the thread's current title.",
+    "Read durable state and a paginated timeline from any ViewCode thread in this environment. Set recent=true to read the newest `limit` items, for a thread's latest progress. The default messages view returns user messages, assistant messages, and proposed plans; activity returns all summarized timeline items. Reading an untruncated terminal assistant result from this parent thread's direct app-owned child acknowledges that child's automatic completion delivery. Continue with afterPosition=nextPosition. Recover long item text with itemId and textOffset=nextTextOffset until nextTextOffset is null; offsets count UTF-16 code units. The thread also reports its snooze state and, in pullRequests, every linked pull request; linkedPullRequest is a legacy single link and can be null while pullRequests still has entries. To link a thread for the user, write `[title](t3-thread://v1/<threadId>)` with the threadId exactly as returned, not URL-encoded; ViewCode shows the thread's current title.",
   parameters: OrchestratorMcpThreadReadInput,
   success: OrchestratorMcpThreadReadResult,
   failure: OrchestratorMcpFailure,
@@ -289,6 +305,7 @@ export const OrchestratorToolkit = Toolkit.make(
   RequestSecretTool,
   CreateThreadsTool,
   ThreadListTool,
+  AttentionListTool,
   ThreadReadTool,
   ThreadUpdateTool,
   ThreadSendTool,

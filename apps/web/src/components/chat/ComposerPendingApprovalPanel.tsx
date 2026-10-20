@@ -13,9 +13,11 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
   pendingCount,
   className,
 }: ComposerPendingApprovalPanelProps) {
-  const Detail = approval.requestKind === "mcp-elicitation" ? "span" : "code";
-  const fallbackLabel =
-    approval.requestKind === "mcp-elicitation"
+  const prose = approval.requestKind === "mcp-elicitation" || approval.rockbotConfirm === true;
+  const Detail = prose ? "span" : "code";
+  const fallbackLabel = approval.rockbotConfirm
+    ? "RockBot"
+    : approval.requestKind === "mcp-elicitation"
       ? "App access approval"
       : approval.requestKind === "command"
         ? "Command approval"
@@ -24,8 +26,9 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
           : approval.requestKind === "permission"
             ? "App permission approval"
             : "File change approval";
-  const detailAriaLabel =
-    approval.requestKind === "mcp-elicitation"
+  const detailAriaLabel = approval.rockbotConfirm
+    ? "Message"
+    : approval.requestKind === "mcp-elicitation"
       ? "App access request"
       : approval.requestKind === "command"
         ? "Command"
@@ -52,9 +55,7 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
         aria-label={detailAriaLabel}
         className={cn(
           "block max-h-20 w-full min-w-0 overflow-auto text-xs text-foreground [scrollbar-width:thin] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70 [&::-webkit-scrollbar]:h-1.5",
-          approval.requestKind === "mcp-elicitation"
-            ? "whitespace-pre-wrap font-sans wrap-break-word"
-            : "whitespace-pre font-mono",
+          prose ? "whitespace-pre-wrap font-sans wrap-break-word" : "whitespace-pre font-mono",
         )}
         data-approval-detail="complete"
         tabIndex={0}

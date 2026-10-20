@@ -16,6 +16,8 @@ export interface ThreadPendingApproval {
   readonly appName?: string;
   readonly options?: ReadonlyArray<ProviderApprovalOption>;
   readonly responseCapability: "live" | "not_resumable";
+  /** RockBot asking before it sends to another thread: `appName` says where, `detail` what. */
+  readonly rockbotConfirm?: true;
 }
 
 export interface ThreadUserInputQuestion extends Omit<
@@ -104,6 +106,7 @@ export function derivePendingThreadRequests(
         ? { options: item.options }
         : {}),
       responseCapability: responseCapability === "live" ? "live" : "not_resumable",
+      ...(request.viewcodeRockBotConfirm === true ? { rockbotConfirm: true as const } : {}),
     });
   }
 

@@ -1,5 +1,6 @@
 import type { OrchestrationThreadShell } from "../viewcodeThread.ts";
 import { AgentControlState, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { threadOwnNeed } from "@t3tools/shared/threadNeedsYou";
 
 /**
  * ViewCode child agents (threads whose `parentThreadId` chain leads to a lead
@@ -97,8 +98,8 @@ export function resolveChildAgentStatus(
     "session" | "latestTurn" | "hasPendingApprovals" | "hasPendingUserInput"
   >,
 ): ChildAgentStatus {
-  if (thread.hasPendingApprovals) return "approval";
-  if (thread.hasPendingUserInput) return "input";
+  const need = threadOwnNeed(thread);
+  if (need !== null) return need === "approval" ? "approval" : "input";
   if (isChildAgentRunning(thread)) return "working";
   if (thread.session?.status === "error") return "failed";
   return "idle";

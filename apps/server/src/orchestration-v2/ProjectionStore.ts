@@ -343,6 +343,8 @@ export interface ProjectionTimelinePageOptions {
   readonly itemId?: TurnItemId;
   readonly view?: "messages" | "activity";
   readonly limit: number;
+  /** The newest `limit` matches instead of the oldest; `hasMore` then means older ones exist. */
+  readonly fromEnd?: boolean;
 }
 export interface ProjectionTimelinePage {
   readonly items: ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
@@ -5191,7 +5193,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                       ))
                   : row.sourceItemId === options.itemId,
               );
-            const page = matching.slice(0, options.limit);
+            const page = options.fromEnd
+              ? matching.slice(-options.limit)
+              : matching.slice(0, options.limit);
             const items = yield* Effect.forEach(page, (row) =>
               Effect.gen(function* () {
                 if (row.synthetic !== undefined)
@@ -5656,6 +5660,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               AND json_extract(t.payload_json, '$.settledOverride') IS NULL
               AND json_extract(t.payload_json, '$.pinnedAt') IS NULL
               AND json_extract(t.payload_json, '$.autoSettleDisabledAt') IS NULL
+              AND json_extract(t.payload_json, '$.kind') IS NOT 'orchestrator'
               AND NOT EXISTS (
                 SELECT 1 FROM orchestration_v2_projection_runs active
                 WHERE active.thread_id = t.thread_id
@@ -6240,6 +6245,7 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 thread.settledOverride === null &&
                 thread.pinnedAt == null &&
                 thread.autoSettleDisabledAt == null &&
+                thread.kind !== "orchestrator" &&
                 !runs.some(isActivityRunForShell) &&
                 !runtimeRequests.some((request) => request.status === "pending"),
             )
@@ -6805,7 +6811,9 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 : row.sourceItemId === options.itemId,
             );
             return {
-              items: matching.slice(0, options.limit),
+              items: options.fromEnd
+                ? matching.slice(-options.limit)
+                : matching.slice(0, options.limit),
               totalItems: projection.visibleTurnItems.length,
               hasMore: matching.length > options.limit,
             };

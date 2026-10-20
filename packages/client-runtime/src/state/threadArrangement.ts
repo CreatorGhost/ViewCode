@@ -1,3 +1,5 @@
+import { threadOwnNeed } from "@t3tools/shared/threadNeedsYou";
+
 import type { OrchestrationThreadShell } from "../viewcodeThread.ts";
 
 import { isChildAgentRunning, resolveSpawnedAgentRowStatus } from "./childAgents.ts";
@@ -287,7 +289,7 @@ export function resolveSidebarAttention<T extends AttentionInput>(
   thread: T,
   isUnseen: (thread: T) => boolean,
 ): SidebarAttentionFilter | null {
-  if (thread.hasPendingApprovals || thread.hasPendingUserInput) return "needs-you";
+  if (threadOwnNeed(thread) !== null) return "needs-you";
   if (isChildAgentRunning(thread)) return "working";
   return isUnseen(thread) ? "new" : null;
 }

@@ -2212,8 +2212,8 @@ export default function Sidebar() {
     threads.filter(
       (thread) =>
         thread.archivedAt === null &&
-        // Side chats live in their parent's dock, not the thread list.
-        thread.kind !== "sidechat" &&
+        // Side chats live in their parent's dock and RockBot behind its rail button.
+        thread.kind == null &&
         (scopedProjectKeys === null || scopedProjectKeys.has(physicalProjectKeyOf(thread))),
     ))();
   // The smart strip: one pass over the listed threads, re-run only when a shell or a

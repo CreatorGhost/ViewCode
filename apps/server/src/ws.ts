@@ -1,4 +1,6 @@
 import * as ViewCodeUsageResumeRpc from "./server/viewcodeUsageResumeRpc.ts";
+import * as ViewCodeRockBotRpc from "./server/viewcodeRockBotRpc.ts";
+import * as RockBotService from "./rockbot/RockBotService.ts";
 import * as ViewCodeRelayRpc from "./server/viewcodeRelayRpc.ts";
 import * as ViewCodeRelayLayers from "./server/viewcodeRelayLayers.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
@@ -1830,6 +1832,7 @@ const layerWsRpc = (
       const viewcodeComputerHandlers = yield* ViewCodeComputerUseRpc.make;
       const viewcodePushHandlers = yield* ViewCodePushRpc.make(currentSessionId);
       const viewcodeUsageResumeHandlers = yield* ViewCodeUsageResumeRpc.make;
+      const viewcodeRockBotHandlers = yield* ViewCodeRockBotRpc.make;
       const viewcodeRelayHandlers = yield* ViewCodeRelayRpc.make;
       const viewcodeProviderHandlers = yield* makeViewCodeProviderRpcHandlers;
       const handlers = {
@@ -1839,6 +1842,7 @@ const layerWsRpc = (
         ...viewcodeComputerHandlers,
         ...viewcodePushHandlers,
         ...viewcodeUsageResumeHandlers,
+        ...viewcodeRockBotHandlers,
         ...viewcodeRelayHandlers,
         [WS_METHODS.projectsListIconCandidates]: (input) =>
           projectFaviconResolver.listCandidates(input.cwd, input.projectName).pipe(
@@ -1889,6 +1893,27 @@ const layerWsRpc = (
               ? { "orchestration_v2.source_thread_id": command.sourceThreadId }
               : {}),
           }).pipe(
+            Effect.andThen(
+              command.type === "thread.metadata.update" && command.kind !== undefined
+                ? threadManagement.getThreadShell(command.threadId).pipe(
+                    Effect.map((shell) => shell?.kind),
+                    Effect.orElseSucceed(() => undefined),
+                  )
+                : Effect.succeed(undefined),
+            ),
+            Effect.flatMap((currentKind) => {
+              const refused = RockBotService.refusedRockBotKindChange(command, currentKind);
+              return refused === null
+                ? Effect.void
+                : Effect.fail(
+                    new OrchestrationV2DispatchCommandError({
+                      commandId: command.commandId,
+                      commandType: command.type,
+                      message: refused,
+                      detail: refused,
+                    }),
+                  );
+            }),
             Effect.andThen(
               startup
                 .enqueueCommand(
