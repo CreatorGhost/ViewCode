@@ -1,4 +1,4 @@
-import type { OrchestrationThreadShell } from "../viewcodeThread.ts";
+import type { OrchestrationMessage, OrchestrationThreadShell } from "../viewcodeThread.ts";
 import { ModelSelection, ThreadId } from "@t3tools/contracts";
 
 /**
@@ -55,6 +55,32 @@ export function resolveActiveSidechat<T extends SidechatShell>(
     sidechats[0] ??
     null
   );
+}
+
+type SidechatMessage = Pick<OrchestrationMessage, "role" | "inherited">;
+
+/**
+ * The side chat's own exchange. A forked side chat inherits the parent's
+ * history so the model keeps that context, but the parent already shows it.
+ */
+export function sidechatMessages<T extends SidechatMessage>(
+  messages: ReadonlyArray<T>,
+): ReadonlyArray<T> {
+  return messages.filter(
+    (message) =>
+      message.inherited !== true && (message.role === "user" || message.role === "assistant"),
+  );
+}
+
+/**
+ * Whether an older page can still hold the side chat's own messages. Once any
+ * inherited message is loaded, older pages hold only parent history.
+ */
+export function sidechatHasOlderMessages(
+  hasOlderTurns: boolean,
+  messages: ReadonlyArray<SidechatMessage>,
+): boolean {
+  return hasOlderTurns && !messages.some((message) => message.inherited === true);
 }
 
 /** A side chat's tab label: the question it started with, trimmed to one line. */
