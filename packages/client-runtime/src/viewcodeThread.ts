@@ -121,6 +121,8 @@ export interface ViewCodeThreadShell {
     readonly needsRefinement: boolean;
   } | null;
   readonly backgroundLiveness?: "working" | "monitoring" | null;
+  /** Child threads this thread's provider session runs as subagents now (see the contract). */
+  readonly runningSubagentThreadIds?: ReadonlyArray<ThreadId>;
   readonly planProgress?: {
     readonly step: string;
     readonly completedSteps: number;
@@ -267,6 +269,7 @@ export function viewCodeThreadShell(thread: OrchestrationV2ThreadShell): ViewCod
       : (thread.pendingBackgroundTasks ?? []).length > 0
         ? "monitoring"
         : null,
+    runningSubagentThreadIds: thread.runningSubagentThreadIds ?? [],
   };
 }
 
