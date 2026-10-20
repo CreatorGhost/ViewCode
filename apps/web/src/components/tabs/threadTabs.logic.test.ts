@@ -13,6 +13,7 @@ import {
   stepRecentSelection,
   threadTabTitle,
   touchRecentView,
+  visibleThreadTabs,
 } from "./threadTabs.logic";
 
 describe("open and close", () => {
@@ -132,5 +133,24 @@ describe("threadTabTitle", () => {
         full: "sol-tuning-api",
       });
     }
+  });
+});
+
+describe("visibleThreadTabs", () => {
+  const tabs = ["a", "b", "c", "d", "e", "f", "g", "h"];
+  it("shows every tab under the cap", () => {
+    expect(visibleThreadTabs(["a", "b"], "b", 6)).toEqual({ visible: ["a", "b"], overflow: [] });
+  });
+  it("overflows the tabs past the cap in strip order", () => {
+    expect(visibleThreadTabs(tabs, "b", 6)).toEqual({
+      visible: ["a", "b", "c", "d", "e", "f"],
+      overflow: ["g", "h"],
+    });
+  });
+  it("gives the active tab the last visible slot when it sits past the cap", () => {
+    expect(visibleThreadTabs(tabs, "h", 6)).toEqual({
+      visible: ["a", "b", "c", "d", "e", "h"],
+      overflow: ["f", "g"],
+    });
   });
 });

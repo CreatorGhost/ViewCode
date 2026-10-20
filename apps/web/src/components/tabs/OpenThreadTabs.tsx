@@ -5,6 +5,7 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { Atom } from "effect/reactivity";
 import { ChevronDownIcon, XIcon } from "lucide-react";
+import { Menu, MenuItem, MenuItemLabel, MenuPopup, MenuTrigger } from "../ui/menu";
 import { memo, useEffect, useRef } from "react";
 
 import { cn } from "~/lib/utils";
@@ -28,10 +29,31 @@ import {
 } from "../Sidebar.logic";
 import { threadStatusGlyph } from "../sidebar/ThreadStatusGlyph";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { adjacentThreadTab, resolveThreadTabCommand, threadTabTitle } from "./threadTabs.logic";
+import {
+  adjacentThreadTab,
+  closeThreadTab,
+  resolveThreadTabCommand,
+  threadTabTitle,
+  visibleThreadTabs,
+} from "./threadTabs.logic";
 
 function useActiveThreadRef(): ScopedThreadRef | null {
   return useParams({ strict: false, select: (params) => resolveThreadRouteRef(params) });
+}
+
+/**
+ * The strip is per project, like the rail and the sidebar: the environment's tab list keeps
+ * every open thread, and the active thread's project decides which of them show. Until the
+ * active thread's shell is known, or when it has no project, every tab shows.
+ */
+function projectThreadTabs(
+  tabs: ReadonlyArray<string>,
+  activeKey: string | null,
+  byKey: ReadonlyMap<string, ThreadShell>,
+): ReadonlyArray<string> {
+  const projectId = activeKey ? byKey.get(activeKey)?.projectId : undefined;
+  if (projectId === undefined) return tabs;
+  return tabs.filter((key) => byKey.get(key)?.projectId === projectId);
 }
 
 /**
@@ -98,12 +120,23 @@ export function ThreadTabsHost() {
       });
       if (command === null) return;
       const store = useThreadTabsStore.getState();
-      const tabs = store.tabsByEnvironmentId[active.environmentId] ?? [];
+      const byKey = new Map(
+        shells.map((shell) => [
+          scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.id }),
+          shell,
+        ]),
+      );
+      const tabs = projectThreadTabs(
+        store.tabsByEnvironmentId[active.environmentId] ?? [],
+        activeKey,
+        byKey,
+      );
       event.preventDefault();
       event.stopPropagation();
       if (command === "tab.close") {
         const key = scopedThreadKey(active);
-        const next = store.close(active.environmentId, key, key);
+        const next = closeThreadTab(tabs, key, key).nextActiveKey;
+        store.close(active.environmentId, key, key);
         go(next);
         if (next === null) void navigate({ to: "/" });
         return;
@@ -112,7 +145,7 @@ export function ThreadTabsHost() {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [active, activeKey, keybindings, navigate]);
+  }, [active, activeKey, keybindings, navigate, shells]);
 
   return null;
 }
@@ -294,8 +327,13 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeKey, tabs]);
 
+  const projectTabs = projectThreadTabs(tabs ?? [], activeKey, byKey);
   const showList =
-    !props.paneOnly && !!tabs && tabs.length >= 2 && activeKey !== null && tabs.includes(activeKey);
+    !props.paneOnly &&
+    projectTabs.length >= 2 &&
+    activeKey !== null &&
+    projectTabs.includes(activeKey);
+  const { visible, overflow } = visibleThreadTabs(projectTabs, activeKey);
 
   const select = (key: string) => {
     const ref = parseScopedThreadKey(key);
@@ -308,13 +346,15 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
   };
   const environmentId = active.environmentId;
   const close = (key: string) => {
-    const next = useThreadTabsStore.getState().close(environmentId, key, activeKey);
+    // The neighbour comes from this project's tabs, so closing never lands on another project.
+    const next = closeThreadTab(projectTabs, key, activeKey).nextActiveKey;
+    useThreadTabsStore.getState().close(environmentId, key, activeKey);
     if (key !== activeKey) return;
     if (next) select(next);
     else void navigate({ to: "/" });
   };
 
-  if (!showList || !tabs) {
+  if (!showList) {
     const shell = activeKey ? byKey.get(activeKey) : undefined;
     return (
       <div
@@ -355,7 +395,7 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
         "flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden",
       )}
     >
-      {tabs.map((key) => {
+      {visible.map((key) => {
         const shell = byKey.get(key);
         if (!shell) return null;
         const status = resolveSidebarThreadStatus(shell);
@@ -377,6 +417,83 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
           />
         );
       })}
+      {overflow.length > 0 ? (
+        <OverflowTabsMenu
+          tabs={overflow}
+          byKey={byKey}
+          visited={visited}
+          onSelect={select}
+          onClose={close}
+        />
+      ) : null}
     </div>
   );
 });
+
+/** The tabs past the strip's cap: a "+N" that lists them, attention first. */
+function OverflowTabsMenu(props: {
+  tabs: ReadonlyArray<string>;
+  byKey: ReadonlyMap<string, ThreadShell>;
+  visited: Record<string, string | undefined>;
+  onSelect: (key: string) => void;
+  onClose: (key: string) => void;
+}) {
+  const entries = props.tabs.flatMap((key) => {
+    const shell = props.byKey.get(key);
+    if (!shell) return [];
+    const status = resolveSidebarThreadStatus(shell);
+    const unread = hasUnseenCompletion({ ...shell, lastVisitedAt: props.visited[key] });
+    const attention = unread || status === "approval" || status === "input";
+    return [{ key, shell, status, unread, attention }];
+  });
+  const needsYou = entries.filter((entry) => entry.attention).length;
+  return (
+    <Menu>
+      <MenuTrigger
+        render={
+          // Dressed like a tab, since it stands in the strip for the tabs it holds.
+          <button
+            type="button"
+            aria-label={`${entries.length} more open threads`}
+            data-thread-tab-overflow=""
+            data-attention={needsYou > 0 ? "true" : undefined}
+            className="flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground tabular-nums outline-none hover:bg-foreground/6 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[popup-open]:bg-foreground/10 data-[popup-open]:text-foreground"
+          />
+        }
+      >
+        +{entries.length}
+        {needsYou > 0 ? (
+          <span aria-label={`${needsYou} need you`} className="size-1.5 rounded-full bg-warning" />
+        ) : null}
+      </MenuTrigger>
+      <MenuPopup align="start">
+        {entries.map(({ key, shell, status, unread }) => {
+          const glyph = threadStatusGlyph(status, "xs");
+          return (
+            <MenuItem key={key} onClick={() => props.onSelect(key)}>
+              <MenuItemLabel>
+                <span className="block min-w-0 truncate">{shell.title}</span>
+              </MenuItemLabel>
+              {glyph ? (
+                <span className="flex shrink-0">{glyph}</span>
+              ) : unread ? (
+                <span aria-label="Unread" className="size-1.5 shrink-0 rounded-full bg-success" />
+              ) : null}
+              <button
+                type="button"
+                aria-label={`Close ${shell.title}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  props.onClose(key);
+                }}
+                className="flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+              >
+                <XIcon className="size-3" />
+              </button>
+            </MenuItem>
+          );
+        })}
+      </MenuPopup>
+    </Menu>
+  );
+}

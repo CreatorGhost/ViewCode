@@ -35,6 +35,26 @@ export function closeThreadTab(
   return { tabs: next, nextActiveKey: next[index] ?? next[index - 1] ?? null };
 }
 
+/** The strip shows this many tabs; the rest wait in its overflow menu. */
+export const MAX_VISIBLE_THREAD_TABS = 6;
+
+/**
+ * Splits a project's tabs into the ones the strip shows and the ones its overflow menu holds.
+ * The active tab is always shown: past the cap it takes the last visible slot.
+ */
+export function visibleThreadTabs(
+  tabs: ReadonlyArray<string>,
+  activeKey: string | null,
+  max = MAX_VISIBLE_THREAD_TABS,
+): { readonly visible: ReadonlyArray<string>; readonly overflow: ReadonlyArray<string> } {
+  if (tabs.length <= max) return { visible: tabs, overflow: [] };
+  const visible = tabs.slice(0, max);
+  const activeIndex = activeKey === null ? -1 : tabs.indexOf(activeKey);
+  if (activeIndex >= max) visible[max - 1] = tabs[activeIndex]!;
+  const shown = new Set(visible);
+  return { visible, overflow: tabs.filter((key) => !shown.has(key)) };
+}
+
 /** Next/previous tab with wrap-around; null when there is nowhere else to go. */
 export function adjacentThreadTab(
   tabs: ReadonlyArray<string>,
