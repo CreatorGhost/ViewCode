@@ -633,6 +633,13 @@ html[data-macos-window-controls="visible"] {
         var(--workspace-titlebar-control-gap) - var(--macos-window-controls-clearance)
     );
   }
+  /* That gutter arrives with the panel's collapse and leaves with its expand; declared in both
+     states so it eases on the panel's curve either way instead of stepping. */
+  html[data-macos-window-controls="visible"]
+    [data-panel-animations="true"][data-app-rail-layout]
+    > [data-slot="sidebar-inset"] {
+    transition: margin-left var(--panel-animation-duration) var(--ease-drawer);
+  }
 }
 
 /*

@@ -86,6 +86,7 @@ import {
   TerminalIcon,
   XIcon,
 } from "lucide-react";
+import { autoAnimate } from "@formkit/auto-animate";
 import {
   lazy,
   memo,
@@ -100,6 +101,8 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+
+const SIDEBAR_LIST_ANIMATION_OPTIONS = { duration: 180, easing: "ease-out" } as const;
 import { useParams, useRouter } from "@tanstack/react-router";
 
 import { useRightPanelStore } from "../rightPanelStore";
@@ -2040,6 +2043,14 @@ export default function Sidebar() {
       ),
     ))();
   const projectGroups = useSidebarProjectGroups();
+  // Rows that move between a folder's groups, arrive or leave glide into place (auto-animate
+  // FLIPs the list's children on DOM changes and respects reduced motion on its own).
+  const animatedListsRef = useRef(new WeakSet<HTMLElement>());
+  const attachListAnimation = (node: HTMLElement | null) => {
+    if (!node || animatedListsRef.current.has(node)) return;
+    autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS);
+    animatedListsRef.current.add(node);
+  };
   const projectGroupsRef = useRef(projectGroups);
   useLayoutEffect(() => {
     projectGroupsRef.current = projectGroups;
@@ -4000,7 +4011,7 @@ export default function Sidebar() {
                   presentational list also makes its implicit listitems
                   presentational while preserving every descendant control.
                   The sidebar's navigation landmark carries the "Threads" name. */}
-              <ul role="presentation" className="flex flex-col gap-px">
+              <ul role="presentation" className="flex flex-col gap-px" ref={attachListAnimation}>
                 {attentionFilter === null ? (
                   <SidebarDraftBlock
                     key="draft-sessions"
@@ -4112,7 +4123,11 @@ export default function Sidebar() {
                           folded={!expanded}
                           full={
                             // Indented past the folder's chevron, so its chats sit under its icon.
-                            <ul role="group" className="ms-4.5 flex flex-col gap-px pb-1">
+                            <ul
+                              role="group"
+                              className="ms-4.5 flex flex-col gap-px pb-1"
+                              ref={attachListAnimation}
+                            >
                               {activeDraft ? (
                                 <ViewCodeActiveDraftRow
                                   key={activeDraft.draftId}
