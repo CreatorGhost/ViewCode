@@ -1086,9 +1086,13 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
 ## Thinking log
 
 The web work log draws its steps on one rail with markers and file chips
-(`components/chat/WorkLog.tsx`). Which marker and chips a step gets is shared
-client logic in `@t3tools/client-runtime/work-log/thinking-log`, so mobile can
-adopt the same model.
+(`components/chat/WorkLog.tsx`). Which marker and chips a step gets, how work
+splits into steps, where the live step starts and whether a finished turn's
+fold is open are shared client logic in
+`@t3tools/client-runtime/work-log/thinking-log`. Mobile
+(`apps/mobile/src/lib/threadActivity.ts`) applies the same step rules to its
+activity rows (`workLogStepRunsBy`) but keeps its tool icons instead of the
+rail, markers and chips.
 
 - Work log rows are separate LegendList items, so no element can span the
   rail. Each row draws its own stretch from the row's `followsWorkLog` and
@@ -1110,9 +1114,12 @@ adopt the same model.
 - Motion keys on liveness, not mounting: rows, chips and the finish mark
   animate only for work that is live (or a turn that ended in the last 3 s),
   because virtualization remounts history as it scrolls back into view.
-- Spawned agents are steps on the rail, one row each (`SpawnedAgentLog.tsx`).
-  Their live state comes from the lead's projection and agent control, never a
-  subscription per child.
+- Spawned agents are steps on the rail, one row each (`SpawnedAgentLog.tsx`;
+  mobile `thread-subagent-group.tsx`). Their live state comes from the lead's
+  projection and agent control, never a subscription per child.
+- Mobile reads v2 turn items through `viewCodeThread`'s activity adapter. An
+  in-flight item must be a `tool.updated` activity: mobile drops v1's
+  `tool.started` start notices, so that kind hid every running call and agent.
 - A provider-native subagent's thread never gets a run of its own, so status
   read from the child's shell alone says Idle while the lead runs it. The
   lead's shell lists the agents it is running (`runningSubagentThreadIds`),

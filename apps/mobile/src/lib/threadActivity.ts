@@ -1,4 +1,7 @@
-import type { OrchestrationLatestTurn, OrchestrationThread } from "@t3tools/client-runtime/viewcodeThread";
+import type {
+  OrchestrationLatestTurn,
+  OrchestrationThread,
+} from "@t3tools/client-runtime/viewcodeThread";
 
 import * as Option from "effect/Option";
 import { foldUserInputActivities } from "@t3tools/client-runtime/viewcode-work-log/user-input";
@@ -7,18 +10,34 @@ import {
   requestKindFromRequestType,
   type PendingApproval,
 } from "@t3tools/client-runtime/pending-requests";
-import { REVIEW_FINDINGS_ACTIVITY_KIND, UserInputAttachmentAnswerPayload, isToolLifecycleItemType } from "@t3tools/contracts";
-import type { OrchestrationThreadActivity, ReviewFindingsActivityPayload, ToolLifecycleItemType, TurnId, UserInputQuestion } from "@t3tools/contracts";
+import {
+  REVIEW_FINDINGS_ACTIVITY_KIND,
+  UserInputAttachmentAnswerPayload,
+  isToolLifecycleItemType,
+} from "@t3tools/contracts";
+import type {
+  OrchestrationThreadActivity,
+  OrchestrationV2TurnItem,
+  ReviewFindingsActivityPayload,
+  ToolLifecycleItemType,
+  TurnId,
+  UserInputQuestion,
+} from "@t3tools/contracts";
+import { isActiveSubagentStatus } from "@t3tools/client-runtime/state/subagentRuntime";
+import {
+  workLogLiveLabelFor,
+  workLogLiveStepStart,
+  workLogStepKeyOf,
+  workLogStepRunsBy,
+  workLogTurnFoldOpen,
+} from "@t3tools/client-runtime/work-log/thinking-log";
 import { formatDuration } from "@t3tools/client-runtime/viewcodeTiming";
 import {
   AGENT_MESSAGE_SENT_ACTIVITY_KIND,
   readAgentMessageSentPayload,
   type AgentMessageSentPayload,
 } from "@t3tools/shared/agentMessages";
-import {
-  readHtmlRenderReference,
-  type HtmlRenderReference,
-} from "@t3tools/shared/htmlRender";
+import { readHtmlRenderReference, type HtmlRenderReference } from "@t3tools/shared/htmlRender";
 import { latestReviewFindingsActivityId, readReviewFindings } from "@t3tools/shared/reviewFindings";
 import {
   commandDetailRepeatsCommand,
@@ -133,7 +152,11 @@ export interface WorkLogEntry {
   reviewFindings?: ReviewFindingsActivityPayload;
   /** The models on either side of a handoff, named from the server's provider list. */
   handoff?: WorkLogHandoff;
+  /** An agent this turn spawned (a V2 subagent item); rows read its live state from the lead. */
+  subagent?: SubagentTurnItem;
 }
+
+export type SubagentTurnItem = Extract<OrchestrationV2TurnItem, { readonly type: "subagent" }>;
 
 export interface WorkLogHandoff {
   readonly fromModel: string;
@@ -234,6 +257,18 @@ export type ThreadFeedEntry =
       readonly activity: ThreadFeedActivity;
       readonly expanded: boolean;
       readonly summary: AgentSpawnSummary;
+    }
+  | {
+      /**
+       * Agents one provider turn spawned, a live row each (web's SpawnedAgentLog). The items
+       * are this thread's; their live state is read from its projection when rendered.
+       */
+      readonly type: "spawned-agents";
+      readonly id: string;
+      readonly createdAt: string;
+      readonly turnId: TurnId | null;
+      readonly agents: ReadonlyArray<SubagentTurnItem>;
+      readonly expanded: boolean;
     }
   | {
       /** A message this thread's agent sent another agent (web's "to" card). */
@@ -343,6 +378,13 @@ function isAgentMessageActivityGroup(entry: ThreadFeedActivityGroup): boolean {
 
 function isHtmlRenderActivityGroup(entry: ThreadFeedActivityGroup): boolean {
   return entry.activities.some((activity) => activity.workEntry.htmlRender !== undefined);
+}
+
+function hasLiveSubagent(entry: ThreadFeedActivityGroup): boolean {
+  return entry.activities.some((activity) => {
+    const subagent = activity.workEntry.subagent;
+    return subagent !== undefined && isActiveSubagentStatus(subagent.status);
+  });
 }
 
 function isReviewFindingsActivityGroup(entry: ThreadFeedActivityGroup): boolean {
@@ -630,6 +672,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   const reviewFindings = readReviewFindings(activity);
   if (reviewFindings) entry.reviewFindings = reviewFindings;
+  // V2 subagent items reach mobile as tool activities whose payload is the item itself.
+  if (payload?.type === "subagent" && typeof payload.subagentId === "string") {
+    entry.subagent = payload as unknown as SubagentTurnItem;
+  }
   if (
     activity.kind === "viewcode.handoff" ||
     activity.kind === "viewcode.session.resume-fallback"
@@ -1882,7 +1928,9 @@ function deriveThreadFeedTurnFolds(
               (isUserInputActivityGroup(entry) ||
                 isAgentMessageActivityGroup(entry) ||
                 isHtmlRenderActivityGroup(entry) ||
-                isReviewFindingsActivityGroup(entry))
+                isReviewFindingsActivityGroup(entry) ||
+                // Agents still working outlive the turn that spawned them.
+                hasLiveSubagent(entry))
             ),
         )
         .map((entry) => entry.id),
@@ -1952,6 +2000,12 @@ export function deriveThreadFeedPresentation(
   expandedTurnIds: ReadonlySet<TurnId>,
   expandedWorkGroupIds: ReadonlySet<string> = new Set(),
   activeWorkStartedAt: string | null = null,
+  folds: {
+    /** Leave the turn that just finished open under its "Worked for" header, like web. */
+    readonly keepLatestTurnOpen?: boolean;
+    /** With `keepLatestTurnOpen` the latest turn starts open, so closing it is recorded here. */
+    readonly collapsedTurnIds?: ReadonlySet<TurnId>;
+  } = {},
 ): ThreadFeedEntry[] {
   const sourceFeed = feed.filter(
     (entry) =>
@@ -1969,9 +2023,15 @@ export function deriveThreadFeedPresentation(
   const foldsByAnchorId = deriveThreadFeedTurnFolds(sourceFeed, latestTurn);
   const unsettledTurnId = deriveUnsettledTurnId(latestTurn);
   const isWorking = activeWorkStartedAt !== null;
+  const foldOpen = (turnId: TurnId) =>
+    workLogTurnFoldOpen(turnId, {
+      expanded: expandedTurnIds,
+      collapsed: folds.collapsedTurnIds,
+      latest: folds.keepLatestTurnOpen === true ? latestTurn?.turnId : null,
+    });
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorId.values()) {
-    if (!expandedTurnIds.has(fold.turnId)) {
+    if (!foldOpen(fold.turnId)) {
       for (const entryId of fold.hiddenEntryIds) {
         collapsedEntryIds.add(entryId);
       }
@@ -1990,7 +2050,7 @@ export function deriveThreadFeedPresentation(
       entry.turnId === unsettledTurnId;
     const fold = foldsByAnchorId.get(entry.id);
     if (fold) {
-      const expanded = expandedTurnIds.has(fold.turnId);
+      const expanded = foldOpen(fold.turnId);
       let row = turnFoldRowsCache.get(entry);
       if (
         !row ||
@@ -2062,7 +2122,10 @@ export function deriveThreadFeedPresentation(
         // what the agents are doing, so a Thinking row under it would lie.
         (row.type === "agent-spawn" &&
           row.summary.tone === "working" &&
-          row.turnId === unsettledTurnId),
+          row.turnId === unsettledTurnId) ||
+        (row.type === "spawned-agents" &&
+          row.turnId === unsettledTurnId &&
+          row.agents.some((agent) => isActiveSubagentStatus(agent.status))),
     )
   ) {
     result.push(thinkingRow(activeWorkStartedAt, unsettledTurnId));
@@ -2081,6 +2144,7 @@ function activityRunTurnId(entry: ThreadFeedEntry): TurnId | null {
     entry.activities.every(
       (activity) =>
         !activity.workEntry.agentSpawn &&
+        !activity.workEntry.subagent &&
         !activity.workEntry.agentMessageSent &&
         !activity.workEntry.htmlRender &&
         !activity.workEntry.reviewFindings &&
@@ -2101,96 +2165,235 @@ function appendMixedActivityRun(
   activeTail: boolean,
 ) {
   const first = run[0]!;
-  const last = run.at(-1)!;
   const turnId = activityRunTurnId(first);
   const live = isWorking && activeTail && turnId === unsettledTurnId;
-  const firstTool =
-    first.type === "activity-group"
-      ? visibleActivityGroupEntries(first, unsettledTurnId, isWorking)[0]
-      : undefined;
-  const groupId = firstTool ? toolActivityGroupId(firstTool) : `activity-run:${first.id}`;
-  const expanded = expandedWorkGroupIds.has(groupId);
-  const state = `${isWorking}:${unsettledTurnId}:${activeTail}:${expanded}`;
+  const state = `${isWorking}:${unsettledTurnId}:${activeTail}`;
   const cached = activityRunsCache.get(first);
   if (
     cached?.state === state &&
     cached.source.length === run.length &&
-    run.every((entry, index) => entry === cached.source[index])
+    run.every((entry, index) => entry === cached.source[index]) &&
+    workToggleExpansionsMatch(cached.rows, expandedWorkGroupIds)
   ) {
     result.push(...cached.rows);
     return;
   }
-  const outputStart = result.length;
-  const history = groupConsecutiveReasoningMessages(run).map((entry) =>
+  const items = run.flatMap((entry): WorkLogStepItem[] =>
     entry.type === "activity-group"
-      ? {
-          ...entry,
-          activities: visibleActivityGroupEntries(entry, unsettledTurnId, isWorking).map(
-            (activity) => ({ ...activity, groupedToolDetail: true }),
-          ),
-        }
-      : entry,
+      ? visibleActivityGroupEntries(entry, unsettledTurnId, isWorking).map((activity) => ({
+          kind: "tool",
+          activity,
+        }))
+      : entry.type === "message"
+        ? [{ kind: "thought", entry }]
+        : [],
   );
-  const activities = history.flatMap((entry) =>
-    entry.type === "activity-group" ? entry.activities : [],
+  const rows: ThreadFeedEntry[] = [];
+  appendWorkLogSteps(
+    rows,
+    { id: first.id, createdAt: first.createdAt, turnId },
+    items,
+    expandedWorkGroupIds,
+    unsettledTurnId,
+    isWorking,
+    live,
   );
-  const trailingGroup = history.at(-1);
-  // A missing completion before the latest thought must not reclaim the live line.
-  const summaryActivities =
-    live && trailingGroup?.type === "activity-group" ? trailingGroup.activities : activities;
-  const toolRows: ThreadFeedEntry[] = [];
-  if (summaryActivities.length > 0) {
-    appendToolGroupRows(
-      toolRows,
-      { type: "activity-group", id: first.id, createdAt: first.createdAt, turnId, activities },
-      summaryActivities,
-      new Set(),
+  result.push(...rows);
+  activityRunsCache.set(first, { source: run, state, rows });
+}
+
+function workToggleExpansionsMatch(
+  rows: ReadonlyArray<ThreadFeedEntry>,
+  expandedWorkGroupIds: ReadonlySet<string>,
+): boolean {
+  return rows.every(
+    (row) =>
+      (row.type !== "work-toggle" || expandedWorkGroupIds.has(row.groupId) === row.expanded) &&
+      ((row.type !== "agent-spawn" && row.type !== "spawned-agents") ||
+        expandedWorkGroupIds.has(row.id) === row.expanded),
+  );
+}
+
+/** One entry of a run of work: a thought (a reasoning message) or a tool call. */
+type WorkLogStepItem =
+  | {
+      readonly kind: "thought";
+      readonly entry: Extract<ThreadFeedEntry, { readonly type: "message" }>;
+    }
+  | { readonly kind: "tool"; readonly activity: ThreadFeedActivity };
+
+/** What kind of step a call is; notices, approvals and progress ride along with the next call. */
+function activityStepKey(activity: ThreadFeedActivity): string | null {
+  return workLogStepKeyOf({
+    id: activity.id,
+    failed: activity.toolLike && activity.status === "failure",
+    action: toolGroupAction(activity.workEntry),
+    sourceKey: activity.workEntry.toolSource?.key,
+  });
+}
+
+function stepItemKey(item: WorkLogStepItem): string | null {
+  return item.kind === "tool" ? activityStepKey(item.activity) : null;
+}
+
+function isRunningActivity(activity: ThreadFeedActivity, unsettledTurnId: TurnId | null): boolean {
+  return (
+    activity.turnId === unsettledTurnId &&
+    (activity.lifecycleStatus === "inProgress" ||
+      (activity.lifecycleStatus === undefined &&
+        (activity.workEntry.sourceActivityKind === "task.progress" || activity.toolLike)))
+  );
+}
+
+/**
+ * A run of work as the thinking log's steps, one row each (shared rules in
+ * `client-runtime/work-log/thinking-log`). Only the step running now is the live
+ * row: finished calls of its kind keep their own row above it, and thoughts after
+ * the last finished call become the live "Thinking" row, since the model is
+ * deciding the next step.
+ */
+function appendWorkLogSteps(
+  result: ThreadFeedEntry[],
+  source: Pick<ThreadFeedActivityGroup, "id" | "createdAt" | "turnId">,
+  items: ReadonlyArray<WorkLogStepItem>,
+  expandedWorkGroupIds: ReadonlySet<string>,
+  unsettledTurnId: TurnId | null,
+  isWorking: boolean,
+  live: boolean,
+): void {
+  const steps = workLogStepRunsBy(items, stepItemKey);
+  const last = steps.at(-1);
+  if (live && last) {
+    const runningStart = workLogLiveStepStart(last, {
+      running: (item) =>
+        item.kind === "tool" &&
+        stepItemKey(item) !== null &&
+        isRunningActivity(item.activity, unsettledTurnId),
+      thought: (item) => stepItemKey(item) === null,
+    });
+    const liveStart =
+      runningStart >= 0
+        ? runningStart
+        : last.findLastIndex((item) => stepItemKey(item) !== null) + 1;
+    if (liveStart > 0 && liveStart < last.length) {
+      steps.splice(-1, 1, last.slice(0, liveStart), last.slice(liveStart));
+    } else if (liveStart >= last.length) {
+      // Every call finished and no thought follows: the turn's Thinking row takes the live slot.
+      steps.push([]);
+    }
+  }
+  steps.forEach((step, index) => {
+    if (step.length === 0) return;
+    appendWorkLogStepRow(
+      result,
+      source,
+      step,
+      expandedWorkGroupIds,
       unsettledTurnId,
       isWorking,
-      live && last.type === "activity-group",
+      live && index === steps.length - 1,
     );
-  }
-  const toolSummary = toolRows.find((entry) => entry.type === "work-toggle");
-  const thinking = live && (last.type === "message" || !toolSummary?.shimmer);
-  const thoughtCount = run.filter((entry) => entry.type === "message").length;
-  // The expanded group already lists the thought, so the preview steps aside.
-  const latestThought =
-    live && !expanded
-      ? run.findLast(
-          (entry) =>
-            entry.type === "message" &&
-            entry.message.role === "reasoning" &&
-            entry.message.text.trim() !== "",
-        )
-      : undefined;
-  const thought =
-    latestThought?.type === "message" ? liveThoughtLine(latestThought.message.text) : "";
-  result.push({
-    type: "work-toggle",
-    id: live ? LIVE_ACTIVITY_ROW_ID : `work-toggle:${groupId}`,
-    createdAt: first.createdAt,
-    turnId,
-    groupId,
-    hiddenCount: activities.length + thoughtCount,
-    expanded,
-    summary: thinking
-      ? "Thinking"
-      : (toolSummary?.summary ?? `Thought${thoughtCount > 1 ? ` (×${thoughtCount})` : ""}`),
-    summaryKind: toolSummary?.summaryKind ?? "other",
-    ...(thinking || !toolSummary
-      ? { summaryToolIcon: "brain" as const }
-      : {
-          ...(toolSummary.toolSurface ? { toolSurface: toolSummary.toolSurface } : {}),
-          ...(toolSummary.toolIcon ? { toolIcon: toolSummary.toolIcon } : {}),
-          ...(toolSummary.summaryToolIcon ? { summaryToolIcon: toolSummary.summaryToolIcon } : {}),
-        }),
-    ...(thought ? { thought } : {}),
-    hasFailure: toolSummary?.hasFailure ?? false,
-    live,
-    shimmer: live,
   });
-  if (expanded) result.push(...history);
-  activityRunsCache.set(first, { source: run, state, rows: result.slice(outputStart) });
+}
+
+function appendWorkLogStepRow(
+  result: ThreadFeedEntry[],
+  source: Pick<ThreadFeedActivityGroup, "id" | "createdAt" | "turnId">,
+  step: ReadonlyArray<WorkLogStepItem>,
+  expandedWorkGroupIds: ReadonlySet<string>,
+  unsettledTurnId: TurnId | null,
+  isWorking: boolean,
+  live: boolean,
+): void {
+  const thoughts = step.flatMap((item) => (item.kind === "thought" ? [item.entry] : []));
+  const activities = step.flatMap((item) => (item.kind === "tool" ? [item.activity] : []));
+  const firstItem = step[0]!;
+  const groupId =
+    activities.length > 0
+      ? toolActivityGroupId(activities[0]!)
+      : `activity-run:${firstItem.kind === "thought" ? firstItem.entry.id : firstItem.activity.id}`;
+  const expanded = expandedWorkGroupIds.has(groupId);
+  const toolRow =
+    activities.length > 0
+      ? workToggleForActivities(
+          source,
+          activities,
+          groupId,
+          expanded,
+          unsettledTurnId,
+          isWorking,
+          live,
+        )
+      : null;
+  // A live row shows the latest thought above its status; the open group lists it instead.
+  const latestThought =
+    live && !expanded && (toolRow === null || toolRow.shimmer)
+      ? thoughts.findLast((entry) => entry.message.text.trim() !== "")
+      : undefined;
+  const thought = latestThought ? liveThoughtLine(latestThought.message.text) : "";
+  if (toolRow !== null) {
+    result.push({
+      ...toolRow,
+      hiddenCount: activities.length + thoughts.length,
+      ...(thought ? { thought } : {}),
+    });
+  } else {
+    result.push({
+      type: "work-toggle",
+      id: live ? LIVE_ACTIVITY_ROW_ID : `work-toggle:${groupId}`,
+      createdAt: firstItem.kind === "thought" ? firstItem.entry.createdAt : source.createdAt,
+      turnId: source.turnId,
+      groupId,
+      hiddenCount: thoughts.length,
+      expanded,
+      summary: live ? "Thinking" : `Thought${thoughts.length > 1 ? ` (×${thoughts.length})` : ""}`,
+      summaryKind: "other",
+      summaryToolIcon: "brain",
+      ...(thought ? { thought } : {}),
+      hasFailure: false,
+      live,
+      shimmer: live,
+    });
+  }
+  if (!expanded) return;
+  // The open step lists its thoughts and calls in order; consecutive calls share one list.
+  const details: ThreadFeedEntry[] = [];
+  let calls: ThreadFeedActivity[] = [];
+  const latestActivity = activities.at(-1);
+  const flushCalls = () => {
+    if (calls.length === 0) return;
+    const chunk = details.filter((row) => row.type === "activity-group").length;
+    details.push({
+      type: "activity-group",
+      id: chunk === 0 ? `work-details:${groupId}` : `work-details:${groupId}:${chunk}`,
+      createdAt: calls[0]!.createdAt,
+      turnId: calls[0]!.turnId,
+      activities: calls.map((activity) => ({
+        ...activity,
+        groupedToolDetail: true,
+        live:
+          isWorking &&
+          activity.id === latestActivity?.id &&
+          activity.lifecycleStatus === "inProgress" &&
+          activity.turnId === unsettledTurnId,
+      })),
+    });
+    calls = [];
+  };
+  let pendingThoughts: ThreadFeedEntry[] = [];
+  for (const item of step) {
+    if (item.kind === "tool") {
+      details.push(...groupConsecutiveReasoningMessages(pendingThoughts));
+      pendingThoughts = [];
+      calls.push(item.activity);
+    } else {
+      flushCalls();
+      pendingThoughts.push(item.entry);
+    }
+  }
+  flushCalls();
+  details.push(...groupConsecutiveReasoningMessages(pendingThoughts));
+  result.push(...details);
 }
 
 function groupConsecutiveReasoningMessages(
@@ -2273,11 +2476,7 @@ function appendPresentedFeedEntry(
     cached.unsettledTurnId !== unsettledTurnId ||
     cached.isWorking !== isWorking ||
     cached.activeTail !== activeTail ||
-    cached.rows.some(
-      (row) =>
-        (row.type === "work-toggle" && expandedWorkGroupIds.has(row.groupId) !== row.expanded) ||
-        (row.type === "agent-spawn" && expandedWorkGroupIds.has(row.id) !== row.expanded),
-    )
+    !workToggleExpansionsMatch(cached.rows, expandedWorkGroupIds)
   ) {
     const rows: ThreadFeedEntry[] = [];
     appendActivityGroupRows(
@@ -2311,10 +2510,10 @@ function appendActivityGroupRows(
   let groupableRun: ThreadFeedActivity[] = [];
   const flushGroupableRun = (isTrailingRun: boolean) => {
     if (groupableRun.length === 0) return;
-    appendToolGroupRows(
+    appendWorkLogSteps(
       result,
       entry,
-      groupableRun,
+      groupableRun.map((activity) => ({ kind: "tool", activity })),
       expandedWorkGroupIds,
       unsettledTurnId,
       isWorking,
@@ -2323,6 +2522,12 @@ function appendActivityGroupRows(
     groupableRun = [];
   };
   for (const activity of activities) {
+    const subagent = activity.workEntry.subagent;
+    if (subagent !== undefined) {
+      flushGroupableRun(false);
+      appendSpawnedAgent(result, activity, subagent, expandedWorkGroupIds);
+      continue;
+    }
     const spawn = activity.workEntry.agentSpawn;
     const sent = activity.workEntry.agentMessageSent;
     const render = activity.workEntry.htmlRender;
@@ -2391,6 +2596,38 @@ function appendActivityGroupRows(
   flushGroupableRun(true);
 }
 
+/**
+ * Agents one provider turn spawned share a row group, like web: consecutive
+ * subagent items of the same run and provider turn.
+ */
+function appendSpawnedAgent(
+  result: ThreadFeedEntry[],
+  activity: ThreadFeedActivity,
+  subagent: SubagentTurnItem,
+  expandedWorkGroupIds: ReadonlySet<string>,
+): void {
+  const previous = result.at(-1);
+  const batchMate = previous?.type === "spawned-agents" ? previous.agents[0] : undefined;
+  if (
+    previous?.type === "spawned-agents" &&
+    batchMate !== undefined &&
+    batchMate.runId === subagent.runId &&
+    batchMate.providerTurnId === subagent.providerTurnId
+  ) {
+    result[result.length - 1] = { ...previous, agents: [...previous.agents, subagent] };
+    return;
+  }
+  const id = `spawned-agents:${activity.id}`;
+  result.push({
+    type: "spawned-agents",
+    id,
+    createdAt: activity.createdAt,
+    turnId: activity.turnId,
+    agents: [subagent],
+    expanded: expandedWorkGroupIds.has(id),
+  });
+}
+
 function visibleActivityGroupEntries(
   entry: ThreadFeedActivityGroup,
   unsettledTurnId: TurnId | null,
@@ -2399,6 +2636,7 @@ function visibleActivityGroupEntries(
   return omitSupersededLifecycleMarkers(
     entry.activities.filter(
       (activity) =>
+        activity.workEntry.subagent !== undefined ||
         !(activity.toolLike && activity.status === "neutral") ||
         (isWorking &&
           activity.lifecycleStatus === "inProgress" &&
@@ -2413,37 +2651,34 @@ function toolActivityGroupId(activity: ThreadFeedActivity): string {
   return `work-group:${entry.toolCallId ? `tool:${entry.turnId ?? "no-turn"}:${entry.toolCallId}` : activity.id}`;
 }
 
-function appendToolGroupRows(
-  result: ThreadFeedEntry[],
-  sourceGroup: Extract<ThreadFeedEntry, { readonly type: "activity-group" }>,
+/** The row of one step of calls: what it did, or what it is doing while it runs. */
+function workToggleForActivities(
+  source: Pick<ThreadFeedActivityGroup, "createdAt" | "turnId">,
   activities: ReadonlyArray<ThreadFeedActivity>,
-  expandedWorkGroupIds: ReadonlySet<string>,
+  groupId: string,
+  expanded: boolean,
   unsettledTurnId: TurnId | null,
   isWorking: boolean,
   activeTail: boolean,
-): void {
-  const groupId = toolActivityGroupId(activities[0]!);
-  const expanded = expandedWorkGroupIds.has(groupId);
+): Extract<ThreadFeedEntry, { readonly type: "work-toggle" }> {
   const latestActiveActivity = activities.findLast(
     (activity) =>
       isWorking &&
       activity.turnId === unsettledTurnId &&
       (activity.lifecycleStatus === "inProgress" ||
-        (activeTail &&
-          activity.lifecycleStatus === undefined &&
-          (activity.workEntry.sourceActivityKind === "task.progress" || activity.toolLike))),
+        (activeTail && isRunningActivity(activity, unsettledTurnId))),
   );
   const active = latestActiveActivity !== undefined;
   const live = activeTail || active;
   const latestActivity = latestActiveActivity ?? activities.at(-1)!;
-  // Like web, the trailing run keeps shining after its latest call succeeds;
-  // only a failed, declined, or stopped call hands the live slot to "Thinking".
-  // Only the trailing run can be the turn's live slot; an in-progress row in
-  // an earlier run (a call whose end was never reported) stays in place.
-  const shimmer = activeTail && (active || latestActivity.status === "success");
+  // Like web, only a call that is running holds the live slot; once it ends the
+  // step reads as done and "Thinking" takes the slot until the next call starts.
+  // Only the trailing step can be the turn's live slot; an in-progress row in an
+  // earlier step (a call whose end was never reported) stays in place.
+  const shimmer = activeTail && active;
   const singleActivity = activities.length === 1 ? latestActivity : null;
-  const summary = live
-    ? liveToolActivitySummary(latestActivity, live)
+  const summary = active
+    ? liveToolActivitySummary(latestActivity)
     : singleActivity !== null &&
         singleActivity.toolLike &&
         toolGroupAction(singleActivity.workEntry) !== "edit"
@@ -2472,26 +2707,26 @@ function appendToolGroupRows(
     latestActivity.workEntry.toolIcon ??
     activities.findLast((activity) => activity.workEntry.toolIcon !== undefined)?.workEntry
       .toolIcon;
-  const summaryToolIcon = live
+  const summaryToolIcon = active
     ? resolveWorkEntryToolPresentation(latestActivity.workEntry)?.icon
     : singleActivity !== null &&
         singleActivity.toolLike &&
         toolGroupAction(singleActivity.workEntry) !== "edit"
       ? resolveWorkEntryToolPresentation(singleActivity.workEntry, "completed")?.icon
       : undefined;
-  result.push({
+  return {
     type: "work-toggle",
     // The shimmering trailing row is the turn's live slot; it keeps that
     // identity (and so its mounted view) until "Thinking" takes the slot.
     id: shimmer ? LIVE_ACTIVITY_ROW_ID : `${live ? "work-live" : "work-toggle"}:${groupId}`,
-    createdAt: sourceGroup.createdAt,
-    turnId: sourceGroup.turnId,
+    createdAt: source.createdAt,
+    turnId: source.turnId,
     groupId,
     hiddenCount: activities.length,
     expanded,
     summary,
     summaryKind: toolGroupSummaryKind(
-      (live ? [latestActivity] : activities).map((activity) => activity.workEntry),
+      (active ? [latestActivity] : activities).map((activity) => activity.workEntry),
     ),
     ...(groupToolSurface ? { toolSurface: groupToolSurface } : {}),
     ...(groupToolIcon ? { toolIcon: groupToolIcon } : {}),
@@ -2499,34 +2734,30 @@ function appendToolGroupRows(
     hasFailure: activities.findLast((activity) => activity.toolLike)?.status === "failure",
     live,
     shimmer,
-  });
-  if (!expanded) {
-    return;
-  }
-  result.push({
-    type: "activity-group",
-    id: `work-details:${groupId}`,
-    createdAt: activities[0]!.createdAt,
-    turnId: activities[0]!.turnId,
-    activities: activities.map((activity) => ({
-      ...activity,
-      groupedToolDetail: true,
-      live:
-        isWorking &&
-        activity.id === latestActivity.id &&
-        activity.lifecycleStatus === "inProgress" &&
-        activity.turnId === unsettledTurnId,
-    })),
-  });
+  };
 }
 
-function liveToolActivitySummary(activity: ThreadFeedActivity, presentTense: boolean): string {
-  const status = liveActivityToolStatus(activity.lifecycleStatus, presentTense);
+function liveToolActivitySummary(activity: ThreadFeedActivity): string {
+  const status = liveActivityToolStatus(activity.lifecycleStatus, true);
   const presentation = resolveWorkEntryToolPresentation({
     ...activity.workEntry,
     toolLifecycleStatus: status,
   });
   if (presentation) return presentation.displayName;
+  // "Reading router.ts", "Running bun test": the step in plain words, as web's live row says it.
+  const action = toolGroupAction(activity.workEntry);
+  const friendly =
+    status === "inProgress"
+      ? workLogLiveLabelFor({
+          action,
+          command: activity.workEntry.command,
+          path:
+            action === "read" || action === "edit"
+              ? (activity.workEntry.changedFiles?.[0] ?? activity.workEntry.viewedImagePath)
+              : undefined,
+        })
+      : null;
+  if (friendly) return friendly;
   const command = activity.workEntry.command?.trim();
   if (command) {
     const program = commandProgramName(command);

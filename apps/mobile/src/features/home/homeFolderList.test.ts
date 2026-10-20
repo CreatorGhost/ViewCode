@@ -255,6 +255,27 @@ describe("resolveHomeAgentStatus", () => {
     expect(resolveHomeAgentStatus({ ...base, session: sessionWith("stopped") })).toBe("stopped");
     expect(resolveHomeAgentStatus(base)).toBe("stopped");
     expect(resolveHomeAgentStatus({ ...base, session: sessionWith("error") })).toBe("failed");
+    const turn = (state: "completed" | "interrupted" | "error") => ({
+      turnId: TurnId.make("turn"),
+      state,
+      requestedAt: NOW,
+      startedAt: NOW,
+      completedAt: NOW,
+      assistantMessageId: null,
+    });
+    // A finished turn is done, whatever its session does next; a stopped one stays stopped.
+    expect(
+      resolveHomeAgentStatus({
+        ...base,
+        session: sessionWith("ready"),
+        latestTurn: turn("completed"),
+      }),
+    ).toBe("done");
+    expect(resolveHomeAgentStatus({ ...base, latestTurn: turn("completed") })).toBe("done");
+    expect(resolveHomeAgentStatus({ ...base, latestTurn: turn("interrupted") })).toBe("stopped");
+    expect(
+      resolveHomeAgentStatus({ ...base, session: sessionWith("ready"), latestTurn: turn("error") }),
+    ).toBe("failed");
     expect(
       resolveHomeAgentStatus({
         ...base,
@@ -279,6 +300,18 @@ describe("provider-native subagents", () => {
       describeRows(build([lead(running), agent], { expandedLeadKeys: ["lead"] }).items);
     expect(rows(["native"])).toContain("  child native working");
     expect(rows([])).toContain("  child native stopped");
+  });
+
+  it("reads a native agent that did its work as done once the lead lets it go", () => {
+    // Its thread holds the agent's work but never got a run or a session of its own.
+    const agent = child("native", "lead", {
+      source: { itemCount: 4 } as EnvironmentThreadShell["source"],
+    });
+    const rows = (running: string[]) =>
+      describeRows(build([lead(running), agent], { expandedLeadKeys: ["lead"] }).items);
+    expect(rows(["native"])).toContain("  child native working");
+    expect(rows([])).toContain("  child native done");
+    expect(resolveHomeAgentStatus(agent)).toBe("done");
   });
 
   it("counts a lead with a running native agent under Working", () => {
@@ -503,8 +536,8 @@ describe("agent groups and folder sort", () => {
     ]);
     expect(describeRows(listWith({ expandedDone: true }).items).slice(-3)).toEqual([
       "[done 2 open]",
-      "  child new idle",
-      "  child old idle",
+      "  child new done",
+      "  child old done",
     ]);
   });
 
@@ -512,8 +545,8 @@ describe("agent groups and folder sort", () => {
     const list = listWith({ sortOrders: new Map([[appKey, "name"]]) });
     expect(describeRows(list.items).slice(3)).toEqual([
       "  child asks needs-you",
-      "  child new idle",
-      "  child old idle",
+      "  child new done",
+      "  child old done",
       "  child zeta working",
     ]);
     const header = list.items.find((item) => item.type === "folder-header");

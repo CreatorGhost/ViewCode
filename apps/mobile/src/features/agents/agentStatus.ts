@@ -1,9 +1,18 @@
 /** What a child agent row's dot shows. `paused` is a user Stop (agent control). */
-export type HomeAgentStatus = "needs-you" | "working" | "paused" | "failed" | "stopped" | "idle";
+export type HomeAgentStatus =
+  | "needs-you"
+  | "working"
+  | "paused"
+  | "failed"
+  | "done"
+  | "stopped"
+  | "idle";
 
 /**
  * One label and dot per agent status, shared by Home's agent rows and the
  * thread screen's agents panel so the same agent never reads differently.
+ * Done is an agent whose work finished (its last turn completed, or a native
+ * agent its lead has let go), in the green the work log gives a finished agent.
  * Idle (session alive) is a solid neutral dot, stopped (no session) a hollow
  * ring, so the two stay apart without relying on colour.
  */
@@ -12,6 +21,7 @@ export const AGENT_STATUS = {
   working: { label: "Working", dotClass: "bg-adaptive-sky-600-400" },
   paused: { label: "Paused", dotClass: "bg-adaptive-amber-700-400" },
   failed: { label: "Failed", dotClass: "bg-adaptive-rose-600-400" },
+  done: { label: "Done", dotClass: "bg-adaptive-emerald-600-400" },
   idle: { label: "Idle", dotClass: "bg-foreground-muted" },
   stopped: { label: "Stopped", dotClass: "border border-foreground-muted" },
 } as const satisfies Record<HomeAgentStatus, { label: string; dotClass: string }>;
@@ -21,6 +31,7 @@ const STATUS_ORDER: ReadonlyArray<HomeAgentStatus> = [
   "needs-you",
   "paused",
   "failed",
+  "done",
   "idle",
   "stopped",
 ];
