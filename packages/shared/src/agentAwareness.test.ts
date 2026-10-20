@@ -137,4 +137,20 @@ describe("projectThreadAwarenessV2", () => {
       }),
     ).toMatchObject({ phase: "running", headline: "Agent is working" });
   });
+
+  it("does not present a server-handled tool callback as a user approval", () => {
+    expect(
+      projectThreadAwarenessV2({
+        environmentId: "env-1" as EnvironmentId,
+        project,
+        thread: v2Thread({
+          pendingRuntimeRequest: {
+            id: RuntimeRequestId.make("request-dynamic-tool"),
+            kind: "dynamic_tool_call",
+            createdAt: updatedAt,
+          },
+        }),
+      }),
+    ).toMatchObject({ phase: "running" });
+  });
 });

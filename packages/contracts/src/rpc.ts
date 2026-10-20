@@ -4,6 +4,7 @@ import {
   OrchestrationV2SearchThreadResult,
 } from "./orchestrationV2.ts";
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
+import { RockBotOpenInput, RockBotOpenResult } from "./rockbot.ts";
 import {
   McpAppCallToolInput,
   McpAppCallToolResult,
@@ -659,6 +660,9 @@ export const WS_METHODS = {
   subscribeAgentControl: "subscribeAgentControl",
   usageResumeCancel: "usageResume.cancel",
   usageResumeNow: "usageResume.now",
+
+  // RockBot: the environment's one chat over every project
+  rockbotOpen: "rockbot.open",
 
   // ViewCode read aloud and dictation: their models, downloaded by the environment
   voiceModelsDownload: "voiceModels.download",
@@ -1395,6 +1399,12 @@ const WsUsageResumeNowRpc = Rpc.make(WS_METHODS.usageResumeNow, {
   payload: UsageResumeInput,
   success: UsageResumeResult,
   error: Schema.Union([AgentControlError, EnvironmentAuthorizationError]),
+});
+
+const WsRockBotOpenRpc = Rpc.make(WS_METHODS.rockbotOpen, {
+  payload: RockBotOpenInput,
+  success: RockBotOpenResult,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
 });
 
 const WsPushRegisterRpc = Rpc.make(WS_METHODS.pushRegister, {
@@ -2346,6 +2356,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeVoiceModelsRpc,
   WsUsageResumeCancelRpc,
   WsUsageResumeNowRpc,
+  WsRockBotOpenRpc,
   WsPushRegisterRpc,
   WsPushUnregisterRpc,
   WsViewCodeRelaySetupStartRpc,

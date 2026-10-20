@@ -455,6 +455,10 @@
       "types": "./src/state/childAgents.ts",
       "default": "./src/state/childAgents.ts"
     },
+    "./state/rockbot": {
+      "types": "./src/state/rockbot.ts",
+      "default": "./src/state/rockbot.ts"
+    },
     "./state/agent-control": {
       "types": "./src/state/agentControl.ts",
       "default": "./src/state/agentControl.ts"

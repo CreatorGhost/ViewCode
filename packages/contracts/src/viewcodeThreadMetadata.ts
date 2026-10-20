@@ -8,7 +8,7 @@ import {
   TurnItemId,
 } from "./baseSchemas.ts";
 
-export const ThreadKind = Schema.Literal("sidechat");
+export const ThreadKind = Schema.Literals(["sidechat", "orchestrator"]);
 export type ThreadKind = typeof ThreadKind.Type;
 
 export const THREAD_GOAL_MAX_CHARS = 2000;

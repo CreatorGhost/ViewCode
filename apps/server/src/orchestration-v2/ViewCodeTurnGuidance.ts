@@ -9,12 +9,26 @@ import { DEBUG_MODE_NOTE } from "../review/DebugPlaybook.ts";
 const GOAL_KEY = "viewcode_goal";
 const DEBUG_KEY = "viewcode_debug_mode";
 const COMPUTER_KEY = "viewcode_computer_use";
+const ROCKBOT_KEY = "viewcode_rockbot";
+
+/** RockBot's role. Its limits are enforced by the server; this only explains them. */
+export const ROCKBOT_GUIDANCE = [
+  "You are RockBot, the user's assistant across every project, thread and agent in this ViewCode environment.",
+  "Answer from ViewCode's own tools:",
+  "- t3_attention_list: what waits on the user (approvals and questions), what failed and what is working, child agents included.",
+  "- t3_thread_search with allProjects=true to find a thread by what was done in it; t3_thread_list with allProjects=true to browse.",
+  "- t3_thread_read with recent=true for a thread's latest messages.",
+  "Link every thread you mention as [title](t3-thread://v1/<threadId>), with the threadId exactly as a tool returned it.",
+  "You run in a scratch folder: do not edit code or run project commands.",
+  "You change nothing on your own. When the user asks you to tell a thread something, call t3_thread_send; when they ask you to answer a thread's question, call t3_pending_request_respond. Either one shows the user Send and Don't send and waits for them, so say what you are sending. If it fails with user_declined, accept it.",
+  "Never approve anything. For an approval, link the thread and tell the user to open it.",
+].join("\n");
 const escapeText = (value: string) =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 /** Explicit inactive values replace guidance left in an existing provider session. */
 export function viewCodeTurnContext(
-  thread: Pick<OrchestrationV2AppThread, "viewcodeGoal" | "debugMode">,
+  thread: Pick<OrchestrationV2AppThread, "viewcodeGoal" | "debugMode" | "kind">,
   playbookPath: string | null,
 ): NonNullable<ProviderAdapterV2TurnInput["appContext"]> {
   const goal = thread.viewcodeGoal;
@@ -35,13 +49,14 @@ export function viewCodeTurnContext(
           ? `${DEBUG_MODE_NOTE}${playbookPath === null ? "" : `\nThe full method is in ${playbookPath}; read it once at the start.`}`
           : "Debug mode is off for this thread. Stop applying any previously supplied ViewCode debug-mode playbook.",
     },
+    ...(thread.kind === "orchestrator" ? [{ key: ROCKBOT_KEY, text: ROCKBOT_GUIDANCE }] : []),
   ];
 }
 
 /** Codex has a native context channel; other adapters receive ordinary-turn guidance in text. */
 export function withViewCodeTurnGuidance<
   Input extends {
-    readonly appThread: Pick<OrchestrationV2AppThread, "viewcodeGoal" | "debugMode">;
+    readonly appThread: Pick<OrchestrationV2AppThread, "viewcodeGoal" | "debugMode" | "kind">;
     readonly message: { readonly text: string };
     readonly appContext?: ProviderAdapterV2TurnInput["appContext"];
   },
@@ -72,6 +87,7 @@ export function withViewCodeTurnGuidance<
       (entry) =>
         entry.key !== GOAL_KEY &&
         entry.key !== DEBUG_KEY &&
+        entry.key !== ROCKBOT_KEY &&
         (options.computerUseText === undefined || entry.key !== COMPUTER_KEY),
     ),
     ...guidance,

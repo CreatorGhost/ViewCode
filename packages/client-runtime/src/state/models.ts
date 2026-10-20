@@ -1,4 +1,5 @@
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import { runtimeRequestNeed } from "@t3tools/shared/threadNeedsYou";
 import { threadPullRequestsOf } from "@t3tools/shared/threadPullRequests";
 import type {
   ThreadLinkedPullRequest,
@@ -241,11 +242,8 @@ export function presentThreadShell(
     ...(thread.latestUserAuthoredMessageAt === undefined
       ? {}
       : { latestUserAuthoredMessageAt: nullableIso(thread.latestUserAuthoredMessageAt) }),
-    hasPendingApprovals:
-      thread.pendingRuntimeRequest !== null &&
-      thread.pendingRuntimeRequest.kind !== "user_input" &&
-      thread.pendingRuntimeRequest.kind !== "auth_refresh",
-    hasPendingUserInput: thread.pendingRuntimeRequest?.kind === "user_input",
+    hasPendingApprovals: runtimeRequestNeed(thread.pendingRuntimeRequest?.kind) === "approval",
+    hasPendingUserInput: runtimeRequestNeed(thread.pendingRuntimeRequest?.kind) === "question",
     pendingSubagentRequest,
     hasActionableProposedPlan: thread.hasActionableProposedPlan,
     pendingBackgroundTasks: thread.pendingBackgroundTasks ?? [],

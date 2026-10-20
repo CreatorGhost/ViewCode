@@ -1,6 +1,7 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
 
 import { isSidechat } from "@t3tools/client-runtime/state/sidechat";
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { computeThreadMoveAvailability } from "./threadOrder";
@@ -143,7 +144,7 @@ function ThreadNavigationSidebarPane(
   const projects = useProjects();
   const threadShells = useThreadShells();
   const threads = useMemo(
-    () => threadShells.filter((thread) => !isSidechat(thread)),
+    () => threadShells.filter((thread) => !isSidechat(thread) && !isRockBot(thread)),
     [threadShells],
   );
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();

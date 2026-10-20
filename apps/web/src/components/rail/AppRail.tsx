@@ -1,10 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { FolderIcon, SettingsIcon, SmartphoneIcon } from "lucide-react";
+import { BotIcon, FolderIcon, SettingsIcon, SmartphoneIcon } from "lucide-react";
 import { memo } from "react";
 
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
+import { threadOwnNeed } from "@t3tools/shared/threadNeedsYou";
 
 import { cn } from "~/lib/utils";
 import { useAppSettingsRoute } from "./useAppRailNavigation";
@@ -40,6 +41,8 @@ import {
   resolveRailEnvironmentId,
 } from "./appRail.logic";
 import { RailUsageRingButton } from "./RailUsageRing";
+import { useOpenRockBot } from "../rockbot/useOpenRockBot";
+import { rockBotEnvironment } from "../../state/rockbot";
 
 function RailButton(props: {
   label: string;
@@ -205,6 +208,45 @@ const RailPullRequestsButton = memo(function RailPullRequestsButton(props: { act
   );
 });
 
+/** RockBot, the chat over every project. Its badge is the rail's "needs you" count in total. */
+const RailRockBotButton = memo(function RailRockBotButton(props: { environmentId: EnvironmentId }) {
+  const threads = useThreadShells();
+  const canOpen = useAtomValue(rockBotEnvironment.open.permissionAtom(props.environmentId));
+  const openRockBot = useOpenRockBot(props.environmentId);
+  const routeThreadId = useParams({ strict: false, select: (params) => params.threadId ?? null });
+  if (!canOpen) return null;
+  const active = threads.some(
+    (thread) => thread.id === routeThreadId && thread.source.kind === "orchestrator",
+  );
+  const needsYou = threads.filter(
+    (thread) =>
+      thread.environmentId === props.environmentId &&
+      thread.archivedAt === null &&
+      thread.source.kind !== "sidechat" &&
+      threadOwnNeed(thread) !== null,
+  ).length;
+  return (
+    <RailButton
+      label={
+        needsYou > 0 ? `RockBot, ${needsYou} ${needsYou === 1 ? "needs" : "need"} you` : "RockBot"
+      }
+      tooltip="RockBot"
+      active={active}
+      onClick={() => void openRockBot()}
+    >
+      <BotIcon />
+      {needsYou > 0 ? (
+        <span
+          aria-hidden
+          className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-warning px-0.5 font-semibold text-3xs text-background tabular-nums leading-none ring-2 ring-sidebar"
+        >
+          {needsYou}
+        </span>
+      ) : null}
+    </RailButton>
+  );
+});
+
 /** Rings for the accounts of one environment; no polling, so a thread switch only re-derives. */
 const RailUsageRings = memo(function RailUsageRings(props: { environmentId: EnvironmentId }) {
   const providers =
@@ -274,6 +316,7 @@ export const AppRail = memo(function AppRail() {
         {railEnvironmentId ? <RailUsageRings environmentId={railEnvironmentId} /> : null}
       </div>
       <div className="flex flex-col items-center gap-1">
+        {railEnvironmentId ? <RailRockBotButton environmentId={railEnvironmentId} /> : null}
         <RailButton label="Settings" active={onSettings} onClick={openSettings}>
           <SettingsIcon />
         </RailButton>

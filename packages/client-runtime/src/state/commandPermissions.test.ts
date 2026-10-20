@@ -323,6 +323,7 @@ const viewCodeMutations = [
   [WS_METHODS.agentsDiscard, AuthOrchestrationOperateScope],
   [WS_METHODS.usageResumeCancel, AuthOrchestrationOperateScope],
   [WS_METHODS.usageResumeNow, AuthOrchestrationOperateScope],
+  [WS_METHODS.rockbotOpen, AuthOrchestrationOperateScope],
   [WS_METHODS.providerAccountAdd, AuthSettingsWriteScope],
   [WS_METHODS.providerAccountPrepareSignIn, AuthProvidersManageScope],
   [WS_METHODS.viewcodeRelaySetupStart, AuthAccessWriteScope],
@@ -384,6 +385,12 @@ const routedMutations = [
     scope: AuthOrchestrationOperateScope,
     input: { threadId: ThreadId.make("usage-thread") },
     result: { changed: true },
+  },
+  {
+    tag: WS_METHODS.rockbotOpen,
+    scope: AuthOrchestrationOperateScope,
+    input: {},
+    result: { threadId: ThreadId.make("rockbot") },
   },
   {
     tag: WS_METHODS.providerAccountAdd,

@@ -1,6 +1,8 @@
 "use client";
 
-import { MicIcon, Volume2Icon, SquareIcon } from "lucide-react";
+import { BotIcon, MicIcon, Volume2Icon, SquareIcon } from "lucide-react";
+import { useOpenRockBot } from "./rockbot/useOpenRockBot";
+import { rockBotEnvironment } from "../state/rockbot";
 import { scopeThread } from "@t3tools/client-runtime/viewcodeThread";
 import { readLatestReplyAloud } from "../lib/readAloudActions";
 import { latestReadableReply } from "../lib/readAloud.logic";
@@ -786,6 +788,9 @@ function OpenCommandPaletteDialog(props: {
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
+  const rockBotEnvironmentId = activeThread?.environmentId ?? primaryEnvironmentId;
+  const openRockBot = useOpenRockBot(rockBotEnvironmentId);
+  const canOpenRockBot = useAtomValue(rockBotEnvironment.open.permissionAtom(rockBotEnvironmentId));
   const paletteRouteTarget = useThreadRouteTarget();
   const goalThreadRef =
     activeThread !== null
@@ -1657,6 +1662,17 @@ function OpenCommandPaletteDialog(props: {
   };
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
+  if (canOpenRockBot) {
+    actionItems.push({
+      kind: "action",
+      value: "action:open-rockbot",
+      title: "Open RockBot",
+      description: "Ask about any project, thread or agent",
+      searchTerms: ["rockbot", "orchestrator", "needs me", "agents", "status", "find thread"],
+      icon: <BotIcon className={ITEM_ICON_CLASS} />,
+      run: openRockBot,
+    });
+  }
   if (
     isReadAloudSupported() &&
     speechThread !== null &&

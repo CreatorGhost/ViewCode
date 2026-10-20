@@ -844,8 +844,11 @@ export const ThreadPullRequestLink = Schema.Struct({
 });
 export type ThreadPullRequestLink = typeof ThreadPullRequestLink.Type;
 
-/** ViewCode side chat: a quick-question thread docked beside its parent thread. */
-export const ThreadKind = Schema.Literal("sidechat");
+/**
+ * ViewCode side chat (a quick-question thread docked beside its parent thread) or
+ * RockBot (`orchestrator`: the one chat over every project in an environment).
+ */
+export const ThreadKind = Schema.Literals(["sidechat", "orchestrator"]);
 export type ThreadKind = typeof ThreadKind.Type;
 
 /** Longest goal ViewCode stores; it rides along with every turn while active. */
