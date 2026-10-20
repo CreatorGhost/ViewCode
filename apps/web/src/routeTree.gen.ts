@@ -32,6 +32,7 @@ import { Route as SettingsConnectionsRouteImport } from './routes/settings.conne
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
+import { Route as DevUsageLimitsRouteImport } from './routes/dev.usage-limits'
 import { Route as DevPrFlowRouteImport } from './routes/dev.pr-flow'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as ChatNewRouteImport } from './routes/_chat.new'
@@ -153,6 +154,11 @@ const ProjectsProjectKeyRoute = ProjectsProjectKeyRouteImport.update({
   path: '/projects/$projectKey',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DevUsageLimitsRoute = DevUsageLimitsRouteImport.update({
+  id: '/dev/usage-limits',
+  path: '/dev/usage-limits',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DevPrFlowRoute = DevPrFlowRouteImport.update({
   id: '/dev/pr-flow',
   path: '/dev/pr-flow',
@@ -191,6 +197,7 @@ export interface FileRoutesByFullPath {
   '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/dev/pr-flow': typeof DevPrFlowRoute
+  '/dev/usage-limits': typeof DevUsageLimitsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -219,6 +226,7 @@ export interface FileRoutesByTo {
   '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/dev/pr-flow': typeof DevPrFlowRoute
+  '/dev/usage-limits': typeof DevUsageLimitsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -250,6 +258,7 @@ export interface FileRoutesById {
   '/_chat/new': typeof ChatNewRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRoute
   '/dev/pr-flow': typeof DevPrFlowRoute
+  '/dev/usage-limits': typeof DevUsageLimitsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
@@ -282,6 +291,7 @@ export interface FileRouteTypes {
     | '/new'
     | '/pull-requests'
     | '/dev/pr-flow'
+    | '/dev/usage-limits'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
@@ -310,6 +320,7 @@ export interface FileRouteTypes {
     | '/new'
     | '/pull-requests'
     | '/dev/pr-flow'
+    | '/dev/usage-limits'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
@@ -340,6 +351,7 @@ export interface FileRouteTypes {
     | '/_chat/new'
     | '/_chat/pull-requests'
     | '/dev/pr-flow'
+    | '/dev/usage-limits'
     | '/projects/$projectKey'
     | '/settings/appearance'
     | '/settings/archived'
@@ -369,6 +381,7 @@ export interface RootRouteChildren {
   UsageRoute: typeof UsageRoute
   WelcomeRoute: typeof WelcomeRoute
   DevPrFlowRoute: typeof DevPrFlowRoute
+  DevUsageLimitsRoute: typeof DevUsageLimitsRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
 }
 
@@ -535,6 +548,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dev/usage-limits': {
+      id: '/dev/usage-limits'
+      path: '/dev/usage-limits'
+      fullPath: '/dev/usage-limits'
+      preLoaderRoute: typeof DevUsageLimitsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dev/pr-flow': {
       id: '/dev/pr-flow'
       path: '/dev/pr-flow'
@@ -638,6 +658,7 @@ const rootRouteChildren: RootRouteChildren = {
   UsageRoute: UsageRoute,
   WelcomeRoute: WelcomeRoute,
   DevPrFlowRoute: DevPrFlowRoute,
+  DevUsageLimitsRoute: DevUsageLimitsRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
 }
 export const routeTree = rootRouteImport
