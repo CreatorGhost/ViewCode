@@ -588,6 +588,13 @@ call `gh auth switch`. SSH aliases such as `github.com-work` must resolve to the
 actual API host while preserving repository/account selection. Test both
 accounts with a repository inaccessible to the default account.
 
+A fork's repository identity is its upstream (upstream's rule, `docs/internals/remote.md`), so the
+Pull requests list reads the fork's `origin` beside it and flags the upstream rows (`upstream` on
+the entry); clients give them their own group. One project can therefore hold two listed
+repositories: resolve a ref by its repository, never by project id alone. An identity built while
+`ssh -G` went unanswered still carries the alias as its host, and the cross-host rule then makes
+origin win over upstream, so the resolver keeps it only for the negative TTL.
+
 Posting findings requires the active user-authorized path; scheduled runs,
 agent-origin messages and review agents cannot silently post external comments.
 CLI and MCP use the same service validation. Review/browser/computer shims get

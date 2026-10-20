@@ -428,6 +428,35 @@ describe("groupPullRequestListByProject", () => {
     ]);
   });
 
+  it("heads a fork's upstream rows apart from its own, saying they are the upstream's", () => {
+    const fork = (number: number, repository: string, upstream?: true) => ({
+      ...scoped(number, "ViewCode"),
+      repository,
+      ...(upstream ? { upstream } : {}),
+    });
+    const rows = [
+      fork(16655, "pingdotgg/t3code", true),
+      fork(70, "CreatorGhost/ViewCode"),
+      fork(22541, "pingdotgg/t3code", true),
+    ];
+    const items = groupPullRequestListByProject(rows, labelOf, new Set(["mac:ViewCode:upstream"]));
+    expect(
+      items.map((item) =>
+        item.kind === "project"
+          ? `${item.collapsed ? "+" : "-"}${item.label} · ${item.repositoryLabel} ${item.count}`
+          : `#${item.entry.number}`,
+      ),
+    ).toEqual([
+      "-ViewCode · CreatorGhost/ViewCode 1",
+      "#70",
+      "+ViewCode · pingdotgg/t3code (upstream) 2",
+    ]);
+    // Only upstream rows still need a header to say so.
+    expect(
+      shape(groupPullRequestListByProject([rows[0]!, rows[2]!], labelOf, new Set())).slice(0, 1),
+    ).toEqual(["-ViewCode 2"]);
+  });
+
   it("draws no header for a single project", () => {
     const rows = [scoped(2, "sutra"), scoped(1, "sutra")];
     expect(shape(groupPullRequestListByProject(rows, labelOf, new Set(["mac:sutra"])))).toEqual([

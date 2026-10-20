@@ -69,6 +69,7 @@ const pullRequestListItemsAreEqual = (previous: PullRequestListItem, next: PullR
       next.kind === "project" &&
       previous.key === next.key &&
       previous.label === next.label &&
+      previous.repositoryLabel === next.repositoryLabel &&
       previous.count === next.count &&
       previous.collapsed === next.collapsed;
 
@@ -82,7 +83,7 @@ function PullRequestProjectHeader(props: {
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ expanded: !item.collapsed }}
-      accessibilityLabel={`${item.label}, ${item.count} pull ${item.count === 1 ? "request" : "requests"}`}
+      accessibilityLabel={`${item.label}${item.repositoryLabel ? `, ${item.repositoryLabel}` : ""}, ${item.count} pull ${item.count === 1 ? "request" : "requests"}`}
       onPress={() => onToggle(item.key)}
       className="flex-row items-center gap-2 px-4 pb-1 pt-4"
     >
@@ -95,6 +96,9 @@ function PullRequestProjectHeader(props: {
       />
       <Text className="shrink text-xs font-t3-medium text-foreground-muted" numberOfLines={1}>
         {item.label}
+        {item.repositoryLabel ? (
+          <Text className="text-foreground-tertiary"> · {item.repositoryLabel}</Text>
+        ) : null}
       </Text>
       <Text className="text-xs text-foreground-muted opacity-60">{item.count}</Text>
       <View className="h-px flex-1 bg-border" />
