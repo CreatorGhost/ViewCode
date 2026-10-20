@@ -430,6 +430,10 @@ The target runtime and interaction modes may not be broader than the caller's.
 Stable command and message IDs are derived from `clientRequestId` for
 idempotent retries.
 
+When the caller is RockBot, the send waits for its user to press Send on an approval
+in the RockBot thread and fails with `user_declined` otherwise; every other writing
+tool is refused to RockBot.
+
 A loop guard refuses the send with `send_loop_guard` once the calling thread has
 received 24 messages from other threads since the user last wrote in it, the
 same hop budget as agent messaging. The count lives in the durable messages

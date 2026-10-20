@@ -80,6 +80,7 @@ import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMoc
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as RockBotConfirmation from "../rockbot/RockBotConfirmation.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
@@ -737,6 +738,12 @@ describe("orchestrator MCP toolkit", () => {
                 Layer.provide(layerOrchestration),
               ),
             ),
+            Layer.provideMerge(
+              RockBotConfirmation.layer.pipe(
+                Layer.provide(layerOrchestrator),
+                Layer.provide(NodeServices.layer),
+              ),
+            ),
             Layer.provide(NodeServices.layer),
           );
 
@@ -814,6 +821,93 @@ describe("orchestrator MCP toolkit", () => {
             expect(afterDeferredSettle.runs.find((run) => run.id === parentRun?.id)?.status).toBe(
               "running",
             );
+
+            // RockBot reads freely, changes nothing unasked, and sends only after the
+            // user presses Send on a question in its own thread.
+            const rockBotTarget = ThreadId.make("thread:rockbot-target");
+            yield* orchestrator.dispatch({
+              type: "thread.create",
+              createdBy: "user",
+              creationSource: "web",
+              commandId: CommandId.make("command:rockbot-target:create"),
+              threadId: rockBotTarget,
+              projectId,
+              title: "Timeline tests",
+              modelSelection: codexSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: cwd,
+            });
+            yield* orchestrator.dispatch({
+              type: "thread.metadata.update",
+              commandId: CommandId.make("command:mcp-parent:rockbot-on"),
+              threadId: parentThreadId,
+              kind: "orchestrator",
+            });
+            expect(
+              declaredFailure(yield* invoke("t3_thread_organize", { action: "pin" })),
+            ).toMatchObject({ code: "capability_denied" });
+            const askRockBotUser = (message: string, decision: "accept" | "decline") =>
+              Effect.gen(function* () {
+                const call = yield* invoke("t3_thread_send", {
+                  threadId: rockBotTarget,
+                  message,
+                  clientRequestId: `rockbot-${decision}`,
+                }).pipe(Effect.forkChild);
+                const asking = yield* waitForProjection(
+                  orchestrator,
+                  parentThreadId,
+                  (projection) =>
+                    projection.runtimeRequests.some(
+                      (request) =>
+                        request.viewcodeRockBotConfirm === true && request.status === "pending",
+                    ),
+                );
+                const request = asking.runtimeRequests.find(
+                  (candidate) =>
+                    candidate.viewcodeRockBotConfirm === true && candidate.status === "pending",
+                )!;
+                expect(
+                  asking.turnItems.find(
+                    (item) => item.type === "approval_request" && item.requestId === request.id,
+                  ),
+                ).toMatchObject({
+                  title: "Send to Timeline tests",
+                  prompt: message,
+                  options: [
+                    { decision: "decline", label: "Don't send" },
+                    { decision: "accept", label: "Send" },
+                  ],
+                });
+                expect(
+                  (yield* orchestrator.getThreadShell(parentThreadId))?.pendingRuntimeRequest?.kind,
+                ).toBe("permission");
+                yield* orchestrator.dispatch({
+                  type: "runtime-request.respond",
+                  commandId: CommandId.make(`command:rockbot-${decision}:respond`),
+                  threadId: parentThreadId,
+                  requestId: request.id,
+                  decision,
+                });
+                return yield* Fiber.join(call);
+              });
+            const declined = yield* askRockBotUser("Keep the old snapshot", "decline");
+            expect(declaredFailure(declined)).toMatchObject({ code: "user_declined" });
+            const accepted = yield* askRockBotUser("Keep the regenerated snapshot", "accept");
+            expect(accepted.isError).toBe(false);
+            const delivered = yield* waitForProjection(orchestrator, rockBotTarget, (projection) =>
+              projection.messages.some((entry) => entry.text === "Keep the regenerated snapshot"),
+            );
+            expect(delivered.messages.map((entry) => entry.text)).not.toContain(
+              "Keep the old snapshot",
+            );
+            yield* orchestrator.dispatch({
+              type: "thread.metadata.update",
+              commandId: CommandId.make("command:mcp-parent:rockbot-off"),
+              threadId: parentThreadId,
+              kind: null,
+            });
 
             const pinned = yield* invoke("t3_thread_organize", { action: "pin" });
             expect(pinned.isError).toBe(false);

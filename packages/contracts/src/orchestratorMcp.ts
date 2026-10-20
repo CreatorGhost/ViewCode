@@ -737,6 +737,7 @@ export class OrchestratorMcpFailure extends Schema.TaggedError<OrchestratorMcpFa
       "thread_credential_required",
       "target_required",
       "send_loop_guard",
+      "user_declined",
     ]),
     message: Schema.String,
   },

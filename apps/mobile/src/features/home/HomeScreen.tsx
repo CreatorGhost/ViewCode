@@ -710,7 +710,8 @@ export function HomeScreen(props: HomeScreenProps) {
         // original "hidden from lists" meaning.
         // Side chats live in a desktop/web dock; mobile has none, so it hides them.
         threads: props.threads.filter(
-          (thread) => thread.archivedAt === null && thread.kind !== "sidechat",
+          // Side chats belong to their parent and RockBot opens from the header.
+          (thread) => thread.archivedAt === null && thread.kind == null,
         ),
         scopes: folderScopes,
         projectScoped: v2ScopedProjectGroup !== null,

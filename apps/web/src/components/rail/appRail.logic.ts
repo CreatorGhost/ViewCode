@@ -115,7 +115,8 @@ export function buildRailProjectActivity(
   }
   const activity = new Map<string, { needsYou: number; working: number }>();
   for (const thread of threads) {
-    if (thread.archivedAt !== null || thread.kind === "sidechat") continue;
+    // Side chats and RockBot are not project work; RockBot's own button counts its waits.
+    if (thread.archivedAt !== null || thread.kind != null) continue;
     // Each thread counts only its own wait: a blocked child agent is listed itself, so
     // counting it again on its lead would report one wait as two.
     const needsYou = threadOwnNeed(thread) !== null;

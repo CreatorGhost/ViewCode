@@ -96,6 +96,7 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
+import * as RockBotConfirmation from "../rockbot/RockBotConfirmation.ts";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { runtimeRequestNeed } from "@t3tools/shared/threadNeedsYou";
 import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
@@ -2743,6 +2744,10 @@ const make = Effect.gen(function* () {
             );
           }
         }
+        yield* RockBotConfirmation.confirmIfRockBot(parent?.thread, {
+          title: `Send to ${target.thread.title}`,
+          detail: input.message,
+        });
 
         const mode = input.mode ?? "auto";
         const key = yield* requestKey(input.clientRequestId);

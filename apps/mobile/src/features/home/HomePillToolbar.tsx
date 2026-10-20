@@ -195,6 +195,7 @@ export function HomePillToolbar(
   props: HomeScopePillsProps & {
     readonly onOpenSettings: () => void;
     readonly onOpenUsage: () => void;
+    readonly onOpenRockBot?: (() => void) | undefined;
   },
 ) {
   const { paddingTop } = useMaterialToolbarLayout();
@@ -213,6 +214,13 @@ export function HomePillToolbar(
         <View className="min-w-0 flex-1 items-center">
           <HomeFleetTitle onOpenEnvironments={props.onOpenEnvironments} />
         </View>
+        {props.onOpenRockBot === undefined ? null : (
+          <HomePillIconButton
+            accessibilityLabel="Open RockBot"
+            icon={{ ios: "sparkles", android: "auto_awesome" }}
+            onPress={props.onOpenRockBot}
+          />
+        )}
         <HomePillIconButton
           accessibilityLabel="Open usage"
           icon="chart.bar.xaxis"

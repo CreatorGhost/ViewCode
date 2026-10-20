@@ -131,7 +131,7 @@ const handlers = {
         return yield* service.update(scope, input);
       }),
   ),
-  t3_thread_send: McpToolAccess.writesThreads(
+  t3_thread_send: McpToolAccess.sendsForUser(
     (input) => [input.threadId],
     (input) =>
       Effect.gen(function* () {

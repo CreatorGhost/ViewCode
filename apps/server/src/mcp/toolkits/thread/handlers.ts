@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect";
 import { modelSelectionCommandType } from "@t3tools/shared/model";
 
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import { confirmIfRockBot } from "../../../rockbot/RockBotConfirmation.ts";
 import {
   dispatchFailure,
   newCommandId,
@@ -70,6 +71,13 @@ const readQuestion = Effect.fn("mcp.readQuestion")(function* (input: {
     });
   return { ...context, request, item };
 });
+const answerText = (answer: unknown): string =>
+  typeof answer === "string"
+    ? answer
+    : Array.isArray(answer)
+      ? answer.map(String).join(", ")
+      : JSON.stringify(answer ?? "");
+
 const writesThread = <P extends { readonly threadId?: ThreadId | undefined }, A, E, R>(
   handle: (params: P) => Effect.Effect<A, E, R>,
 ) => McpToolAccess.writesThreads((params: P) => [params.threadId], handle);
@@ -213,20 +221,29 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
       return { requestId: input.requestId, questions: item.questions };
     }),
   ),
-  t3_pending_request_respond: writesThread((input) =>
-    Effect.gen(function* () {
-      const { threads, projection } = yield* readQuestion(input);
-      const result = yield* threads
-        .dispatch({
-          type: "runtime-request.respond",
-          threadId: projection.thread.id,
-          commandId: yield* newCommandId(),
-          requestId: input.requestId,
-          answers: input.answers,
-        })
-        .pipe(Effect.mapError(dispatchFailure));
-      return { sequence: result.sequence };
-    }),
+  t3_pending_request_respond: McpToolAccess.sendsForUser(
+    (input) => [input.threadId],
+    (input) =>
+      Effect.gen(function* () {
+        const { threads, projection, item } = yield* readQuestion(input);
+        const { caller } = yield* readCaller();
+        yield* confirmIfRockBot(caller, {
+          title: `Answer ${projection.thread.title}`,
+          detail: item.questions
+            .map((question) => `${question.question}\n${answerText(input.answers[question.id])}`)
+            .join("\n\n"),
+        });
+        const result = yield* threads
+          .dispatch({
+            type: "runtime-request.respond",
+            threadId: projection.thread.id,
+            commandId: yield* newCommandId(),
+            requestId: input.requestId,
+            answers: input.answers,
+          })
+          .pipe(Effect.mapError(dispatchFailure));
+        return { sequence: result.sequence };
+      }),
   ),
   t3_queue_list: McpToolAccess.reads((input) =>
     Effect.gen(function* () {

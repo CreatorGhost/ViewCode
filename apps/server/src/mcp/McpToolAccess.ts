@@ -86,14 +86,32 @@ const refuseReadOnlyClient = McpInvocationContext.McpInvocationContext.pipe(
   ),
 );
 
-const writingCaller = refuseReadOnlyClient.pipe(
+/**
+ * RockBot reads every thread but changes nothing on its own: its only writes are
+ * `sendsForUser` tools, which wait for its user's Send.
+ */
+const refuseRockBot = (caller: Caller) =>
+  caller.caller?.kind === "orchestrator"
+    ? Effect.fail(
+        new OrchestratorMcpFailure({
+          code: "capability_denied",
+          message:
+            "RockBot only reads. To act on another thread, use t3_thread_send or t3_pending_request_respond; each asks the user first.",
+        }),
+      )
+    : Effect.void;
+
+const sendingCaller = refuseReadOnlyClient.pipe(
   Effect.andThen(loadCaller()),
   Effect.tap(assertLiveCaller),
 );
 
+const writingCaller = sendingCaller.pipe(Effect.tap(refuseRockBot));
+
 const orchestratingCaller = refuseReadOnlyClient.pipe(
   Effect.andThen(readCaller()),
   Effect.tap(assertLiveCaller),
+  Effect.tap(refuseRockBot),
 );
 
 const requireThreadCaller = McpInvocationContext.McpInvocationContext.pipe(
@@ -124,38 +142,48 @@ export const writes = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>
 export const writesWithCapability = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare((params: P) => writingCaller.pipe(Effect.flatMap(() => handle(params))));
 
-export const writesThreads = <P, A, E, R>(
-  threads: (params: P) => ReadonlyArray<ThreadId | undefined>,
-  handle: (params: P) => Effect.Effect<A, E, R>,
-) =>
-  declare((params: P) =>
-    Effect.gen(function* () {
-      const caller = yield* writingCaller;
-      for (const threadId of threads(params)) {
-        if (threadId === undefined || threadId === caller.scope.thread?.threadId) continue;
-        const target = yield* caller.threads
-          .getThreadShell(threadId)
-          .pipe(Effect.mapError(unavailable));
-        if (target !== null && target.deletedAt === null) {
-          yield* assertTargetWithinLimits(caller.limits, target);
+const threadWrites =
+  (callerCheck: typeof writingCaller) =>
+  <P, A, E, R>(
+    threads: (params: P) => ReadonlyArray<ThreadId | undefined>,
+    handle: (params: P) => Effect.Effect<A, E, R>,
+  ) =>
+    declare((params: P) =>
+      Effect.gen(function* () {
+        const caller = yield* callerCheck;
+        for (const threadId of threads(params)) {
+          if (threadId === undefined || threadId === caller.scope.thread?.threadId) continue;
+          const target = yield* caller.threads
+            .getThreadShell(threadId)
+            .pipe(Effect.mapError(unavailable));
+          if (target !== null && target.deletedAt === null) {
+            yield* assertTargetWithinLimits(caller.limits, target);
+          }
         }
-      }
-      // The target's user can raise its modes after the check above; the
-      // orchestrator checks again under the thread's lock and records its
-      // refusal here, since handlers wrap dispatch errors their own way.
-      const refused = yield* Ref.make<DispatchModeRefusal | undefined>(undefined);
-      return yield* handle(params).pipe(
-        Effect.provideService(DispatchModeLimit, { ...caller.limits, refused }),
-        Effect.catch((error) =>
-          Effect.flatMap(Ref.get(refused), (refusal) =>
-            Effect.fail<E | OrchestratorMcpFailure>(
-              refusal === undefined ? error : escalationDenied(refusal),
+        // The target's user can raise its modes after the check above; the
+        // orchestrator checks again under the thread's lock and records its
+        // refusal here, since handlers wrap dispatch errors their own way.
+        const refused = yield* Ref.make<DispatchModeRefusal | undefined>(undefined);
+        return yield* handle(params).pipe(
+          Effect.provideService(DispatchModeLimit, { ...caller.limits, refused }),
+          Effect.catch((error) =>
+            Effect.flatMap(Ref.get(refused), (refusal) =>
+              Effect.fail<E | OrchestratorMcpFailure>(
+                refusal === undefined ? error : escalationDenied(refusal),
+              ),
             ),
           ),
-        ),
-      );
-    }),
-  );
+        );
+      }),
+    );
+
+export const writesThreads = threadWrites(writingCaller);
+
+/**
+ * Sends a message or answer into another thread. Open to RockBot too, whose
+ * handler must then ask its user (`OrchestratorMcpService.confirmRockBotWrite`).
+ */
+export const sendsForUser = threadWrites(sendingCaller);
 
 const escalationDenied = (refusal: DispatchModeRefusal) =>
   new OrchestratorMcpFailure({

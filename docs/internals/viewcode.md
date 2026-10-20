@@ -27,6 +27,7 @@ excluded from ViewCode are gated, not deleted.
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Provider/model handoff and account switching      | Native `ContextHandoffService`/`ProviderSwitchService`; account-scoped continuation keys in the provider drivers (covered by `provider/viewcode/accountSwitchHandoff.test.ts`) |
 | Child agents, messaging and controls              | Native delegated tasks and lineage; `agents/AgentMessagingV2.ts`, `server/viewcodeAgentsLayers.ts`, MCP `toolkits/agents/`                                                     |
+| RockBot (`kind: "orchestrator"`)                  | `rockbot/RockBotService.ts`, `rockbot/RockBotConfirmation.ts`, MCP `McpToolAccess` gate, `ViewCodeTurnGuidance.ts`; shared `state/rockbot.ts`                                  |
 | Side chats and expiry                             | Native `thread.fork` with optional kind; `ViewCodeSidechatBootstrap.ts`, `ViewCodeSidechatExpiry.ts`, shared `state/sidechat.ts`                                               |
 | Exact user-message forks                          | Native `thread.fork` with optional `sourceMessageId`; `orchestration-v2/ViewCodeMessageFork.ts` snapshots a target-local conversation prefix                                   |
 | Goals and debug mode                              | `orchestration-v2/ViewCodeGoals.ts`, `ViewCodeTurnGuidance.ts`, MCP `toolkits/goal/`                                                                                           |
@@ -237,6 +238,26 @@ usage-resume walks. Idle side chats archive after 24 hours; the 10-minute sweep
 rechecks timestamps, active runs and pending requests under the native command
 lock before archiving. A stale sweep must not archive a newly active chat.
 Unarchive stays available through the normal native path.
+
+## RockBot
+
+RockBot is an ordinary thread with `kind: "orchestrator"`, one per environment
+(`RockBotService.open`, fixed id `rockbot`, so racing clients converge). It lives in
+the Scratch project so its agent never runs inside a repository, borrowing the latest
+project only where Scratch is unavailable, and it starts on the latest thread's model.
+Clients hide it from thread lists; the rail button, palette action and mobile header
+open it through `rockbot.open`. Settlement candidates exclude it.
+
+Its safety is the server's, not its prompt's. `McpToolAccess` refuses every writing
+tool to an orchestrator caller except the `sendsForUser` ones (`t3_thread_send`,
+`t3_pending_request_respond`), and those call `confirmIfRockBot` first. The
+confirmation copies the computer-use bridge: an `approval_request` with
+`viewcodeRockBotConfirm` in RockBot's own run, answered by the user through the
+normal approval UI, intercepted in `RuntimeRequestService` so no provider sees it,
+and polled by the waiting tool call. Do not route RockBot sends around this gate,
+and do not let a client or agent change a thread's `kind`; nothing an agent says can
+stand in for the click. A pending question dies with the tool call, and startup
+closes any left from a restart.
 
 ## Browser CLI
 
