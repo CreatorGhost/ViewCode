@@ -149,6 +149,19 @@ describe("ViewCode v2 presentation adapter", () => {
       kind: "tool.completed",
       payload: { toolCallId: command.id, command: "git status", output: "clean" },
     });
+    // A running call reads as one, so the work log can show it live.
+    const runningThread = viewCodeThread({
+      ...projection,
+      visibleTurnItems: projection.visibleTurnItems.map((row) =>
+        row.item.id === command.id
+          ? { ...row, item: { ...row.item, status: "running" as const } }
+          : row,
+      ),
+    });
+    expect(runningThread.activities[0]).toMatchObject({
+      kind: "tool.updated",
+      payload: { toolCallId: command.id, status: "running" },
+    });
     const pending = derivePendingRequests(thread.activities);
     expect(pending.approvals[0]).toMatchObject({
       requestId: approvalId,

@@ -1,5 +1,4 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
-import { threadOwnNeed } from "@t3tools/shared/threadNeedsYou";
 
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
@@ -18,7 +17,7 @@ import {
 import { formatSubagentModelLabel } from "@t3tools/client-runtime/viewcodeThread";
 import {
   childAgentRecordsFromShells,
-  isChildAgentRunning,
+  resolveEffectiveAgentStatus,
   summarizeAgentTreeControl,
   type AgentTreeControlSummary,
   type ChildAgentRecord,
@@ -123,20 +122,41 @@ export function countHomeStatusFilters(
 /**
  * `record` is what the agent's lead says of it (`childAgentRecordsFromShells`): a provider-native
  * subagent never gets a run of its own, so its own shell reads stopped while its lead runs it.
+ * The status is the one every surface shows (`resolveEffectiveAgentStatus`), so an agent that
+ * finished its work reads Done here as on web, not Stopped.
  */
 export function resolveHomeAgentStatus(
   thread: Pick<
     EnvironmentThreadShell,
     "hasPendingApprovals" | "hasPendingUserInput" | "session" | "latestTurn"
-  >,
+  > & { readonly source?: { readonly itemCount: number } | undefined },
   record?: ChildAgentRecord | undefined,
 ): HomeAgentStatus {
-  if (threadOwnNeed(thread) !== null) return "needs-you";
-  if (isChildAgentRunning(thread, record)) return "working";
-  const status = thread.session?.status;
-  if (status === "error") return "failed";
-  if (status === undefined || status === "stopped" || status === "interrupted") return "stopped";
-  return "idle";
+  const status = resolveEffectiveAgentStatus(
+    { ...thread, itemCount: thread.source?.itemCount },
+    { record },
+  );
+  switch (status) {
+    case "approval":
+    case "input":
+      return "needs-you";
+    case "running":
+    case "queued":
+      return "working";
+    case "failed":
+      return "failed";
+    case "done":
+      return "done";
+    case "stopped":
+      return "stopped";
+    case "idle":
+    case null: {
+      const session = thread.session?.status;
+      return session === undefined || session === "stopped" || session === "interrupted"
+        ? "stopped"
+        : "idle";
+    }
+  }
 }
 
 /**
@@ -587,7 +607,10 @@ export function buildHomeFolderList(input: {
     // agent keeps the disclosure, and so does a search that matched one.
     const quiet = agents.every((row) => {
       const status = resolveHomeAgentStatus(row.thread, recordOf(row.thread));
-      return (status === "idle" || status === "stopped") && !agentControl.get(row.key)?.paused;
+      return (
+        (status === "idle" || status === "stopped" || status === "done") &&
+        !agentControl.get(row.key)?.paused
+      );
     });
     if (settled && quiet && !searchExpandKeys.has(node.key)) {
       items.push({
