@@ -238,6 +238,7 @@ import {
   liveWorkEntryLabel,
   resolveAssistantMessageCopyState,
   resolveTimelineIsAtEnd,
+  TIMELINE_FOLLOW_REARM_PX,
   resolveTimelineMinimapHasPersistentGutter,
   resolveTimelineMinimapCurrentIndex,
   resolveTimelineMinimapHeightStyle,
@@ -1155,7 +1156,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const handleScroll = () => {
     const state = listRef.current?.getState?.();
     if (restoringThreadPosition || state?.data !== rows) return;
-    const isAtEnd = resolveTimelineIsAtEnd(state);
+    const isAtEnd = resolveTimelineIsAtEnd(state, TIMELINE_FOLLOW_REARM_PX);
     const position = state?.data?.length ? resolveWorkGroupScrollAnchor(state) : undefined;
     if (position && state && isAtEnd !== undefined && !paintOnly) {
       const index = state.indexByKey(position.rowId);
@@ -1536,7 +1537,14 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 ? false
                 : maintainVisibleContentPosition
             }
-            maintainScrollAtEndThreshold={1}
+            // Legend re-checks this before running a follow scroll it already
+            // queued. While following it must cover a whole viewport, as smooth
+            // catch-up passes far from the end; once the reader takes over, a
+            // queued scroll must abort within a few pixels or it pulls a small
+            // scroll-up back down. Not zero: a reader who returns to the end
+            // re-arms follow within TIMELINE_FOLLOW_REARM_PX and must still count
+            // as within it.
+            maintainScrollAtEndThreshold={liveFollowEnabled ? 1 : 0.01}
             onScroll={handleScroll}
             onItemSizeChanged={handleItemSizeChanged}
             className={cn(
