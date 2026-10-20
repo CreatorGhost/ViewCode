@@ -55,6 +55,9 @@ Managed installation supports Apple Silicon macOS, Linux x64 or ARM64, and Windo
 x64 or ARM64. Intel Macs can connect to a supported remote environment. Allow
 several GB of free disk space, especially on Linux.
 
+If you used Antigravity in T3 Code, install and sign in again in ViewCode. ViewCode
+keeps its own runtime and sign-in and leaves T3 Code's copy untouched.
+
 ### Use a manual installation
 
 Download the archive for your environment from the [official ACP Registry][registry].
