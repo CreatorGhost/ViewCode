@@ -28,10 +28,27 @@ export function ThreadDetailsCard({
   children: (density: "full" | "compact" | "essential") => ReactNode;
 }) {
   const canvas = useChatCanvas();
+  // The canvas stores its width only while something live needs it (ChatCanvas), but the card
+  // picks inline or popover from the width while closed, so it keeps its own live reading.
+  const [container, setContainer] = useState<{ width: number; height: number }>(
+    () => canvas?.container ?? { width: 0, height: 0 },
+  );
+  const canvasElement = canvas?.element ?? null;
+  useLayoutEffect(() => {
+    if (!canvasElement) return;
+    const measure = () => {
+      const next = { width: canvasElement.clientWidth, height: canvasElement.clientHeight };
+      setContainer((current) =>
+        current.width === next.width && current.height === next.height ? current : next,
+      );
+    };
+    measure();
+    return observeResize(canvasElement, measure);
+  }, [canvasElement]);
   const preferredPlacement =
     canvas && viewcodeProductPolicy.inlineThreadDetails
       ? resolveThreadDetailsCardLayout({
-          container: canvas.container,
+          container,
           lane: canvas.lane,
           frame: null,
           topInset: canvas.detailsCardTopInset,
@@ -40,7 +57,7 @@ export function ThreadDetailsCard({
   const placement =
     canvas && viewcodeProductPolicy.inlineThreadDetails
       ? resolveThreadDetailsCardLayout({
-          container: canvas.container,
+          container,
           lane: canvas.lane,
           frame: canvas.layout.frame,
           overlapsDetailsCard: canvas.layout.overlapsDetailsCard,
@@ -64,7 +81,7 @@ export function ThreadDetailsCard({
   });
   const contentHeights =
     measurements.key === measurementKey ? measurements.heights : { full: 0, compact: 0 };
-  const height = placement?.height ?? Math.max(0, (canvas?.container.height ?? 0) - 52);
+  const height = placement?.height ?? Math.max(0, container.height - 52);
   const density = resolveThreadDetailsCardDensity(height, contentHeights);
   const reportDetailsCard = canvas?.reportDetailsCard;
   const cardLeft = preferredPlacement?.x;

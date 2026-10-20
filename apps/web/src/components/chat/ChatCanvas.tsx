@@ -14,6 +14,11 @@ export function ChatCanvas({
   detailsCardTopInset?: number;
 }) {
   const elementRef = useRef<HTMLDivElement | null>(null);
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const attachElement = (node: HTMLDivElement | null) => {
+    elementRef.current = node;
+    setElement(node);
+  };
   const widthProbeRef = useRef<HTMLDivElement | null>(null);
   const [timelineElement, registerTimeline] = useState<HTMLElement | null>(null);
   const [preview, setPreview] = useState<ChatCanvasPreview | null>(null);
@@ -109,6 +114,7 @@ export function ChatCanvas({
         }
       : null;
   const context = {
+    element,
     container,
     lane: { padding: measurements.padding, minChatWidth: measurements.minChatWidth },
     layout: resolveChatCanvasLayout({
@@ -130,7 +136,7 @@ export function ChatCanvas({
     <ChatCanvasContext value={context}>
       <div
         {...props}
-        ref={elementRef}
+        ref={attachElement}
         data-chat-canvas
         data-preview-overlaps-chat={layout.overlapsChat || undefined}
         className="relative flex min-h-0 min-w-0 flex-1 flex-col"

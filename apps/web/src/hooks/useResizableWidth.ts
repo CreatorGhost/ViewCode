@@ -31,8 +31,21 @@ export interface ResizableWidthHandlers {
  * Width is read on mount or storage-key changes and persisted on drag-end (not on every rAF tick
  * — would otherwise be ~60 writes/sec).
  */
+/** The width the user last chose for `storageKey`, unclamped; `defaultWidth` when none is stored. */
+export function readStoredWidth(storageKey: string, defaultWidth: number): number {
+  if (typeof window === "undefined") return defaultWidth;
+  try {
+    return getLocalStorageItem(storageKey, WidthSchema) ?? defaultWidth;
+  } catch (error) {
+    console.error("Could not read persisted panel width.", error);
+    return defaultWidth;
+  }
+}
+
 export function useResizableWidth(options: UseResizableWidthOptions): {
   readonly width: number;
+  /** The stored width before the bounds clamp it: what the panel returns to when room comes back. */
+  readonly desiredWidth: number;
   readonly handlers: ResizableWidthHandlers;
 } {
   const { storageKey, defaultWidth, minWidth, maxWidth, edge } = options;
@@ -42,16 +55,7 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
     return Math.max(minWidth, Math.min(maxWidth, value));
   };
 
-  const readWidth = () => {
-    if (typeof window === "undefined") return defaultWidth;
-    try {
-      const stored = getLocalStorageItem(storageKey, WidthSchema);
-      return clamp(stored ?? defaultWidth);
-    } catch (error) {
-      console.error("Could not read persisted panel width.", error);
-      return defaultWidth;
-    }
-  };
+  const readWidth = () => clamp(readStoredWidth(storageKey, defaultWidth));
   const [widthState, setWidthState] = useState(() => ({ storageKey, width: readWidth() }));
   if (widthState.storageKey !== storageKey) {
     setWidthState({ storageKey, width: readWidth() });
@@ -98,5 +102,5 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
   // rewrites the committed width, so re-apply the live pointer position.
   useLayoutEffect(refresh, [clamp, clampedWidth, refresh]);
 
-  return { width: clampedWidth, handlers };
+  return { width: clampedWidth, desiredWidth: widthState.width, handlers };
 }

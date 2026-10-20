@@ -1,6 +1,10 @@
 import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 
-import { type ResizableWidthHandlers, useResizableWidth } from "./useResizableWidth";
+import {
+  readStoredWidth,
+  type ResizableWidthHandlers,
+  useResizableWidth,
+} from "./useResizableWidth";
 import { observeResize } from "../lib/observeResize";
 
 export interface PreviewPanelInlineSize {
@@ -27,23 +31,25 @@ export function usePreviewPanelInlineSize(
     readonly container?: HTMLElement | null | undefined;
   } = {},
 ): PreviewPanelInlineSize {
-  const widthRef = useRef(options.defaultWidth ?? PREVIEW_PANEL_DEFAULT_WIDTH);
+  const storageKey = options.widthStorageKey ?? PREVIEW_PANEL_WIDTH_STORAGE_KEY;
+  const defaultWidth = options.defaultWidth ?? PREVIEW_PANEL_DEFAULT_WIDTH;
+  // The cap is measured against the stored width, so the measurement starts from it too: the
+  // first render cannot wait a tick for the hook below to report it.
+  const [desiredWidth, setDesiredWidth] = useState(() => readStoredWidth(storageKey, defaultWidth));
   const { maxWidth, remeasure } = useViewportClampedMaxWidth(
     hostRef,
     options.enabled ?? true,
     options.container,
-    widthRef,
+    desiredWidth,
   );
   const size = useResizableWidth({
-    storageKey: options.widthStorageKey ?? PREVIEW_PANEL_WIDTH_STORAGE_KEY,
-    defaultWidth: options.defaultWidth ?? PREVIEW_PANEL_DEFAULT_WIDTH,
+    storageKey,
+    defaultWidth,
     minWidth: PREVIEW_PANEL_MIN_WIDTH,
     maxWidth,
     edge: "left",
   });
-  useLayoutEffect(() => {
-    widthRef.current = size.width;
-  }, [size.width]);
+  if (size.desiredWidth !== desiredWidth) setDesiredWidth(size.desiredWidth);
   return {
     width: size.width,
     handlers: {
@@ -61,7 +67,7 @@ function useViewportClampedMaxWidth(
   hostRef: RefObject<HTMLElement | null> | undefined,
   enabled: boolean,
   container: HTMLElement | null | undefined,
-  widthRef: RefObject<number>,
+  desiredWidth: number,
 ): { readonly maxWidth: number; readonly remeasure: () => void } {
   const [maxWidth, setMaxWidth] = useState(() =>
     getPreviewPanelMaxWidth(typeof window === "undefined" ? 1280 : window.innerWidth),
@@ -75,14 +81,14 @@ function useViewportClampedMaxWidth(
     rowRef.current = row;
     const cap = () => getPreviewPanelMaxWidth(window.innerWidth, row?.clientWidth);
     // The row resizes every frame of a sidebar slide, and so does the cap once the
-    // row is the binding limit. The cap only matters when it clamps the panel, so a
-    // move that leaves the panel unclamped either way is not stored: storing it
-    // re-rendered the panel's owner (ChatView) on every frame of the slide.
+    // row is the binding limit. The cap only matters when it clamps the panel's
+    // stored width, so a move that leaves that width unclamped either way is not
+    // stored: storing it re-rendered the panel's owner (ChatView) on every frame.
+    // Compared against the stored width, not the clamped one: a cap that once bit
+    // would otherwise never be allowed to let go.
     const measure = () => {
       const next = cap();
-      setMaxWidth((current) =>
-        keepsPanelUnclamped(current, next, widthRef.current) ? current : next,
-      );
+      setMaxWidth((current) => (keepsPanelUnclamped(current, next, desiredWidth) ? current : next));
     };
     // Measure before first paint: the persisted width must be clamped against
     // the row on the initial render, not one observer tick later (the panel
@@ -103,12 +109,14 @@ function useViewportClampedMaxWidth(
       if (frame !== 0) window.cancelAnimationFrame(frame);
       stopObserving?.();
     };
-  }, [container, hostRef, enabled, widthRef]);
+    // Another stored width (a thread switch, a drag) is clamped against the live cap: the effect
+    // re-runs for it, and the measurement above is unconditional.
+  }, [container, hostRef, enabled, desiredWidth]);
   return { maxWidth, remeasure };
 }
 
-function keepsPanelUnclamped(current: number, next: number, width: number): boolean {
-  return current === next || (next >= width && current >= width);
+function keepsPanelUnclamped(current: number, next: number, desiredWidth: number): boolean {
+  return current === next || (next >= desiredWidth && current >= desiredWidth);
 }
 export function getPreviewPanelMaxWidth(viewportWidth: number, containerWidth?: number): number {
   const fractionCap = Math.floor(viewportWidth * PREVIEW_PANEL_MAX_WIDTH_FRACTION);

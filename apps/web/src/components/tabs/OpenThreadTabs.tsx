@@ -46,10 +46,10 @@ function useActiveThreadRef(): ScopedThreadRef | null {
  * every open thread, and the active thread's project decides which of them show. Until the
  * active thread's shell is known, or when it has no project, every tab shows.
  */
-function projectThreadTabs(
+export function projectThreadTabs(
   tabs: ReadonlyArray<string>,
   activeKey: string | null,
-  byKey: ReadonlyMap<string, ThreadShell>,
+  byKey: ReadonlyMap<string, { readonly projectId: string }>,
 ): ReadonlyArray<string> {
   const projectId = activeKey ? byKey.get(activeKey)?.projectId : undefined;
   if (projectId === undefined) return tabs;
@@ -100,6 +100,10 @@ export function ThreadTabsHost() {
       );
   }, [activeKey, liveEnvironmentIds, liveKeys]);
 
+  const shellsRef = useRef(shells);
+  useEffect(() => {
+    shellsRef.current = shells;
+  }, [shells]);
   useEffect(() => {
     const go = (key: string | null) => {
       const ref = key ? parseScopedThreadKey(key) : null;
@@ -121,7 +125,7 @@ export function ThreadTabsHost() {
       if (command === null) return;
       const store = useThreadTabsStore.getState();
       const byKey = new Map(
-        shells.map((shell) => [
+        shellsRef.current.map((shell) => [
           scopedThreadKey({ environmentId: shell.environmentId, threadId: shell.id }),
           shell,
         ]),
@@ -145,7 +149,7 @@ export function ThreadTabsHost() {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [active, activeKey, keybindings, navigate, shells]);
+  }, [active, activeKey, keybindings, navigate]);
 
   return null;
 }
@@ -327,7 +331,11 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeKey, tabs]);
 
-  const projectTabs = projectThreadTabs(tabs ?? [], activeKey, byKey);
+  // Only loaded shells make tabs: until the active thread's is in, there is no project to scope
+  // to, so the strip stays the single tab rather than briefly showing every project's tabs.
+  const projectTabs = projectThreadTabs(tabs ?? [], activeKey, byKey).filter((key) =>
+    byKey.has(key),
+  );
   const showList =
     !props.paneOnly &&
     projectTabs.length >= 2 &&
@@ -418,13 +426,7 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
         );
       })}
       {overflow.length > 0 ? (
-        <OverflowTabsMenu
-          tabs={overflow}
-          byKey={byKey}
-          visited={visited}
-          onSelect={select}
-          onClose={close}
-        />
+        <OverflowTabsMenu tabs={overflow} byKey={byKey} visited={visited} onSelect={select} />
       ) : null}
     </div>
   );
@@ -436,7 +438,6 @@ function OverflowTabsMenu(props: {
   byKey: ReadonlyMap<string, ThreadShell>;
   visited: Record<string, string | undefined>;
   onSelect: (key: string) => void;
-  onClose: (key: string) => void;
 }) {
   const entries = props.tabs.flatMap((key) => {
     const shell = props.byKey.get(key);
@@ -470,6 +471,8 @@ function OverflowTabsMenu(props: {
         {entries.map(({ key, shell, status, unread }) => {
           const glyph = threadStatusGlyph(status, "xs");
           return (
+            // Select only: a close control inside a menu item is unreachable by keyboard, and a
+            // selected tab closes from the strip like any other.
             <MenuItem key={key} onClick={() => props.onSelect(key)}>
               <MenuItemLabel>
                 <span className="block min-w-0 truncate">{shell.title}</span>
@@ -479,17 +482,6 @@ function OverflowTabsMenu(props: {
               ) : unread ? (
                 <span aria-label="Unread" className="size-1.5 shrink-0 rounded-full bg-success" />
               ) : null}
-              <button
-                type="button"
-                aria-label={`Close ${shell.title}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  props.onClose(key);
-                }}
-                className="flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
-              >
-                <XIcon className="size-3" />
-              </button>
             </MenuItem>
           );
         })}

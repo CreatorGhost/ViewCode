@@ -852,30 +852,45 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
     --shell-glow-color: oklch(from var(--project-accent) clamp(0.6, l, 0.8) c h);
   }
 }
-/* The project colour is a registered property so the shell can fade between projects, and from
-   a project to none (its initial value), instead of swapping the wash in one frame when the rail
-   changes project. The gradient is always painted; without a project it is transparent. */
-@property --project-accent {
-  syntax: "<color>";
-  inherits: true;
-  initial-value: transparent;
-}
-/* Declared on the elements that paint it, not on :root: a custom property's var() references
-   resolve where it is declared, and on :root the project colour is still its initial value. */
-[data-app-rail-layout][data-slot="sidebar-wrapper"],
-[data-app-rail-layout] [data-app-rail] {
-  --shell-tint-gradient: linear-gradient(
-    color-mix(in srgb, var(--project-accent) var(--shell-tint-surface-top), transparent),
-    color-mix(in srgb, var(--project-accent) var(--shell-tint-surface-bottom), transparent)
-  );
-}
+/* The wash fades between projects, and from a project to none, instead of swapping in one frame
+   when the rail changes project; without a project the accent is transparent, so it is always
+   painted. A childless pseudo-element paints it and fades a plain background colour under an
+   alpha mask: a transition on a custom property set on the layout wrapper, even a non-inherited
+   one, made Chromium recalc the whole subtree's style every frame (300 ms of style work per
+   switch). No stacking context on the wrapper: fixed layers inside it (the mini player's
+   controls, the recent-thread switcher) must still stack against the webviews outside it. */
 @media (min-width: 768px) {
+  [data-app-rail-layout][data-slot="sidebar-wrapper"] {
+    position: relative;
+  }
+  [data-app-rail-layout][data-slot="sidebar-wrapper"]::before,
+  [data-app-rail-layout] [data-app-rail]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-color: var(--project-accent);
+    -webkit-mask-image: linear-gradient(
+      rgb(0 0 0 / var(--shell-tint-surface-top)),
+      rgb(0 0 0 / var(--shell-tint-surface-bottom))
+    );
+    mask-image: linear-gradient(
+      rgb(0 0 0 / var(--shell-tint-surface-top)),
+      rgb(0 0 0 / var(--shell-tint-surface-bottom))
+    );
+  }
+  /* First positioned box in the wrapper, so every positioned sibling paints over it. */
+  [data-app-rail-layout][data-slot="sidebar-wrapper"]::before {
+    z-index: 0;
+  }
+  /* The rail is its own stacking context (z-20): the wash sits under its tiles. */
+  [data-app-rail-layout] [data-app-rail]::before {
+    z-index: -1;
+  }
   /* The wrapper carries data-panel-animations itself, so it needs the compound selector. */
-  [data-panel-animations="true"][data-slot="sidebar-wrapper"],
-  [data-panel-animations="true"] [data-app-rail] {
-    transition-property: --project-accent;
-    transition-duration: var(--panel-animation-duration);
-    transition-timing-function: var(--ease-drawer);
+  [data-panel-animations="true"][data-slot="sidebar-wrapper"]::before,
+  [data-panel-animations="true"] [data-app-rail]::before {
+    transition: background-color var(--panel-animation-duration) var(--ease-drawer);
   }
 }
 /* A coloured folder's badge is filled in its own colour (Sidebar sets --project-accent on it),
@@ -959,17 +974,14 @@ html [data-app-rail] {
   /* The rail layout root is the sidebar wrapper itself. */
   [data-app-rail-layout][data-slot="sidebar-wrapper"] {
     background-color: var(--sidebar);
-    background-image: var(--shell-tint-gradient);
   }
-  /* The sidebar is see-through over the wash. The rail keeps a fill, painting the same
-     viewport-anchored gradient, so a sidebar sliding under it never shows through. */
+  /* The sidebar is see-through over the wash. The rail paints its own, the same full-height
+     ramp as the wrapper's, so a sidebar sliding under it never shows through. */
   [data-app-rail-layout] [data-slot="sidebar-inner"] {
     background-color: transparent;
   }
   [data-app-rail-layout] [data-app-rail] {
     background-color: var(--sidebar);
-    background-image: var(--shell-tint-gradient);
-    background-attachment: fixed;
   }
   [data-project-tint]
     :is([data-testid="sidebar-row"], [data-testid="sidebar-row-child"])[aria-current="page"] {
