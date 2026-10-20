@@ -54,6 +54,7 @@ export function ChatCanvas({
   };
   const clearPreview = (key: string) =>
     setPreview((current) => (current?.key === key ? null : current));
+  const live = preview !== null || detailsCard !== null || detailsCardTopInset > 0;
   useLayoutEffect(() => {
     const element = elementRef.current;
     const probe = widthProbeRef.current;
@@ -78,13 +79,18 @@ export function ChatCanvas({
           ? (timelineElement.offsetWidth - timelineElement.clientWidth) / 2
           : 0,
       };
-      setMeasurements((current) =>
-        Object.keys(next).every(
-          (key) => current[key as keyof typeof current] === next[key as keyof typeof next],
-        )
+      setMeasurements((current) => {
+        const changed = (Object.keys(next) as (keyof typeof next)[]).filter(
+          (key) => current[key] !== next[key],
+        );
+        // Without a mini player, details card or find bar, the lane centres itself and
+        // nothing rendered reads the width or the composer height; both change on every
+        // frame of a panel slide, and storing them re-rendered the whole canvas per frame.
+        return changed.length === 0 ||
+          (!live && changed.every((key) => key === "width" || key === "composerHeight"))
           ? current
-          : next,
-      );
+          : next;
+      });
     };
     measure();
     const observed: Element[] = [element, probe];
@@ -92,7 +98,7 @@ export function ChatCanvas({
     if (composerOverlayElement) observed.push(composerOverlayElement);
     if (timelineElement) observed.push(timelineElement);
     return observeResize(observed, measure);
-  }, [composerOverlayElement, timelineElement, detailsCardTopInset]);
+  }, [composerOverlayElement, timelineElement, detailsCardTopInset, live]);
   const container = { width: measurements.width, height: measurements.height };
   const findBar =
     detailsCardTopInset > 0
