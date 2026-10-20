@@ -14,7 +14,9 @@ import { environmentThreadDetails } from "../state/threads";
 import { useThreadProjection } from "../state/entities";
 import { useThreadGoalControls } from "./chat/useThreadGoalControls";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { TargetIcon, BugIcon } from "lucide-react";
+import { TargetIcon, BugIcon, PlayIcon } from "lucide-react";
+import { threadGoalRunState } from "@t3tools/client-runtime/threadGoal";
+import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -1745,6 +1747,25 @@ function OpenCommandPaletteDialog(props: {
           viewcodeGoalControls.openEditor();
         },
       },
+      ...(threadGoalRunState({
+        goal: viewcodeGoalControls.goal,
+        working: threadRuntimeIsActive(activeThread?.runtime),
+        canSend: true,
+      }) === "ready"
+        ? [
+            {
+              kind: "action" as const,
+              value: "action:viewcode:goal-run",
+              title: "Run thread goal",
+              searchTerms: ["goal", "run", "start", "continue", "objective"],
+              icon: <PlayIcon className={ITEM_ICON_CLASS} />,
+              disabled,
+              run: async () => {
+                viewcodeGoalControls.requestRun();
+              },
+            },
+          ]
+        : []),
       {
         kind: "action",
         value: "action:viewcode:debug",

@@ -15,7 +15,12 @@ import {
   workLogMarker,
   workLogMarkerLane,
   workLogLiveLabel,
+  workLogLiveLabelFor,
+  workLogLiveStepStart,
+  workLogStepKeyOf,
   workLogStepRuns,
+  workLogStepRunsBy,
+  workLogTurnFoldOpen,
 } from "./thinkingLog.ts";
 
 const base = {
@@ -299,5 +304,86 @@ describe("workLogLiveLabel", () => {
       "Searching the codebase",
     );
     expect(workLogLiveLabel(entry("t", { itemType: "reasoning", tone: "thinking" }))).toBeNull();
+  });
+});
+
+describe("workLogStepRunsBy", () => {
+  it("splits any entry shape by the step key it is given", () => {
+    const steps = workLogStepRunsBy(
+      [
+        { id: "t1", key: null },
+        { id: "c1", key: workLogStepKeyOf({ id: "c1", failed: false, action: "command" }) },
+        { id: "c2", key: workLogStepKeyOf({ id: "c2", failed: false, action: "command" }) },
+        { id: "f1", key: workLogStepKeyOf({ id: "f1", failed: true, action: "command" }) },
+        { id: "n1", key: workLogStepKeyOf({ id: "n1", failed: false, action: "update" }) },
+        { id: "r1", key: workLogStepKeyOf({ id: "r1", failed: false, action: "read" }) },
+      ],
+      (item) => item.key,
+    );
+    expect(steps.map((step) => step.map((item) => item.id))).toEqual([
+      ["t1", "c1", "c2"],
+      ["f1"],
+      ["n1", "r1"],
+    ]);
+  });
+
+  it("keeps calls from different tool sources apart", () => {
+    expect(
+      workLogStepKeyOf({ id: "a", failed: false, action: "other", sourceKey: "mcp:a" }),
+    ).not.toBe(workLogStepKeyOf({ id: "b", failed: false, action: "other", sourceKey: "mcp:b" }));
+  });
+});
+
+describe("workLogLiveStepStart", () => {
+  const step = (items: string) => [...items];
+  const options = {
+    running: (item: string) => item === "R",
+    thought: (item: string) => item === "t",
+  };
+
+  it("starts the live row at the first running call, with the thoughts that led into it", () => {
+    // done, thought, running: the finished call keeps its own row.
+    expect(workLogLiveStepStart(step("DtR"), options)).toBe(1);
+    expect(workLogLiveStepStart(step("DR"), options)).toBe(1);
+    expect(workLogLiveStepStart(step("ttR"), options)).toBe(0);
+    expect(workLogLiveStepStart(step("RR"), options)).toBe(0);
+  });
+
+  it("finds no live row when nothing in the step runs", () => {
+    expect(workLogLiveStepStart(step("DDt"), options)).toBe(-1);
+    expect(workLogLiveStepStart([], options)).toBe(-1);
+  });
+});
+
+describe("workLogLiveLabelFor", () => {
+  it("words a step from its parts", () => {
+    expect(workLogLiveLabelFor({ action: "command", command: "bun test src" })).toBe(
+      "Running bun test src",
+    );
+    expect(workLogLiveLabelFor({ action: "read", path: "apps/x/router.ts" })).toBe(
+      "Reading router.ts",
+    );
+    expect(workLogLiveLabelFor({ action: "edit" })).toBe("Editing files");
+    expect(workLogLiveLabelFor({ action: "command" })).toBeNull();
+    expect(workLogLiveLabelFor({ action: "other" })).toBeNull();
+  });
+});
+
+describe("workLogTurnFoldOpen", () => {
+  it("keeps the latest turn open until it is closed, and others closed until opened", () => {
+    const none = new Set<string>();
+    expect(workLogTurnFoldOpen("t2", { expanded: none, collapsed: none, latest: "t2" })).toBe(true);
+    expect(
+      workLogTurnFoldOpen("t2", { expanded: none, collapsed: new Set(["t2"]), latest: "t2" }),
+    ).toBe(false);
+    expect(workLogTurnFoldOpen("t1", { expanded: none, collapsed: none, latest: "t2" })).toBe(
+      false,
+    );
+    expect(
+      workLogTurnFoldOpen("t1", { expanded: new Set(["t1"]), collapsed: none, latest: "t2" }),
+    ).toBe(true);
+    expect(workLogTurnFoldOpen("t2", { expanded: none, collapsed: none, latest: null })).toBe(
+      false,
+    );
   });
 });

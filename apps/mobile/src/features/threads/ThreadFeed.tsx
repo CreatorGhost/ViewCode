@@ -187,10 +187,17 @@ import {
   THREAD_DISCLOSURE_TRANSITION_MS,
   WORK_GROUP_TOGGLE_HEIGHT,
 } from "./thread-work-log";
+import { ThreadSubagentGroup } from "./thread-subagent-group";
 import { appendPendingThreadMessages, type PendingThreadFeedEntry } from "./pending-thread-feed";
+import { insertPullRequestFeedEntries, type PullRequestFeedEntry } from "./pull-request-feed";
+import { ThreadPullRequestFeedCard } from "./ThreadPullRequestFeedCard";
+import { useThreadFeedPullRequests } from "./useThreadPullRequestFlow";
 
-/** What the list renders: the presented feed with agent chatter folded behind headers. */
-type RenderedFeedEntry = PendingThreadFeedEntry | AgentChatterHeaderEntry;
+/**
+ * What the list renders: the presented feed with agent chatter folded behind headers, and the
+ * thread's pull request cards where it got each one.
+ */
+type RenderedFeedEntry = PendingThreadFeedEntry | AgentChatterHeaderEntry | PullRequestFeedEntry;
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
 import { htmlRenderRowHeight, ThreadHtmlRender } from "./HtmlRenderWebView";
 import { ReviewFindingsFeedCard } from "../review/findings/ReviewFindingsFeedCard";
@@ -1469,7 +1476,7 @@ function renderFeedEntry(
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
     readonly onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
     readonly onToggleWorkRow: (rowId: string, anchorKey: string) => void;
-    readonly onToggleTurnFold: (turnId: TurnId) => void;
+    readonly onToggleTurnFold: (turnId: TurnId, open: boolean) => void;
     readonly onToggleAgentChatter: (groupId: string, expanded: boolean) => void;
     readonly onToggleReasoning: (messageId: string) => void;
     readonly onPressPreview: (source: FilePreviewSource) => void;
@@ -1497,7 +1504,7 @@ function renderFeedEntry(
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: entry.expanded }}
-        onPress={() => props.onToggleTurnFold(entry.turnId)}
+        onPress={() => props.onToggleTurnFold(entry.turnId, entry.expanded)}
         hitSlop={4}
         className="mb-1 min-h-11 flex-row items-center gap-2 border-b border-border-subtle px-2"
         style={{
@@ -1546,6 +1553,17 @@ function renderFeedEntry(
     );
   }
 
+  if (entry.type === "pull-request") {
+    return (
+      <ThreadPullRequestFeedCard
+        environmentId={props.environmentId}
+        threadId={props.threadId}
+        pullRequestKey={entry.pullRequestKey}
+        current={entry.current}
+      />
+    );
+  }
+
   if (entry.type === "review-findings") {
     return (
       <ReviewFindingsFeedCard
@@ -1577,6 +1595,19 @@ function renderFeedEntry(
         rowSizing={props.workRowSizing}
         onToggle={() => props.onToggleWorkGroup(entry.id, entry.id)}
         onCopy={() => props.onCopyWorkRow(entry.activity.id, entry.activity.getCopyText())}
+      />
+    );
+  }
+
+  if (entry.type === "spawned-agents") {
+    return (
+      <ThreadSubagentGroup
+        environmentId={props.environmentId}
+        threadId={props.threadId}
+        agents={entry.agents}
+        expanded={entry.expanded}
+        iconSubtleColor={iconSubtleColor}
+        onToggle={() => props.onToggleWorkGroup(entry.id, entry.id)}
       />
     );
   }
@@ -2177,6 +2208,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     readonly expandedWorkGroups: Record<string, boolean>;
     readonly expandedWorkRows: Record<string, boolean>;
     readonly expandedTurnIds: ReadonlySet<TurnId>;
+    /** The latest turn starts open under its "Worked for" header; closing it lands here. */
+    readonly collapsedTurnIds: ReadonlySet<TurnId>;
     readonly expandedReasoningMessageIds: ReadonlySet<string>;
     /** Agent-chatter groups the user opened or closed, by group id; absent means the default. */
     readonly agentChatterOverrides: Readonly<Record<string, boolean>>;
@@ -2185,6 +2218,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     expandedWorkGroups: {},
     expandedWorkRows: {},
     expandedTurnIds: new Set(),
+    collapsedTurnIds: new Set(),
     expandedReasoningMessageIds: new Set(),
     agentChatterOverrides: {},
   });
@@ -2193,6 +2227,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     expandedWorkGroups,
     expandedWorkRows,
     expandedTurnIds,
+    collapsedTurnIds,
     expandedReasoningMessageIds,
     agentChatterOverrides,
   } = interactionState;
@@ -2638,6 +2673,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           expandedTurnIds,
           expandedWorkGroupIds,
           props.activeWorkStartedAt,
+          { keepLatestTurnOpen: true, collapsedTurnIds },
         ),
         props.feed,
         props.queuedMessages,
@@ -2645,6 +2681,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     [
       props.queuedMessages,
       expandedTurnIds,
+      collapsedTurnIds,
       expandedWorkGroupIds,
       props.activeWorkStartedAt,
       props.feed,
@@ -2652,9 +2689,19 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     ],
   );
   const working = props.activeWorkStartedAt !== null;
-  const { entries: renderedFeed, memberIds: chatterMemberIds } = useMemo(
+  const { entries: chatterFeed, memberIds: chatterMemberIds } = useMemo(
     () => groupAgentChatter(presentedFeed, { overrides: agentChatterOverrides, working }),
     [presentedFeed, agentChatterOverrides, working],
+  );
+  const feedPullRequests = useThreadFeedPullRequests(
+    useMemo(
+      () => ({ environmentId: props.environmentId, threadId: props.threadId }),
+      [props.environmentId, props.threadId],
+    ),
+  );
+  const renderedFeed = useMemo(
+    () => insertPullRequestFeedEntries(chatterFeed, feedPullRequests),
+    [chatterFeed, feedPullRequests],
   );
   // "Your last message" chip: shown while the user's last message has scrolled
   // out of view above. LegendList reports viewable rows only when membership
@@ -2796,6 +2843,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     }
   }, [
     expandedTurnIds,
+    collapsedTurnIds,
     expandedWorkGroups,
     expandedWorkRows,
     expandedReasoningMessageIds,
@@ -2868,16 +2916,19 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   );
 
   const onToggleTurnFold = useCallback(
-    (turnId: TurnId) => {
+    (turnId: TurnId, open: boolean) => {
       suspendEndScrollMaintenanceForDisclosure(`turn-fold:${turnId}`);
       setInteractionState((current) => {
-        const next = new Set(current.expandedTurnIds);
-        if (next.has(turnId)) {
-          next.delete(turnId);
+        const expanded = new Set(current.expandedTurnIds);
+        const collapsed = new Set(current.collapsedTurnIds);
+        if (open) {
+          expanded.delete(turnId);
+          collapsed.add(turnId);
         } else {
-          next.add(turnId);
+          expanded.add(turnId);
+          collapsed.delete(turnId);
         }
-        return { ...current, expandedTurnIds: next };
+        return { ...current, expandedTurnIds: expanded, collapsedTurnIds: collapsed };
       });
     },
     [suspendEndScrollMaintenanceForDisclosure],

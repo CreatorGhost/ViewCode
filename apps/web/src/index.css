@@ -704,22 +704,26 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
-/* A pull request card folding to its one line and back (PrFlowFoldFrame): grid rows, never
-   height. Reduced motion swaps at once. */
-.pr-flow-fold {
+/* Content folding closed and open (components/ui/fold-frame.tsx): grid rows, never height.
+   Unfolding mounts the content open, so it animates up from zero rows. Reduced motion swaps at
+   once. */
+.fold-frame {
   display: grid;
   grid-template-rows: 1fr;
 }
-.pr-flow-fold[data-open="false"] {
+.fold-frame[data-open="false"] {
   grid-template-rows: 0fr;
 }
-.pr-flow-fold > * {
+.fold-frame > * {
   overflow: hidden;
   min-height: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .pr-flow-fold {
+  .fold-frame {
     transition: grid-template-rows var(--dur-row) var(--ease-out-expo);
+  }
+  .fold-frame-open {
+    animation: pr-flow-open var(--dur-row) var(--ease-out-expo) both;
   }
 }
 

@@ -13,14 +13,15 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { observeChipGlide } from "~/lib/chipGlide";
 import { useThreadShell } from "~/state/entities";
-import { PrFlowCard, PrFlowCollapsedRow, PrFlowFoldFrame } from "./PrFlowCard";
+import { FoldFrame } from "../../ui/fold-frame";
+import { PrFlowCard, PrFlowCollapsedRow } from "./PrFlowCard";
 import {
   PR_MERGED_MOMENT_MS,
   PR_MERGE_NEWS_MS,
   prFlowChipShown,
   prFlowFolded,
   prFlowTimelinePullRequests,
-} from "./prFlowModel";
+} from "@t3tools/client-runtime/pr-flow";
 import { PrFlowStatusChip } from "./PrFlowStatusChip";
 import { useThreadPrFlow } from "./useThreadPrFlow";
 
@@ -116,7 +117,7 @@ export function ThreadPrTimelineCard({
   const folded = prFlowFolded({ state, current, choice, mergedAgoMs, mergedMomentOver });
   const onOpen = (url: string) => void openLink(url);
   return (
-    <PrFlowFoldFrame
+    <FoldFrame
       folded={folded}
       collapsed={
         <PrFlowCollapsedRow

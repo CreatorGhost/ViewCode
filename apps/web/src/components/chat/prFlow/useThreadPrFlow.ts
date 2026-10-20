@@ -29,7 +29,7 @@ import {
   prFlowResolvePrompt,
   prFlowResolvingNumber,
   prFlowRunningCommand,
-} from "./prFlowModel";
+} from "@t3tools/client-runtime/pr-flow";
 
 /** While the checkout is mid-merge, how often its unresolved files are read again. */
 const MERGE_POLL_MS = 10_000;

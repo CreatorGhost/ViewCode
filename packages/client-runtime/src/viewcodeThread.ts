@@ -360,7 +360,10 @@ function activityFor(
       return {
         ...base,
         tone: "tool",
-        kind: pending ? "tool.started" : "tool.completed",
+        // A call in flight is an update of a running call, not a start notice: mobile's work log
+        // drops start notices (v1 sent one before every call's updates), which hid every running
+        // call, and every working agent, until it finished.
+        kind: pending ? "tool.updated" : "tool.completed",
         summary: item.title || item.type.replaceAll("_", " "),
         payload: {
           ...item,

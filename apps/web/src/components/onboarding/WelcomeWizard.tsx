@@ -1,6 +1,6 @@
 import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import { ProviderPicker } from "./ProviderPicker";
-import { resolveProviderSetup } from "./providerSetup.logic";
+import { resolveProviderSetup } from "@t3tools/client-runtime/provider-picker";
 import { useAuth } from "@clerk/react";
 import { useAtomValue } from "@effect/atom-react";
 import type {

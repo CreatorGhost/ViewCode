@@ -3,6 +3,7 @@ import { collectToolFilePaths } from "@t3tools/shared/toolActivity";
 import {
   toolGroupAction,
   workEntryDisplayIndicatesToolFailure,
+  type ToolGroupAction,
   type ToolGroupSummaryKind,
   type WorkLogPresentationEntry,
 } from "./presentation.ts";
@@ -150,12 +151,25 @@ export function workLogStepRuns<Entry>(
     readonly visible: (item: Entry) => boolean;
   },
 ): Entry[][] {
+  return workLogStepRunsBy(entries, (item) =>
+    options.visible(item) ? workLogStepKey(options.entry(item)) : null,
+  );
+}
+
+/**
+ * `workLogStepRuns` for entries that are not `WorkLogPresentationEntry`s (mobile's activity rows):
+ * `stepKey` says what kind of step each is, or null for an entry that joins the step it leads into.
+ */
+export function workLogStepRunsBy<Entry>(
+  entries: ReadonlyArray<Entry>,
+  stepKey: (item: Entry) => string | null,
+): Entry[][] {
   const runs: Entry[][] = [];
   let current: Entry[] | null = null;
   let currentKey: string | null = null;
   let pending: Entry[] = [];
   for (const item of entries) {
-    const key = options.visible(item) ? workLogStepKey(options.entry(item)) : null;
+    const key = stepKey(item);
     if (key === null) {
       pending.push(item);
       continue;
@@ -177,6 +191,45 @@ export function workLogStepRuns<Entry>(
 }
 
 /**
+ * Where the live row begins in the step that is running now, or -1 when nothing in it runs.
+ * Finished calls of the same kind ("Ran 2 commands") keep their own row; the live row starts at
+ * the first call still running, with the thought that led into it.
+ */
+export function workLogLiveStepStart<Entry>(
+  step: ReadonlyArray<Entry>,
+  options: {
+    readonly running: (item: Entry) => boolean;
+    readonly thought: (item: Entry) => boolean;
+  },
+): number {
+  const firstRunning = step.findIndex(options.running);
+  if (firstRunning < 0) return -1;
+  for (let index = firstRunning - 1; index >= 0; index -= 1) {
+    if (!options.thought(step[index]!)) return index + 1;
+  }
+  return 0;
+}
+
+/**
+ * Whether a finished turn's "Worked for" fold is open. The turn that just finished stays open, so
+ * its steps read on under the header until the user closes it (`collapsed`) or the next turn
+ * starts; any other turn opens only when the user (or a citation) opened it.
+ */
+export function workLogTurnFoldOpen<Id>(
+  id: Id,
+  state: {
+    readonly expanded: ReadonlySet<Id> | undefined;
+    readonly collapsed: ReadonlySet<Id> | undefined;
+    readonly latest: Id | null | undefined;
+  },
+): boolean {
+  return (
+    (state.expanded?.has(id) ?? false) ||
+    (id === state.latest && !(state.collapsed?.has(id) ?? false))
+  );
+}
+
+/**
  * What makes two steps the same kind of step. Thoughts, status updates and approval prompts have
  * no kind of their own (null): they belong to the call they lead into.
  */
@@ -188,9 +241,26 @@ export function workLogStepKey(entry: WorkLogPresentationEntry): string | null {
   ) {
     return null;
   }
-  if (workEntryDisplayIndicatesToolFailure(entry)) return `failed:${entry.id}`;
-  const action = toolGroupAction(entry);
-  return action === "update" ? null : `${action}:${entry.toolSource?.key ?? ""}`;
+  return workLogStepKeyOf({
+    id: entry.id,
+    failed: workEntryDisplayIndicatesToolFailure(entry),
+    action: toolGroupAction(entry),
+    sourceKey: entry.toolSource?.key,
+  });
+}
+
+/**
+ * A step's kind from its parts: a failure stands alone, an update (a notice, an approval) has no
+ * kind of its own, and calls merge by action and tool source.
+ */
+export function workLogStepKeyOf(input: {
+  readonly id: string;
+  readonly failed: boolean;
+  readonly action: ToolGroupAction;
+  readonly sourceKey?: string | undefined;
+}): string | null {
+  if (input.failed) return `failed:${input.id}`;
+  return input.action === "update" ? null : `${input.action}:${input.sourceKey ?? ""}`;
 }
 
 /**
@@ -198,19 +268,35 @@ export function workLogStepKey(entry: WorkLogPresentationEntry): string | null {
  * has no friendlier wording than its tool's own.
  */
 export function workLogLiveLabel(entry: WorkLogPresentationEntry): string | null {
-  switch (toolGroupAction(entry)) {
+  const action = toolGroupAction(entry);
+  return workLogLiveLabelFor({
+    action,
+    command: entry.command,
+    path:
+      action === "edit"
+        ? workEntryChangedPaths(entry)[0]
+        : action === "read"
+          ? workEntryInputPaths(entry)[0]
+          : undefined,
+  });
+}
+
+/** `workLogLiveLabel` from a step's parts, for entries this module cannot read itself. */
+export function workLogLiveLabelFor(input: {
+  readonly action: ToolGroupAction;
+  readonly command?: string | undefined;
+  /** The file a read or edit touches first. */
+  readonly path?: string | undefined;
+}): string | null {
+  switch (input.action) {
     case "command": {
-      const command = entry.command?.trim();
+      const command = input.command?.trim();
       return command ? `Running ${commandDisplayText(command)}` : null;
     }
-    case "read": {
-      const [path] = workEntryInputPaths(entry);
-      return path ? `Reading ${fileChipName(path)}` : "Reading files";
-    }
-    case "edit": {
-      const [path] = workEntryChangedPaths(entry);
-      return path ? `Editing ${fileChipName(path)}` : "Editing files";
-    }
+    case "read":
+      return input.path ? `Reading ${fileChipName(input.path)}` : "Reading files";
+    case "edit":
+      return input.path ? `Editing ${fileChipName(input.path)}` : "Editing files";
     case "code-search":
       return "Searching the codebase";
     case "search":
