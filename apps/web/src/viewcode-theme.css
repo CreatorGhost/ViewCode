@@ -98,11 +98,19 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-app-sidebar][data-
     margin: var(--vc-sheet-inset) var(--vc-sheet-inset) var(--vc-sheet-inset) 0;
     overflow: hidden;
     border-radius: var(--vc-sheet-radius);
-    border: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
     background-color: var(--vc-sheet);
     box-shadow:
       0 1px 2px rgb(0 0 0 / 0.3),
       0 12px 32px -16px rgb(0 0 0 / 0.6);
+  }
+
+  /* In dark the window is near-black, so the panel needs a deeper lift to read as a floating
+     object rather than a grey rectangle. */
+  html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="sidebar-inset"] {
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.6),
+      0 24px 56px -24px rgb(0 0 0 / 0.95);
   }
 
   /* With the sidebar collapsed the panel sits right beside the rail: the rail's own 7px padding is
@@ -136,31 +144,37 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
 }
 
 /* ---------------------------------------------------------------------------
- * Composer (rows 14–16): one glass pill, radius 22, hairline, no coloured
- * glow; at most a tiny neutral drop in light.
+ * Composer: the one raised object on the sheet. A bordered card, radius 20,
+ * no coloured glow. Its surface is set in viewcode-chat.css; in dark it gets
+ * a visible hairline and a deep drop so it floats off the near-black sheet.
  * ------------------------------------------------------------------------- */
 
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"] {
-  --chat-composer-glass-surface: var(--vc-sheet);
   --chat-composer-outline: var(--vc-hairline);
   --chat-composer-highlight: transparent;
 }
 
 html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"] {
-  --chat-composer-highlight: rgb(255 255 255 / 0.1);
+  --chat-composer-outline: color-mix(in srgb, var(--vc-label) 12%, transparent);
+  --chat-composer-highlight: rgb(255 255 255 / 0.04);
 }
 
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"]::before,
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-host"],
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-chat-composer-main-surface] {
-  border-radius: 22px;
+  border-radius: 20px;
 }
 
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-host"] {
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
 }
 
-html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-host"],
+html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-host"] {
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.05),
+    0 18px 40px -18px rgb(0 0 0 / 0.9);
+}
+
 html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   [data-slot="composer-context-strip"]::before {
   box-shadow: none;
@@ -639,7 +653,7 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
   /* The selected row: a soft neutral fill, nothing more. */
   [data-testid="sidebar-row"][aria-current="page"],
   [data-testid="sidebar-row-child"][aria-current="page"] {
-    background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
+    background-color: color-mix(in srgb, var(--foreground) 6%, transparent);
   }
   [data-testid="sidebar-row"][aria-current="page"]::before,
   [data-testid="sidebar-row-child"][aria-current="page"]::before {
@@ -659,14 +673,14 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
   [data-testid="sidebar-row"][aria-current="page"] .tabular-nums {
     opacity: 1;
   }
-  /* Project headers: a small, spaced label rather than another row of equal weight. */
+  /* Project headers: a quiet label, not another row of equal weight. Bold headers made the
+     sidebar heavier than the content it leads to. */
   [data-testid="sidebar-project-row"] {
     height: 2rem;
     margin-top: 0.5rem;
     border-radius: var(--vc-row-radius);
     font-size: 0.8125rem;
-    letter-spacing: 0.01em;
-    font-weight: 600;
+    font-weight: 500;
   }
   /* Settled groups: a whisper under their project. */
   [data-testid="sidebar-settled-group"] {
@@ -778,24 +792,24 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
  */
 :root {
   --shell-glow-color: var(--app-theme-accent, var(--ring));
-  --shell-tint-surface-top: 10%;
-  --shell-tint-surface-bottom: 4%;
-  --shell-tint-border: 35%;
-  --shell-tint-selected-row: 14%;
+  --shell-tint-surface-top: 5%;
+  --shell-tint-surface-bottom: 1.5%;
+  --shell-tint-border: 25%;
+  --shell-tint-selected-row: 10%;
   --shell-tint-guide: 30%;
-  --shell-tint-rail-fill: 16%;
+  --shell-tint-rail-fill: 12%;
   --shell-tint-badge-fill: 18%;
   --shell-glow-border: 45%;
   --shell-glow-near: 28%;
   --shell-glow-far: 12%;
 }
 :root:not(.dark) {
-  --shell-tint-surface-top: 6%;
-  --shell-tint-surface-bottom: 2%;
-  --shell-tint-border: 25%;
-  --shell-tint-selected-row: 9%;
+  --shell-tint-surface-top: 3.5%;
+  --shell-tint-surface-bottom: 1%;
+  --shell-tint-border: 20%;
+  --shell-tint-selected-row: 7%;
   --shell-tint-guide: 20%;
-  --shell-tint-rail-fill: 10%;
+  --shell-tint-rail-fill: 8%;
   --shell-tint-badge-fill: 12%;
   --shell-glow-border: 35%;
   --shell-glow-near: 16%;
@@ -857,7 +871,7 @@ html [data-app-rail] {
 /* Every lit rail button, the All projects one included, is the same soft neutral tile, with a
    short solid bar on the rail's outer edge: where you are, said plainly, nothing glowing. */
 [data-app-rail] button[data-pressed] {
-  background-color: color-mix(in srgb, var(--foreground) 10%, transparent);
+  background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
 }
 [data-app-rail] button[data-rail-project][data-pressed]::before {
   content: "";
