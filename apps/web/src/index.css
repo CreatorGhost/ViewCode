@@ -544,47 +544,70 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
-/* Panel open/close: content slides and fades on the compositor while the layout changes once
-   (see PreviewPanelShell). Width is never animated, so the chat does not re-lay out per frame. */
+/* Panel open/close: the host's width tweens (PreviewPanelShell) and the content slides a short
+   way with it, both on --ease-drawer and the same duration, so the panel's edge and its content
+   settle together instead of the content racing a snapping edge. */
+[data-panel-animations="true"] [data-preview-panel-mode="inline"]:has([data-panel-motion]) {
+  transition: width var(--panel-animation-duration) var(--ease-drawer);
+}
+/* Opening mounts the host at its full width, so a transition has nothing to start from: the
+   width animates up from zero instead, on the same curve as the content's slide. */
+[data-panel-animations="true"] [data-preview-panel-mode="inline"]:has([data-panel-motion="enter"]) {
+  animation: panel-width-open var(--panel-animation-duration) var(--ease-drawer) both;
+}
+@keyframes panel-width-open {
+  from {
+    width: 0px;
+  }
+}
 [data-panel-animations="true"] [data-panel-motion="enter"] {
-  animation: panel-slide-in var(--panel-animation-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: panel-slide-in var(--panel-animation-duration) var(--ease-drawer) both;
 }
 [data-panel-animations="true"] [data-panel-motion="exit"] {
-  animation: panel-slide-out calc(var(--panel-animation-duration) * 0.8) cubic-bezier(0.4, 0, 1, 1)
-    both;
+  animation: panel-slide-out var(--panel-animation-duration) var(--ease-drawer) both;
 }
-[data-panel-animations="true"] [data-terminal-drawer="closed"] {
-  transition: grid-template-rows 0s linear calc(var(--panel-animation-duration) * 0.8);
+/* The terminal drawer's rows tween with its content, on the drawer curve, so the chat above it
+   moves with the drawer's edge instead of stepping once the slide is over. */
+[data-panel-animations="true"] [data-terminal-drawer] {
+  transition: grid-template-rows var(--panel-animation-duration) var(--ease-drawer);
+}
+/* The drawer mounts open, so its rows animate up from zero (the transition has no start). */
+[data-panel-animations="true"] [data-terminal-drawer="open"] {
+  animation: drawer-rows-open var(--panel-animation-duration) var(--ease-drawer) both;
+}
+@keyframes drawer-rows-open {
+  from {
+    grid-template-rows: 0fr;
+  }
 }
 [data-panel-animations="true"] [data-terminal-drawer="open"] > * {
-  animation: drawer-slide-in var(--panel-animation-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: drawer-slide-in var(--panel-animation-duration) var(--ease-drawer) both;
 }
 [data-panel-animations="true"] [data-terminal-drawer="closed"] > * {
-  animation: drawer-slide-out calc(var(--panel-animation-duration) * 0.8) cubic-bezier(0.4, 0, 1, 1)
-    both;
+  animation: drawer-slide-out var(--panel-animation-duration) var(--ease-drawer) both;
 }
 @keyframes drawer-slide-in {
   from {
     opacity: 0;
-    transform: translateY(1.5rem);
+    transform: translateY(0.75rem);
   }
 }
 @keyframes drawer-slide-out {
   to {
     opacity: 0;
-    transform: translateY(1.5rem);
+    transform: translateY(0.75rem);
   }
 }
 @keyframes panel-slide-in {
   from {
     opacity: 0;
-    transform: translateX(2rem);
+    transform: translateX(0.75rem);
   }
 }
 @keyframes panel-slide-out {
   to {
     opacity: 0;
-    transform: translateX(2rem);
+    transform: translateX(0.75rem);
   }
 }
 
@@ -639,6 +662,28 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 .pr-flow-open > * {
   overflow: hidden;
   min-height: 0;
+}
+/* A card that is news (PrFlowCard appear): it rises in once, its header softens in, and its rows
+   open one after another, 40ms apart, after the card has landed. */
+@media (prefers-reduced-motion: no-preference) {
+  .pr-flow-appear {
+    animation: pr-flow-appear var(--dur-row) var(--ease-out-expo) both;
+  }
+  .pr-flow-appear > :first-child {
+    animation: blur-swap var(--dur-swap) var(--ease-out-soft) 120ms backwards;
+  }
+  .pr-flow-appear .pr-flow-open {
+    animation-delay: calc(120ms + var(--pr-row, 0) * 40ms);
+  }
+  .pr-flow-appear .pr-flow-open > * > * {
+    animation-delay: calc(280ms + var(--pr-row, 0) * 40ms);
+  }
+}
+@keyframes pr-flow-appear {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 @keyframes pr-flow-open {
   from {

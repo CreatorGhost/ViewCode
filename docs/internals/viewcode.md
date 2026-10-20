@@ -622,6 +622,10 @@ pull request linked by hand later sits where it was linked. Folded cards render 
 snapshot only and never mount the full card, so the graph and checks reads stay with the one
 current card per thread.
 
+A card the conversation just received (its link younger than `PR_APPEAR_WINDOW_MS`) mounts
+with `appear`: it rises in and every row arrives staggered. Without it the card, which replaces
+the creating card at the end of the chat, mounted as a hard cut and its rows counted as initial.
+
 "Resolving" survives reloads and other devices without stored state. The thread's latest user
 message being the Resolve prompt, while its run is active, means the agent is resolving.
 `prFlowResolvePrompt` and `prFlowResolvePromptNumber` must keep matching each other.
@@ -631,6 +635,10 @@ message being the Resolve prompt, while its run is active, means the agent is re
 ViewCode goals/debug guidance are provider-neutral thread metadata, available
 through clients and MCP. Hide upstream's native `/goal` UI to avoid competing
 goal state. Debug guidance must not alter the provider's own permission policy.
+Run goal is a client action, not a server command: it sends the visible
+`threadGoalRunMessage` (client-runtime `threadGoal.ts`) through the normal send
+path, so history shows what started the turn and a draft is created by its first
+send as usual. There is no loop or queue behind it.
 
 ## Desktop local mode and phone access
 
@@ -840,6 +848,18 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   colour stays on its folder badge and the composer glow.
 - Provider usage rings, Settings, Pull Requests and Connect phone stay at the
   bottom of the rail (user decision); the sidebar has no footer of its own.
+- Panel motion tweens layout. Upstream slides only the panel's content and
+  steps the layout once (the sidebar gap, the right panel's width, the terminal
+  drawer's rows), so the page is still for 200ms and then jumps its full width in
+  one frame; a frame capture showed exactly that, and the user called it fake.
+  The sidebar gap (`viewcode-theme.css`), the right panel host and the drawer
+  (`index.css`) now tween on `--ease-drawer` with their content, which re-lays
+  the sheet out per frame; the chat column keeps its width inside the sheet, so
+  that reflow only re-centres it. Opening holds the panel at zero for two frames
+  after mount (`PreviewPanelShell`, `PersistentThreadTerminals`) because the
+  content's mount stalls the main thread for 100ms+ and otherwise ate the
+  animation's first frames. Keep the three on one curve when touching any of
+  them.
 
 ## Account usage
 

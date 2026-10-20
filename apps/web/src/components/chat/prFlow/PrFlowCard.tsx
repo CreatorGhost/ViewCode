@@ -55,6 +55,7 @@ export function PrFlowCard({
   flow,
   compact = false,
   live = true,
+  appear = false,
   onCollapse,
   onResolveConflicts,
   onMerge,
@@ -63,6 +64,11 @@ export function PrFlowCard({
   flow: PrFlow;
   compact?: boolean;
   live?: boolean;
+  /**
+   * The card is news: it opens in and its rows arrive one after another, as rows that come later
+   * do. For a pull request the conversation just got, which otherwise mounted as a hard cut.
+   */
+  appear?: boolean;
   /** Folds the card to its one line (PrFlowCollapsedRow). */
   onCollapse?: (() => void) | undefined;
 } & PrFlowCardActions) {
@@ -74,9 +80,16 @@ export function PrFlowCard({
     prFlowReached(flow.phase, "testing");
   return (
     <PrFlowLiveContext value={live}>
-      <div className="flex flex-col gap-1.5 rounded-xl border bg-card p-3 text-sm">
+      <div
+        className={cn(
+          "flex flex-col gap-1.5 rounded-xl border bg-card p-3 text-sm",
+          appear && "pr-flow-appear",
+        )}
+      >
         <PrFlowHeader flow={flow} onCollapse={onCollapse} />
-        {compact || flow.rows.length === 0 ? null : <PrFlowRows flow={flow} status={status} />}
+        {compact || flow.rows.length === 0 ? null : (
+          <PrFlowRows flow={flow} status={status} appear={appear} />
+        )}
         {showChecks && flow.checks ? (
           <PrFlowCheckChips checks={flow.checks.list} onOpen={onOpen} />
         ) : null}
@@ -172,9 +185,18 @@ const REF_TONE = {
   side: "bg-success/10 text-success-foreground",
 } as const;
 
-function PrFlowRows({ flow, status }: { flow: PrFlow; status: PrFlowStatus }) {
-  // Rows here when the card first drew stay still; rows that arrive later open in.
-  const [initialKeys] = useState(() => new Set(flow.rows.map((row) => row.key)));
+function PrFlowRows({
+  flow,
+  status,
+  appear,
+}: {
+  flow: PrFlow;
+  status: PrFlowStatus;
+  appear: boolean;
+}) {
+  // Rows here when the card first drew stay still; rows that arrive later open in. A card that
+  // is itself news treats every row as arriving.
+  const [initialKeys] = useState(() => new Set(appear ? [] : flow.rows.map((row) => row.key)));
   const nowMs = Date.parse(useNowMinute());
   const merged = flow.phase === "merged";
   const conflictPhase = flow.phase === "conflicts" || flow.phase === "resolving";
