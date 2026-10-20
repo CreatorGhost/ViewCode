@@ -43,6 +43,7 @@ import {
 import { RailUsageRingButton } from "./RailUsageRing";
 import { useOpenRockBot } from "../rockbot/useOpenRockBot";
 import { rockBotEnvironment } from "../../state/rockbot";
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
 
 function RailButton(props: {
   label: string;
@@ -161,12 +162,16 @@ const RailProjectSwitcher = memo(function RailProjectSwitcher() {
   const threads = useThreadShells();
   const scopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const switchProject = useSwitchProjectScope();
+  const onRockBot = useRouteIsRockBot();
   const activityByProject = (() => buildRailProjectActivity(projectGroups, threads))();
   if (projectGroups.length === 0) return null;
-  // A scope whose project is gone reads as All until the sidebar clears it.
-  const selectedKey = projectGroups.some((group) => group.projectKey === scopeKey)
-    ? scopeKey
-    : null;
+  // A scope whose project is gone reads as All until the sidebar clears it. RockBot sits
+  // outside every folder, so while it is open no folder (nor All) is lit.
+  const selectedKey = onRockBot
+    ? undefined
+    : projectGroups.some((group) => group.projectKey === scopeKey)
+      ? scopeKey
+      : null;
   return (
     <>
       <RailButton
@@ -211,13 +216,10 @@ const RailPullRequestsButton = memo(function RailPullRequestsButton(props: { act
 /** RockBot, the chat over every project. Its badge is the rail's "needs you" count in total. */
 const RailRockBotButton = memo(function RailRockBotButton(props: { environmentId: EnvironmentId }) {
   const threads = useThreadShells();
+  const active = useRouteIsRockBot();
   const canOpen = useAtomValue(rockBotEnvironment.open.permissionAtom(props.environmentId));
   const openRockBot = useOpenRockBot(props.environmentId);
-  const routeThreadId = useParams({ strict: false, select: (params) => params.threadId ?? null });
   if (!canOpen) return null;
-  const active = threads.some(
-    (thread) => thread.id === routeThreadId && thread.source.kind === "orchestrator",
-  );
   const needsYou = threads.filter(
     (thread) =>
       thread.environmentId === props.environmentId &&
@@ -231,7 +233,7 @@ const RailRockBotButton = memo(function RailRockBotButton(props: { environmentId
         needsYou > 0 ? `RockBot, ${needsYou} ${needsYou === 1 ? "needs" : "need"} you` : "RockBot"
       }
       tooltip="RockBot"
-      active={active}
+      pressed={active}
       onClick={() => void openRockBot()}
     >
       <BotIcon />
@@ -267,6 +269,22 @@ const RailUsageRings = memo(function RailUsageRings(props: { environmentId: Envi
     />
   ));
 });
+
+/** Whether the open thread is a RockBot chat. */
+function useRouteIsRockBot(): boolean {
+  const routeThreadId = useParams({ strict: false, select: (params) => params.threadId ?? null });
+  const routeEnvironmentId = useParams({
+    strict: false,
+    select: (params) => params.environmentId ?? null,
+  });
+  const threads = useThreadShells();
+  return threads.some(
+    (thread) =>
+      thread.id === routeThreadId &&
+      thread.environmentId === routeEnvironmentId &&
+      isRockBot(thread.source),
+  );
+}
 
 /** The open thread's environment, so a remote thread shows that server's limits. */
 function useRailEnvironmentId(): EnvironmentId | null {

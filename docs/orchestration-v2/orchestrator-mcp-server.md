@@ -431,7 +431,7 @@ Stable command and message IDs are derived from `clientRequestId` for
 idempotent retries.
 
 When the caller is RockBot, the send waits for its user to press Send on an approval
-in the RockBot thread and fails with `user_declined` otherwise; every other writing
+in that RockBot chat and fails with `user_declined` otherwise; every other writing
 tool is refused to RockBot.
 
 A loop guard refuses the send with `send_loop_guard` once the calling thread has

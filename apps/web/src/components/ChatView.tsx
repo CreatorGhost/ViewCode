@@ -411,6 +411,8 @@ import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
 import { isTimelineScrollTarget } from "./chat/timelineScrollTarget";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
+import { RockBotHeroHeadline } from "./rockbot/RockBotHeroHeadline";
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
 import {
   BranchRestoreConfirmHost,
@@ -2954,11 +2956,7 @@ export default function ChatView(props: ChatViewProps) {
     transitionGroupRef: draftHeroTransitionGroupRef,
     composerAnchorRef: draftHeroComposerAnchorRef,
     captureComposerRect: captureDraftHeroComposerRect,
-  } = useDraftHeroLayoutTransition(
-    isDraftHeroState,
-    panelAnimationsActive,
-    panelAnimationMs,
-  );
+  } = useDraftHeroLayoutTransition(isDraftHeroState, panelAnimationsActive, panelAnimationMs);
   const turnDiffSummaries = useThreadCheckpointSummaries(routeThreadDetailRef);
 
   /**
@@ -8375,11 +8373,15 @@ export default function ChatView(props: ChatViewProps) {
                             : undefined
                         }
                       >
-                        <DraftHeroHeadline
-                          draftId={draftId}
-                          activeProjectRef={activeProjectRef}
-                          activeProjectTitle={activeProject?.title ?? null}
-                        />
+                        {serverThread !== null && isRockBot(serverThread.source) ? (
+                          <RockBotHeroHeadline />
+                        ) : (
+                          <DraftHeroHeadline
+                            draftId={draftId}
+                            activeProjectRef={activeProjectRef}
+                            activeProjectTitle={activeProject?.title ?? null}
+                          />
+                        )}
                       </div>
                     </div>
                   ) : null}

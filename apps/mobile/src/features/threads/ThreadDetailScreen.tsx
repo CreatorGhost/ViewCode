@@ -1,4 +1,8 @@
-import type { OrchestrationThreadShell, EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+import type {
+  OrchestrationThreadShell,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/viewcodeThread";
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
 
 import { useAtomValue } from "@effect/atom-react";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
@@ -17,7 +21,19 @@ import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSki
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { HeaderHeightContext } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
-import type { ApprovalRequestId, EnvironmentId, MessageId, ModelSelection, ProviderApprovalDecision, ProviderInteractionMode, RuntimeMode, ServerConfig as T3ServerConfig, ThreadId, UsageLimitsReport, UserInputQuestion } from "@t3tools/contracts";
+import type {
+  ApprovalRequestId,
+  EnvironmentId,
+  MessageId,
+  ModelSelection,
+  ProviderApprovalDecision,
+  ProviderInteractionMode,
+  RuntimeMode,
+  ServerConfig as T3ServerConfig,
+  ThreadId,
+  UsageLimitsReport,
+  UserInputQuestion,
+} from "@t3tools/contracts";
 import * as Haptics from "expo-haptics";
 import {
   memo,
@@ -1160,7 +1176,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     hidden={composerSlotHidden}
                     draftMessage={props.draftMessage}
                     draftAttachments={props.draftAttachments}
-                    placeholder="Ask or run a command…"
+                    placeholder={
+                      isRockBot(props.selectedThread) ? "Ask RockBot…" : "Ask or run a command…"
+                    }
                     contentMaxWidth={contentMaxWidth}
                     connectionState={props.connectionStateLabel}
                     environmentLabel={props.environmentLabel}

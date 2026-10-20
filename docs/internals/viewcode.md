@@ -244,12 +244,16 @@ Unarchive stays available through the normal native path.
 
 ## RockBot
 
-RockBot is an ordinary thread with `kind: "orchestrator"`, one per environment
-(`RockBotService.open`, fixed id `rockbot`, so racing clients converge). It lives in
-the Scratch project so its agent never runs inside a repository, borrowing the latest
-project only where Scratch is unavailable, and it starts on the latest thread's model.
-Clients hide it from thread lists; the rail button, palette action and mobile header
-open it through `rockbot.open`. Settlement candidates exclude it.
+Each RockBot chat is an ordinary thread with `kind: "orchestrator"`; an environment
+keeps as many as the user starts. `RockBotService.open` returns the latest live chat,
+or with `newChat` one the user has not written in yet before creating another, so
+repeated clicks leave no empty trail. The first chat takes the fixed id `rockbot`, so
+racing clients converge. Chats live in the Scratch project so the agent never runs
+inside a repository, borrowing the latest project only where Scratch is unavailable,
+and start on the latest thread's model. Project lists hide them: the web sidebar
+swaps its project tree for the chat list while one is open, the rail lights RockBot
+instead of a folder, and a folder pick leaves RockBot. Settlement candidates exclude
+them.
 
 Its safety is the server's, not its prompt's. `McpToolAccess` refuses every writing
 tool to an orchestrator caller except the `sendsForUser` ones (`t3_thread_send`,

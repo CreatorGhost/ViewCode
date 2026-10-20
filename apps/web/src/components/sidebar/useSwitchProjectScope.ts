@@ -10,12 +10,14 @@ import { useThreadTabsStore } from "../../threadTabsStore";
 import { resolveThreadRouteTarget } from "../../threadRoutes";
 import { useUiStateStore } from "../../uiStateStore";
 import { pickProjectSwitchThread, projectRefKey } from "./projectSwitch.logic";
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
 
 /**
  * Switches the sidebar to one project folder (or All, with null) and shows that folder's work:
  * the thread already open stays when it belongs there, else the folder's latest thread opens,
  * else a new thread in it. Picking the scoped folder again never returns to All. On the Pull
- * Requests page the list follows the folder instead, and the page stays open.
+ * Requests page the list follows the folder instead, and the page stays open. From a RockBot
+ * chat, which sits outside every folder, any pick (All included) leaves for the user's work.
  */
 export function useSwitchProjectScope() {
   const navigate = useNavigate();
@@ -29,8 +31,6 @@ export function useSwitchProjectScope() {
       void openPullRequests();
       return;
     }
-    if (!project) return;
-    const memberProjectKeys = new Set(project.memberProjectRefs.map(projectRefKey));
     const route = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
     const current =
       route?.kind === "server"
@@ -38,7 +38,18 @@ export function useSwitchProjectScope() {
         : route?.kind === "draft"
           ? useComposerDraftStore.getState().getDraftSession(route.draftId)
           : null;
-    if (current && memberProjectKeys.has(projectRefKey(current))) return;
+    const onRockBot = current !== null && "source" in current && isRockBot(current.source);
+    if (!project && !onRockBot) return;
+    const memberProjectKeys = project
+      ? new Set(project.memberProjectRefs.map(projectRefKey))
+      : null;
+    if (
+      current &&
+      !onRockBot &&
+      memberProjectKeys !== null &&
+      memberProjectKeys.has(projectRefKey(current))
+    )
+      return;
     const { recentThreadKeys, tabsByEnvironmentId } = useThreadTabsStore.getState();
     const target = pickProjectSwitchThread({
       memberProjectKeys,
@@ -53,6 +64,7 @@ export function useSwitchProjectScope() {
       });
       return;
     }
+    if (!project) return;
     // Like New thread in a folder: the member on this machine when the folder spans several.
     const projectRef =
       project.memberProjectRefs.find((ref) => ref.environmentId === primaryEnvironmentId) ??

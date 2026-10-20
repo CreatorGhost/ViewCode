@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { OrchestrationV2ThreadShell } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-import { latestModelSource, refusedRockBotKindChange } from "./RockBotService.ts";
+import { latestModelSource, pickRockBotChat, refusedRockBotKindChange } from "./RockBotService.ts";
 
 const shell = (id: string, updatedAt: string, extra: Partial<OrchestrationV2ThreadShell> = {}) =>
   ({
@@ -10,6 +10,8 @@ const shell = (id: string, updatedAt: string, extra: Partial<OrchestrationV2Thre
     updatedAt: DateTime.makeUnsafe(updatedAt),
     deletedAt: null,
     kind: null,
+    latestUserMessageAt: null,
+    latestRunId: null,
     ...extra,
   }) as unknown as OrchestrationV2ThreadShell;
 
@@ -26,6 +28,23 @@ describe("latestModelSource", () => {
 
   it("has nothing to borrow before the first thread", () => {
     expect(latestModelSource([])).toBeNull();
+  });
+});
+
+describe("pickRockBotChat", () => {
+  const started = { latestUserMessageAt: DateTime.makeUnsafe("2026-10-20T11:00:00Z") };
+  const newest = shell("rockbot:b", "2026-10-20T12:00:00Z", { kind: "orchestrator", ...started });
+  const blank = shell("rockbot:a", "2026-10-20T10:00:00Z", { kind: "orchestrator" });
+  const work = shell("work", "2026-10-20T13:00:00Z");
+
+  it("reopens the latest chat and never an ordinary thread", () => {
+    expect(pickRockBotChat([work, newest, blank], false)).toBe("rockbot:b");
+    expect(pickRockBotChat([work], false)).toBeNull();
+  });
+
+  it("starts a new chat in one the user has not written in yet, else asks for a fresh one", () => {
+    expect(pickRockBotChat([work, newest, blank], true)).toBe("rockbot:a");
+    expect(pickRockBotChat([work, newest], true)).toBeNull();
   });
 });
 

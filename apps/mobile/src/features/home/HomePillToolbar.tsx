@@ -13,6 +13,7 @@ import { useMaterialToolbarLayout } from "../../components/useMaterialToolbarLay
 import { useWorkspaceState } from "../../state/workspace";
 import { HomePillIconButton, HomePillSurface } from "./HomePillButton";
 import { workspaceFleetSubtitle } from "./workspace-connection-status";
+import type { RockBotMenu } from "../rockbot/useRockBotMenu";
 
 type MenuActionHandler = NonNullable<ComponentProps<typeof ControlPillMenu>["onPressAction"]>;
 
@@ -190,12 +191,38 @@ export function HomeScopePills(props: HomeScopePillsProps) {
   );
 }
 
+/** Before the first chat, RockBot's pill starts one; after, it lists them under New chat. */
+function RockBotPill(props: { readonly rockBot: RockBotMenu }) {
+  const { rockBot } = props;
+  const icon = { ios: "sparkles", android: "auto_awesome" } as const;
+  if (rockBot.chats.length === 0) {
+    return (
+      <HomePillIconButton accessibilityLabel="RockBot" icon={icon} onPress={rockBot.openLatest} />
+    );
+  }
+  return (
+    <ControlPillMenu
+      accessibilityLabel="RockBot"
+      actions={[
+        { id: "new", title: "New chat" },
+        ...rockBot.chats.map((chat) => ({ id: `chat:${chat.id}`, title: chat.title })),
+      ]}
+      onPressAction={({ nativeEvent }) => {
+        if (nativeEvent.event === "new") rockBot.startNewChat();
+        else rockBot.openChat(nativeEvent.event.slice("chat:".length));
+      }}
+    >
+      <HomePillIconButton accessibilityLabel="RockBot" icon={icon} />
+    </ControlPillMenu>
+  );
+}
+
 /** Android uses the same title and scope pills beneath its safe area. */
 export function HomePillToolbar(
   props: HomeScopePillsProps & {
     readonly onOpenSettings: () => void;
     readonly onOpenUsage: () => void;
-    readonly onOpenRockBot?: (() => void) | undefined;
+    readonly rockBot?: RockBotMenu | undefined;
   },
 ) {
   const { paddingTop } = useMaterialToolbarLayout();
@@ -214,13 +241,7 @@ export function HomePillToolbar(
         <View className="min-w-0 flex-1 items-center">
           <HomeFleetTitle onOpenEnvironments={props.onOpenEnvironments} />
         </View>
-        {props.onOpenRockBot === undefined ? null : (
-          <HomePillIconButton
-            accessibilityLabel="Open RockBot"
-            icon={{ ios: "sparkles", android: "auto_awesome" }}
-            onPress={props.onOpenRockBot}
-          />
-        )}
+        {props.rockBot === undefined ? null : <RockBotPill rockBot={props.rockBot} />}
         <HomePillIconButton
           accessibilityLabel="Open usage"
           icon="chart.bar.xaxis"
