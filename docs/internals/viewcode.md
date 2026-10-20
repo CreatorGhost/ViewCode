@@ -233,8 +233,11 @@ source's current history during later handoffs.
 
 Side chats use native fork history with `kind: sidechat`. While a parent has no
 stable provider run, a bounded transcript bootstrap supplies context without
-changing ordinary fork stability rules. They remain outside delegated-child
-usage-resume walks. Idle side chats archive after 24 hours; the 10-minute sweep
+changing ordinary fork stability rules. A native side chat's projection lists
+the parent's history as inherited rows, so the dock and mobile sheet render only
+`sidechatMessages` (client-runtime `state/sidechat.ts`); the provider context
+and the full-thread view keep the inherited history. They remain outside
+delegated-child usage-resume walks. Idle side chats archive after 24 hours; the 10-minute sweep
 rechecks timestamps, active runs and pending requests under the native command
 lock before archiving. A stale sweep must not archive a newly active chat.
 Unarchive stays available through the normal native path.
