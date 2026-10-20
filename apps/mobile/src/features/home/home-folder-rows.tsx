@@ -43,11 +43,13 @@ export function HomeFolderCardSlice(props: {
 }) {
   const edge = props.edge;
   if (!edge) return <>{props.children}</>;
-  // A borderless tonal card per folder, so it is clear which folder a row belongs to.
+  // A borderless tonal card per folder, so it is clear which folder a row belongs to. The
+  // grouped-card fill, not the plain card one: themes such as Obsidian paint cards in the
+  // screen colour, which left the folder card invisible.
   return (
     <View
       className={cn(
-        "mx-3 overflow-hidden bg-card",
+        "mx-3 overflow-hidden bg-grouped-card",
         edge.first && "mt-3 rounded-t-3xl pt-1",
         edge.last && "mb-1 rounded-b-3xl pb-2",
       )}
