@@ -8,7 +8,11 @@ import { threadShellHasStarted } from "./ChatView.logic";
 import { useThreadGoalControls } from "./chat/useThreadGoalControls";
 import { ThreadGoalDialog } from "./chat/ThreadGoalDialog";
 import { clearThreadGoalRunRequest, useThreadGoalEditorStore } from "./chat/threadGoal";
-import { threadGoalRunMessage, threadGoalRunState } from "@t3tools/client-runtime/threadGoal";
+import {
+  threadGoalRunMessage,
+  threadGoalRunState,
+  threadGoalRunTitle,
+} from "@t3tools/client-runtime/threadGoal";
 import { WorkspacePageHeader } from "./WorkspacePageHeader";
 import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
@@ -6405,6 +6409,11 @@ export default function ChatView(props: ChatViewProps) {
         : draftId
           ? useComposerDraftStore.getState().getDraftSession(draftId)
           : null;
+    // "Start working on the goal." says nothing about the work, so a thread it creates is named
+    // after the goal; without a titleSeed the server keeps that title instead of generating one.
+    const goalRunTitle = isLocalDraftThread
+      ? threadGoalRunTitle({ message: trimmed, goal: draftThreadForSend?.goal })
+      : null;
     const isFirstMessage = !sendQueuesBehindSetup && (!isServerThread || activeMessageCount === 0);
     const baseBranchForWorktree =
       isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath
@@ -6682,9 +6691,10 @@ export default function ChatView(props: ChatViewProps) {
           ),
         );
         const title = truncate(
-          assistantCitationsToPlainText(stripInlineContextReferences(trimmed)).trim() ||
-            composerAttachmentsSnapshot[0]?.name ||
-            "New thread",
+          goalRunTitle ??
+            (assistantCitationsToPlainText(stripInlineContextReferences(trimmed)).trim() ||
+              composerAttachmentsSnapshot[0]?.name ||
+              "New thread"),
         );
         promptRef.current = "";
         clearComposerDraftContent(composerDraftTarget);
@@ -6733,7 +6743,7 @@ export default function ChatView(props: ChatViewProps) {
                       ...(context && supportsInlineMessageContext ? { context } : {}),
                     },
                     modelSelection: target.selection,
-                    titleSeed: title,
+                    ...(goalRunTitle === null ? { titleSeed: title } : {}),
                     runtimeMode,
                     interactionMode: target.interactionMode,
                     bootstrap: {
@@ -6959,7 +6969,7 @@ export default function ChatView(props: ChatViewProps) {
         titleSeed = "New thread";
       }
     }
-    const title = truncate(titleSeed);
+    const title = truncate(goalRunTitle ?? titleSeed);
     const threadCreateModelSelection = createModelSelection(
       ctxSelectedModelSelection.instanceId,
       ctxSelectedModel || activeProjectDefaultModelSelection?.model || DEFAULT_MODEL,
@@ -7087,7 +7097,7 @@ export default function ChatView(props: ChatViewProps) {
             })(),
           },
           modelSelection: ctxSelectedModelSelection,
-          titleSeed: title,
+          ...(goalRunTitle === null ? { titleSeed: title } : {}),
           runtimeMode,
           interactionMode: sendInteractionMode,
           dispatchMode: turnDispatchMode,

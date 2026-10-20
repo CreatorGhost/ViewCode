@@ -7,6 +7,7 @@ import {
   THREAD_GOAL_START_MESSAGE,
   threadGoalRunMessage,
   threadGoalRunState,
+  threadGoalRunTitle,
   threadGoalUpdate,
 } from "./threadGoal.ts";
 
@@ -98,5 +99,20 @@ describe("threadGoalRunState", () => {
   it("keeps a paused goal paused whatever the thread is doing", () => {
     expect(threadGoalRunState({ goal: paused, working: false, canSend: true })).toBe("paused");
     expect(threadGoalRunState({ goal: paused, working: true, canSend: false })).toBe("paused");
+  });
+});
+
+describe("threadGoalRunTitle", () => {
+  it("names a thread started by a goal run after the goal, and leaves other messages alone", () => {
+    const goal = "  All tests in packages/api pass ";
+    expect(threadGoalRunTitle({ message: THREAD_GOAL_START_MESSAGE, goal })).toBe(
+      "All tests in packages/api pass",
+    );
+    expect(threadGoalRunTitle({ message: ` ${THREAD_GOAL_CONTINUE_MESSAGE}\n`, goal })).toBe(
+      "All tests in packages/api pass",
+    );
+    expect(threadGoalRunTitle({ message: "Fix the flaky login test", goal })).toBeNull();
+    expect(threadGoalRunTitle({ message: THREAD_GOAL_START_MESSAGE, goal: undefined })).toBeNull();
+    expect(threadGoalRunTitle({ message: THREAD_GOAL_START_MESSAGE, goal: "  " })).toBeNull();
   });
 });

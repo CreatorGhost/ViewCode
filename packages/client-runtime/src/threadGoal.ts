@@ -105,6 +105,21 @@ export function threadGoalRunMessage(input: {
     : THREAD_GOAL_START_MESSAGE;
 }
 
+/**
+ * What names a thread whose first message is a goal run: the goal itself, since the run message
+ * says nothing about the work. Null for any other first message, which is titled as usual.
+ */
+export function threadGoalRunTitle(input: {
+  readonly message: string;
+  readonly goal: string | null | undefined;
+}): string | null {
+  const goal = input.goal?.trim();
+  const message = input.message.trim();
+  return goal && (message === THREAD_GOAL_START_MESSAGE || message === THREAD_GOAL_CONTINUE_MESSAGE)
+    ? goal
+    : null;
+}
+
 /** Whether Run goal can start a turn now. There is no queue: Run is offered on an idle thread. */
 export type ThreadGoalRunState = "no-goal" | "paused" | "working" | "blocked" | "ready";
 
