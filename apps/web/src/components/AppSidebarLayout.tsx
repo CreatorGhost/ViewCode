@@ -8,7 +8,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import {
   useCanGoBack,
   useLocation,
@@ -154,7 +154,7 @@ function SidebarControl() {
     // the panel), so the trigger mirrors it: both clusters sit one extra pixel
     // off their edge and the titlebar reads symmetric.
     <div
-      className="pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center gap-1"
+      className="pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center gap-0.5"
       data-sidebar-control=""
     >
       <Tooltip>
@@ -216,14 +216,14 @@ function HistoryArrows() {
     {
       command: "navigation.back",
       label: "Go back",
-      Icon: ArrowLeftIcon,
+      Icon: ChevronLeftIcon,
       enabled: canGoBack || onUtilityPage,
       go: () => (canGoBack ? router.history.back() : void navigateToMainApp()),
     },
     {
       command: "navigation.forward",
       label: "Go forward",
-      Icon: ArrowRightIcon,
+      Icon: ChevronRightIcon,
       enabled: canGoForward,
       go: () => router.history.forward(),
     },

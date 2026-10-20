@@ -555,6 +555,12 @@ html[data-window-glass="true"] body {
   [data-app-rail-layout] {
     --app-rail-width: 3rem;
   }
+  /* The sidebar toggle and the history arrows are one cluster. It starts past the rail, so
+     no button sits on the rail's strip while the rest sit on the sidebar; macOS starts it
+     past the traffic lights instead (below). */
+  html:not([data-macos-window-controls="visible"]) [data-app-rail-layout] {
+    --workspace-controls-left: calc(var(--app-rail-width) + 0.5rem);
+  }
   /* The macOS window buttons (12pt in, 52pt wide) need more than the 48px rail: there the rail is
      76px so they sit above it, centred over its icons, and nothing starts under them. */
   html[data-macos-window-controls="visible"] [data-app-rail-layout] {
