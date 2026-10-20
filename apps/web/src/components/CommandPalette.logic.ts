@@ -308,15 +308,17 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
-    // Side chats live in their dock and RockBot has its own "Open RockBot" action.
-    input.threads.filter((thread) => thread.archivedAt === null && thread.kind == null),
+    // Side chats live in their parent's dock.
+    input.threads.filter((thread) => thread.archivedAt === null && thread.kind !== "sidechat"),
     input.sortOrder,
   );
   const visibleThreads =
     input.limit === undefined ? sortedThreads : sortedThreads.slice(0, input.limit);
 
   return visibleThreads.map((thread) => {
-    const projectTitle = input.projectTitleById.get(thread.projectId);
+    // A RockBot chat sits in no project the user chose, so it is labeled by what it is.
+    const projectTitle =
+      thread.kind === "orchestrator" ? "RockBot" : input.projectTitleById.get(thread.projectId);
     const descriptionParts: string[] = [];
 
     if (projectTitle) {

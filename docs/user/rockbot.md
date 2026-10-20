@@ -1,17 +1,29 @@
 # RockBot
 
-RockBot is one chat that knows about every project, thread and agent on a computer you
+RockBot is a chat that knows about every project, thread and agent on a computer you
 use with ViewCode. Ask it what needs you, how your agents are doing, or where you did
 something, and it answers with links that open those threads.
 
 ## Open it
 
 - Web and desktop: the robot button at the bottom of the left rail, or **Open RockBot**
-  in the command palette. The button shows how many threads wait on you.
+  in the command palette. The button shows how many threads wait on you, and opens your
+  latest RockBot chat.
 - Mobile: the sparkle button in the Home header.
 
 The first time, RockBot starts on the model of the thread you used last. Change its model
 in its composer like any thread. Each computer you connect has its own RockBot.
+
+## Past chats
+
+While a RockBot chat is open, the sidebar lists your RockBot chats in place of your
+projects, newest first. Start another with the pencil next to **RockBot**, or **New
+RockBot chat** in the command palette. Rename or archive them like any thread; archived
+chats are under **Settings → Archived**. Click a project on the rail to go back to your
+work.
+
+On mobile, the sparkle button opens a menu with **New chat** and your recent RockBot
+chats. The command palette also finds RockBot chats by title.
 
 ## What to ask
 
@@ -30,4 +42,5 @@ enforces this, not RockBot.
 RockBot never approves anything. For an approval, it links the thread so you can open it
 and decide there. It also cannot archive, rename or otherwise change threads.
 
-RockBot is not listed with your threads and is never settled automatically.
+RockBot chats are not listed with your projects' threads and are never settled
+automatically.

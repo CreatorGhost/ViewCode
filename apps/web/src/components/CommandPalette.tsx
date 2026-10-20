@@ -1670,7 +1670,15 @@ function OpenCommandPaletteDialog(props: {
       description: "Ask about any project, thread or agent",
       searchTerms: ["rockbot", "orchestrator", "needs me", "agents", "status", "find thread"],
       icon: <BotIcon className={ITEM_ICON_CLASS} />,
-      run: openRockBot,
+      run: () => openRockBot(),
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:new-rockbot-chat",
+      title: "New RockBot chat",
+      searchTerms: ["rockbot", "new chat", "orchestrator"],
+      icon: <BotIcon className={ITEM_ICON_CLASS} />,
+      run: () => openRockBot({ newChat: true }),
     });
   }
   if (

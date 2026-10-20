@@ -59,6 +59,17 @@ describe("pickProjectSwitchThread", () => {
     expect(picked?.id).toBe("busy");
   });
 
+  it("leaving RockBot for All projects picks the user's latest work anywhere", () => {
+    expect(
+      pickProjectSwitchThread({
+        memberProjectKeys: null,
+        threads,
+        recentThreadKeys: [],
+        openTabKeys: [],
+      })?.id,
+    ).toBe("other");
+  });
+
   it("returns null for a folder with no threads", () => {
     expect(
       pickProjectSwitchThread({

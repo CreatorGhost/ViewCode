@@ -5,12 +5,31 @@ import { createAtomCommandScheduler, createEnvironmentRpcCommand } from "./runti
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 
 /**
- * RockBot: the one chat over every project in an environment. It is an
- * ordinary thread with `kind: "orchestrator"`, opened from its own entry
- * rather than listed with the user's threads.
+ * RockBot: chats over every project in an environment. Each is an ordinary thread
+ * with `kind: "orchestrator"`, listed under RockBot rather than with the user's
+ * threads.
  */
 export function isRockBot(thread: Pick<OrchestrationV2ThreadShell, "kind">): boolean {
   return thread.kind === "orchestrator";
+}
+
+/** One environment's live RockBot chats, newest first: RockBot's history. */
+export function rockBotChatsIn<
+  T extends {
+    readonly environmentId: string;
+    readonly kind?: string | null | undefined;
+    readonly archivedAt: string | null;
+    readonly updatedAt: string;
+  },
+>(threads: ReadonlyArray<T>, environmentId: string): T[] {
+  return threads
+    .filter(
+      (thread) =>
+        thread.kind === "orchestrator" &&
+        thread.environmentId === environmentId &&
+        thread.archivedAt === null,
+    )
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
 export function createRockBotEnvironmentAtoms<R, E>(
@@ -18,7 +37,7 @@ export function createRockBotEnvironmentAtoms<R, E>(
 ) {
   const scheduler = createAtomCommandScheduler();
   return {
-    /** Resolves to the environment's RockBot thread, creating it on first use. */
+    /** Resolves to the latest RockBot chat (creating one on first use), or a new chat. */
     open: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:rockbot:open",
       tag: WS_METHODS.rockbotOpen,

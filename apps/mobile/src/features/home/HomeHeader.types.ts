@@ -4,6 +4,7 @@ import type {
   HomeListFilterMenuProject,
 } from "./home-list-filter-menu";
 import type { HomeTerminalTarget } from "./homeTerminalTargets";
+import type { RockBotMenu } from "./useRockBotMenu";
 
 export type HomeHeaderEnvironment = HomeListFilterMenuEnvironment;
 
@@ -20,8 +21,8 @@ export interface HomeHeaderProps {
   readonly onOpenSettings: () => void;
   /** Subscription limits and usage-limit resumes. */
   readonly onOpenUsage: () => void;
-  /** RockBot, the chat over every project; absent where the user cannot open it. */
-  readonly onOpenRockBot?: () => void;
+  /** RockBot, chats over every project; absent where the user cannot open it. */
+  readonly rockBot?: RockBotMenu;
   readonly onStartNewTask: () => void;
   /** ViewCode: Home's scope row opens the pull request list on both platforms. */
   readonly onOpenPullRequests?: () => void;

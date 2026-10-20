@@ -12,8 +12,43 @@ import { HomeFleetTitle } from "./HomePillToolbar";
 import { buildHomeListFilterMenu } from "./home-list-filter-menu";
 import { HOME_TERMINAL_MENU_LIMIT, homeTerminalButtonAccessibility } from "./homeTerminalTargets";
 import type { HomeHeaderProps } from "./HomeHeader.types";
+import type { RockBotMenu } from "./useRockBotMenu";
 
 export type { HomeHeaderEnvironment } from "./HomeHeader.types";
+
+/** Before the first chat, RockBot's button starts one; after, it lists them under New chat. */
+function rockBotItem(rockBot: RockBotMenu) {
+  const common = {
+    accessibilityLabel: "RockBot",
+    icon: { name: "sparkles", type: "sfSymbol" } as const,
+    identifier: "home-rockbot",
+    label: "",
+  };
+  return withNativeGlassHeaderItem(
+    rockBot.chats.length === 0
+      ? { ...common, onPress: rockBot.openLatest, type: "button" as const }
+      : {
+          ...common,
+          menu: {
+            title: "RockBot",
+            items: [
+              {
+                type: "action" as const,
+                label: "New chat",
+                icon: { name: "square.and.pencil", type: "sfSymbol" } as const,
+                onPress: rockBot.startNewChat,
+              },
+              ...rockBot.chats.map((chat) => ({
+                type: "action" as const,
+                label: chat.title,
+                onPress: () => rockBot.openChat(chat.id),
+              })),
+            ],
+          },
+          type: "menu" as const,
+        },
+  );
+}
 
 export function HomeHeader(props: HomeHeaderProps) {
   const searchBarRef = useRef<SearchBarCommands>(null);
@@ -29,7 +64,7 @@ export function HomeHeader(props: HomeHeaderProps) {
   }, []);
   useHardwareKeyboardCommand("focusSearch", focusSearch);
   const filterMenu = buildHomeListFilterMenu(props);
-  const { onOpenTerminal, selectedTerminalTarget, terminalTargets } = props;
+  const { onOpenTerminal, rockBot, selectedTerminalTarget, terminalTargets } = props;
   const terminalMenuTargets = terminalTargets.slice(0, HOME_TERMINAL_MENU_LIMIT);
   const terminalAccessibility = homeTerminalButtonAccessibility(
     terminalTargets,
@@ -78,7 +113,8 @@ export function HomeHeader(props: HomeHeaderProps) {
       <NativeStackScreenOptions
         optionsVersion={[
           filterMenu.items,
-          props.onOpenRockBot === undefined,
+          props.rockBot === undefined,
+          props.rockBot?.chats.map((chat) => [chat.id, chat.title]) ?? null,
           selectedTerminalTarget?.scopeKey ?? null,
           terminalMenuTargets.map((target) => [target.scopeKey, target.threadId]),
         ]}
@@ -102,18 +138,7 @@ export function HomeHeader(props: HomeHeaderProps) {
             terminalItem,
           ],
           unstable_headerRightItems: () => [
-            ...(props.onOpenRockBot === undefined
-              ? []
-              : [
-                  withNativeGlassHeaderItem({
-                    accessibilityLabel: "Open RockBot",
-                    icon: { name: "sparkles", type: "sfSymbol" } as const,
-                    identifier: "home-rockbot",
-                    label: "",
-                    onPress: props.onOpenRockBot,
-                    type: "button",
-                  }),
-                ]),
+            ...(rockBot === undefined ? [] : [rockBotItem(rockBot)]),
             withNativeGlassHeaderItem({
               accessibilityLabel: "Open usage",
               icon: { name: "chart.bar.xaxis", type: "sfSymbol" } as const,

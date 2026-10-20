@@ -14,7 +14,7 @@ import * as Layer from "effect/Layer";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 
-/** One id per environment, so two clients opening RockBot at once get the same thread. */
+/** The first chat's id, so two clients opening RockBot at once get the same thread. */
 export const ROCKBOT_THREAD_ID = ThreadId.make("rockbot");
 
 /** RockBot starts on the model of the work the user touched last. */
@@ -29,6 +29,22 @@ export function latestModelSource(
           DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt),
       )[0] ?? null
   );
+}
+
+/**
+ * The chat `open` should land on, or null to create one: the latest chat, or for a
+ * new chat one the user has not written in yet, so repeated New chat clicks leave
+ * no trail of empty chats. `active` is newest first.
+ */
+export function pickRockBotChat(
+  active: ReadonlyArray<OrchestrationV2ThreadShell>,
+  newChat: boolean,
+): ThreadId | null {
+  const chats = active.filter((thread) => thread.kind === "orchestrator");
+  const chat = newChat
+    ? chats.find((thread) => thread.latestUserMessageAt === null && thread.latestRunId === null)
+    : chats[0];
+  return chat?.id ?? null;
 }
 
 /**
@@ -76,23 +92,13 @@ export const make = Effect.gen(function* () {
     const active = yield* threads
       .listProjectThreads({ includeSubagents: true })
       .pipe(Effect.mapError(dispatchError("Could not list threads to find RockBot.")));
-    const existing = active.find((thread) => thread.kind === "orchestrator");
-    if (existing !== undefined) return { threadId: existing.id };
+    const existing = pickRockBotChat(active, input.newChat === true);
+    if (existing !== null) return { threadId: existing };
 
+    // Archived and deleted chats stay history; only the first chat takes the shared id.
     const reserved = yield* threads
       .getThreadShell(ROCKBOT_THREAD_ID)
       .pipe(Effect.mapError(dispatchError("Could not read the RockBot thread.")));
-    if (reserved !== null && reserved.deletedAt === null) {
-      // Archived from somewhere outside the rail; opening it brings it back.
-      yield* threads
-        .dispatch({
-          type: "thread.unarchive",
-          commandId: CommandId.make(`rockbot-unarchive:${yield* uuid}`),
-          threadId: reserved.id,
-        })
-        .pipe(Effect.mapError(dispatchError("Could not reopen RockBot.")));
-      return { threadId: reserved.id };
-    }
 
     const source = latestModelSource(active);
     if (source === null) {
@@ -114,7 +120,8 @@ export const make = Effect.gen(function* () {
         commandId: CommandId.make(`rockbot-create:${threadId}`),
         threadId,
         projectId,
-        title: "RockBot",
+        // The first message renames it, as with any thread.
+        title: "New chat",
         kind: "orchestrator",
         modelSelection: source.modelSelection,
         // It only reads; its sends to other threads wait for the user's Send.
