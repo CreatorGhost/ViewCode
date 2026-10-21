@@ -165,11 +165,22 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-chat-composer-main
   border-radius: 20px;
 }
 
-html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-host"] {
+/* The host's lift. With a banner attached (Active agents) the host also wraps the banner,
+   which is inset from the host's edges, so a ring on the host drew a hollow rounded frame
+   around the banner; the lift then moves to the input surface, as upstream's own outline does. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-host"]:not(:has([data-composer-banner-surface="attached"])),
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-host"]:has([data-composer-banner-surface="attached"])
+  [data-chat-composer-main-surface] {
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
 }
 
-html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-host"] {
+html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-host"]:not(:has([data-composer-banner-surface="attached"])),
+html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-host"]:has([data-composer-banner-surface="attached"])
+  [data-chat-composer-main-surface] {
   box-shadow:
     0 0 0 1px rgb(255 255 255 / 0.05),
     0 18px 40px -18px rgb(0 0 0 / 0.9);
