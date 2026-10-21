@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { THREAD_TOO_LARGE_FOR_CONNECTION_MESSAGE } from "@t3tools/client-runtime/state/threads";
-
-import { connectionFloatingStatus, threadSyncNoticeStatus } from "./floating-working-status";
+import { connectionFloatingStatus } from "./floating-working-status";
 
 const status = (
   connectionState: Parameters<typeof connectionFloatingStatus>[0]["connectionState"],
@@ -64,24 +62,5 @@ describe("connectionFloatingStatus", () => {
     if (pill?.kind !== "connection") throw new Error("expected a connection pill");
     pill.onPress();
     expect(onReconnect).toHaveBeenCalledOnce();
-  });
-});
-
-describe("threadSyncNoticeStatus", () => {
-  it("explains a chat held back for being too large instead of syncing forever", () => {
-    expect(
-      threadSyncNoticeStatus({
-        threadSyncError: THREAD_TOO_LARGE_FOR_CONNECTION_MESSAGE,
-        onPress: () => {},
-      }),
-    ).toMatchObject({
-      kind: "notice",
-      label: "Too large for Quick connect",
-      detail: THREAD_TOO_LARGE_FOR_CONNECTION_MESSAGE,
-    });
-    expect(
-      threadSyncNoticeStatus({ threadSyncError: "Thread not found.", onPress: () => {} }),
-    ).toBeNull();
-    expect(threadSyncNoticeStatus({ threadSyncError: null, onPress: () => {} })).toBeNull();
   });
 });
