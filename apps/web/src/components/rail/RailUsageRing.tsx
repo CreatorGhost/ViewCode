@@ -126,6 +126,9 @@ function UsageCardBody({
           ))}
         </div>
       ) : null}
+      {limits?.refreshError ? (
+        <span className="text-warning-foreground">{limits.refreshError}</span>
+      ) : null}
       {rows.length === 0 ? (
         <span className="text-muted-foreground">
           {ring.window === null ? NO_USAGE_RECORDED_NOTICE : "No plan limits reported."}

@@ -113,7 +113,7 @@ export function codexRateLimitsToLimits(input: {
   readonly checkedAt: string;
 }): ServerProviderUsageLimits {
   const resetCredits = codexResetCreditsToContract(input.resetCredits);
-  const windows = codexRateLimitsToWindows(input.rateLimitsByLimitId?.codex ?? input.snapshot);
+  const windows = codexRateLimitsToWindows(codexMainAllowance(input));
   return {
     ...makeUsageLimits({
       checkedAt: input.checkedAt,
@@ -121,6 +121,29 @@ export function codexRateLimitsToLimits(input: {
     }),
     ...(resetCredits ? { resetCredits } : {}),
   };
+}
+
+/**
+ * The main allowance is the `codex` bucket, or the snapshot on a legacy read with no bucket
+ * map (where a model-specific id still means "not the main one"). A bucket map that carries
+ * only other ids, as a newer CLI naming the main allowance differently would, shows its first
+ * bucket rather than nothing: a successful read with no rows kept whatever a turn event had
+ * published, which could be a stale "limit reached" with no way to tell.
+ */
+export function codexMainAllowance(input: {
+  readonly snapshot: CodexRateLimitSnapshot;
+  readonly rateLimitsByLimitId?:
+    | Readonly<Record<string, CodexRateLimitSnapshot>>
+    | null
+    | undefined;
+}): CodexRateLimitSnapshot {
+  const buckets = input.rateLimitsByLimitId;
+  if (buckets?.codex) return buckets.codex;
+  const first = buckets ? Object.values(buckets)[0] : undefined;
+  if (!first) return input.snapshot;
+  // Drop the id so the row filter does not throw the fallback away.
+  const { limitId: _ignored, ...rest } = first;
+  return rest;
 }
 
 export function codexRateLimitsToUpdate(

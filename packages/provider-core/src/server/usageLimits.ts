@@ -106,6 +106,8 @@ function usageWindowEquals(a: ServerProviderUsageWindow, b: ServerProviderUsageW
   );
 }
 
+export const EMPTY_READ_NOTE = "The last read reported no limits; showing the earlier reading.";
+
 export function resolveUsageLimitsAfterProbe(input: {
   readonly published: ServerProviderUsageLimits | undefined;
   readonly probed: ServerProviderUsageLimits | undefined;
@@ -115,7 +117,8 @@ export function resolveUsageLimitsAfterProbe(input: {
     return { ...published, refreshError: probed.unavailable.message ?? "Could not refresh usage." };
   }
   // A successful read with no windows means none is active yet; it must not
-  // wipe bars a turn event already established.
+  // wipe bars a turn event already established. It says so, though: bars kept
+  // silently once showed a stale "limit reached" for an account that was fine.
   if (
     probed &&
     !probed.unavailable &&
@@ -124,8 +127,7 @@ export function resolveUsageLimitsAfterProbe(input: {
     !published.unavailable &&
     published.windows.length > 0
   ) {
-    const { refreshError: _cleared, ...rest } = published;
-    return rest;
+    return { ...published, refreshError: EMPTY_READ_NOTE };
   }
   return probed;
 }

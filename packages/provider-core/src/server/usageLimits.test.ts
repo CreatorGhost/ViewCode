@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { applyUsageLimitsUpdate, resolveUsageLimitsAfterProbe } from "./usageLimits.ts";
+import {
+  applyUsageLimitsUpdate,
+  EMPTY_READ_NOTE,
+  resolveUsageLimitsAfterProbe,
+} from "./usageLimits.ts";
 
 const checkedAt = "2026-09-03T12:00:00.000Z";
 const session = {
@@ -101,15 +105,16 @@ describe("resolveUsageLimitsAfterProbe", () => {
     expect(resolveUsageLimitsAfterProbe({ published: undefined, probed: failed })).toBe(failed);
   });
 
-  it("keeps existing windows through an empty successful read", () => {
+  it("keeps existing windows through an empty successful read, and says so", () => {
     const empty = { checkedAt: "2026-09-03T12:10:00.000Z", windows: [] };
-    expect(resolveUsageLimitsAfterProbe({ published, probed: empty })).toEqual(published);
+    const kept = { ...published, refreshError: EMPTY_READ_NOTE };
+    expect(resolveUsageLimitsAfterProbe({ published, probed: empty })).toEqual(kept);
     expect(
       resolveUsageLimitsAfterProbe({
         published: { ...published, refreshError: "x" },
         probed: empty,
       }),
-    ).toEqual(published);
+    ).toEqual(kept);
     expect(resolveUsageLimitsAfterProbe({ published: undefined, probed: empty })).toBe(empty);
   });
 

@@ -473,6 +473,10 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
   const windows = displayLimitWindows(pool);
   const plans = new Set(pool.accounts.map((account) => account.plan).filter(Boolean));
   const plan = plans.size === 1 ? [...plans][0] : undefined;
+  // A read that failed or came back empty keeps the earlier bars; the card says so rather than
+  // presenting them as current.
+  const refreshError = pool.accounts.find((account) => account.limits.refreshError)?.limits
+    .refreshError;
   const accountLabel =
     pool.accounts.length === 1
       ? (pool.accounts[0]?.email ?? pool.accounts[0]?.sourceLabel ?? null)
@@ -503,6 +507,12 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
           </span>
         ) : null}
       </h2>
+      {refreshError ? (
+        <p className="flex items-start gap-1.5 text-xs text-warning-foreground">
+          <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          <span>{refreshError}</span>
+        </p>
+      ) : null}
       <div className="flex flex-col gap-4">
         {windows.map((window) => {
           const details =
