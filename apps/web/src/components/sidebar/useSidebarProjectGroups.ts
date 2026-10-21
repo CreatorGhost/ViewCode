@@ -8,9 +8,7 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environmen
 import { useProjects, useThreadShells } from "../../state/entities";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../../uiStateStore";
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "../Sidebar.logic";
-import { holdsOnlyRockBot } from "@t3tools/client-runtime/state/rockbot";
-import { useComposerDraftStore } from "../../composerDraftStore";
-import { projectRefKey } from "./projectSwitch.logic";
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
 
 /**
  * The sidebar's project folders with their names and members, not yet in sidebar order. For
@@ -56,22 +54,12 @@ export function useSidebarProjectGroups(): ReadonlyArray<SidebarProjectSnapshot>
   const unsortedGroups = useSidebarProjectSnapshots();
   const threads = useThreadShells();
   const sortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
-  // An unsent draft keeps its folder, so a new "No project" chat shows while it is typed.
-  const draftProjectKeys = useComposerDraftStore((store) =>
-    Object.values(store.draftThreadsByThreadKey)
-      .flatMap((draft) => (draft.promotedTo == null ? [projectRefKey(draft)] : []))
-      .toSorted()
-      .join("\n"),
-  );
-  return (() => {
-    const drafted = new Set(draftProjectKeys.split("\n"));
-    // The scratch folder RockBot alone uses is RockBot's, reached from its rail button.
-    const groups = unsortedGroups.filter((group) => {
-      if (!group.isScratch) return true;
-      const members = new Set(group.memberProjectRefs.map(projectRefKey));
-      if ([...members].some((key) => drafted.has(key))) return true;
-      return !holdsOnlyRockBot(members, threads, (thread) => thread.source.kind);
-    });
-    return sortLogicalProjectsForSidebar(groups, threads, sortOrder);
-  })();
+  // RockBot chats live in No project only as storage; chatting with RockBot must not
+  // move that folder up.
+  return (() =>
+    sortLogicalProjectsForSidebar(
+      unsortedGroups,
+      threads.filter((thread) => !isRockBot(thread.source)),
+      sortOrder,
+    ))();
 }

@@ -20,7 +20,7 @@ While a RockBot chat is open, the sidebar lists your RockBot chats in place of y
 projects, newest first. Start another with the pencil next to **RockBot**, or **New
 RockBot chat** in the command palette. Rename or archive them like any thread; archived
 chats are under **RockBot** in **Settings → Archived**. RockBot chats never appear under
-**No project**, which only lists threads you start without a project. Click a project on the rail to go back to your
+**No project**, which stays the place for chats you start without a project. Click a project on the rail to go back to your
 work.
 
 On mobile (iOS and Android), the sparkle button on Home opens a menu with **New chat**
