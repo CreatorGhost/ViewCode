@@ -2,7 +2,7 @@ import { createFileRoute, notFound } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { PrFlowCard, ShimmerLabel } from "~/components/chat/prFlow/PrFlowCard";
-import { type ReviewAgent, ReviewCard } from "~/components/chat/ReviewProgress";
+import { type ReviewAgent, ReviewCard, ReviewTree } from "~/components/chat/ReviewProgress";
 import { Button } from "~/components/ui/button";
 import { ThreadId } from "@t3tools/contracts";
 import type { PrFlow } from "@t3tools/client-runtime/pr-flow";
@@ -114,12 +114,18 @@ function ReviewPreview() {
                 }
               : { kind: "running" }
           }
-          step={
-            <ShimmerLabel live text={current.step}>
-              <span className="block truncate text-muted-foreground">{current.step}</span>
-            </ShimmerLabel>
+          title="Deep review: #1615 feat(playbooks): MGAI-1120"
+          note={null}
+          tree={
+            <ReviewTree
+              step={
+                <ShimmerLabel live text={current.step}>
+                  <span className="block truncate text-muted-foreground">{current.step}</span>
+                </ShimmerLabel>
+              }
+              agents={current.agents}
+            />
           }
-          agents={current.agents}
           onViewAgent={() => {}}
           onStop={() => {}}
           stopping={false}

@@ -67,24 +67,15 @@ export function ReviewElapsed({ startedAt, endMs }: { startedAt: string; endMs: 
   );
 }
 
-/** The kind of review ("Deep review") and the model it runs on ("GPT-6.1"), as the panel words them. */
-export function useReviewParts(
-  environmentId: EnvironmentId,
-  review: LatestReviewStatus,
-): { mode: string; model: string } {
+/** The kind of review ("Deep review") and the model it runs on ("GPT-6.1"), with its provider. */
+function useReviewParts(environmentId: EnvironmentId, review: LatestReviewStatus) {
   const { instanceId, model: slug } = review.modelSelection;
   const provider = useEnvironmentProviders()
     .get(environmentId)
     ?.find((candidate) => candidate.instanceId === instanceId);
   const model = provider?.models.find((entry) => entry.slug === slug);
   const mode = AGENT_REVIEW_MODES.find((entry) => entry.mode === review.mode)?.label ?? "Review";
-  return { mode, model: model?.shortName ?? model?.name ?? slug };
-}
-
-/** "Deep review · GPT-6.1". */
-export function useReviewLabel(environmentId: EnvironmentId, review: LatestReviewStatus): string {
-  const { mode, model } = useReviewParts(environmentId, review);
-  return `${mode} · ${model}`;
+  return { mode, model: model?.shortName ?? model?.name ?? slug, provider: provider ?? null };
 }
 
 export type ReviewAgent = {
@@ -146,14 +137,9 @@ export function ReviewStatusBar({
   retrying: boolean;
 }) {
   const { progress } = review;
-  const { mode, model } = useReviewParts(environmentId, review);
-  const elapsedMs = useReviewElapsedMs(review.startedAt, null);
+  const { mode, model, provider } = useReviewParts(environmentId, review);
   const navigate = useNavigate();
   const actions = useAgentControlActions();
-  const provider = useEnvironmentProviders()
-    .get(environmentId)
-    ?.find((candidate) => candidate.instanceId === review.modelSelection.instanceId);
-  const agents = useReviewAgents(environmentId, review.threadId);
   const [stopping, setStopping] = useState(false);
   // Stops the reviewer and its agents for good (`reviewStopPlan`), and nothing else: the chat it
   // belongs to is in the same agent tree, so this never acts on the tree as a whole.
@@ -188,8 +174,10 @@ export function ReviewStatusBar({
           />
         ) : null
       }
-      mode={newer && running ? "A new review" : mode}
+      mode={newer && running ? `New ${mode.toLowerCase()}` : mode}
       model={model}
+      title={review.title}
+      note={newer && running ? "The findings below are the earlier review's." : null}
       startedAt={review.startedAt}
       state={
         running
@@ -197,17 +185,23 @@ export function ReviewStatusBar({
           : {
               kind: progress.kind,
               text:
+                // The running sentence, the only one that reads the elapsed time, is not shown.
                 reviewStatusText({
                   progress,
                   label: `${mode} · ${model}`,
-                  elapsedMs,
+                  elapsedMs: 0,
                   durationMs,
                   newer,
                 }) ?? "",
             }
       }
-      step={<ReviewWorkLine environmentId={environmentId} threadId={review.threadId} live />}
-      agents={agents}
+      tree={
+        <ThreadReviewTree
+          key={review.threadId}
+          environmentId={environmentId}
+          threadId={review.threadId}
+        />
+      }
       onViewAgent={() =>
         void navigate({
           to: "/$environmentId/$threadId",
@@ -231,10 +225,11 @@ export function ReviewCard({
   icon,
   mode,
   model,
+  title,
+  note,
   startedAt,
   state,
-  step,
-  agents,
+  tree,
   onViewAgent,
   onStop,
   stopping,
@@ -244,11 +239,14 @@ export function ReviewCard({
   icon: ReactNode;
   mode: string;
   model: string;
+  /** The review's own name ("Deep review: #1615 …"), named by the View agent tooltip. */
+  title: string;
+  /** A line under the header, when the card has to say more than its state. */
+  note: string | null;
   startedAt: string;
   state: ReviewCardState;
-  /** The reviewer's current step, as the top row's text. */
-  step: ReactNode;
-  agents: ReadonlyArray<ReviewAgent>;
+  /** The reviewer and its agents while the review runs (ReviewTree). */
+  tree: ReactNode;
   onViewAgent: () => void;
   onStop: () => void;
   stopping: boolean;
@@ -258,7 +256,7 @@ export function ReviewCard({
   const running = state.kind === "running";
   return (
     <div role="status" className="shrink-0 px-3 pt-2">
-      <div className="pr-flow-appear flex flex-col gap-1.5 rounded-xl border bg-card p-3 text-sm">
+      <div className="blur-swap flex flex-col gap-1.5 rounded-xl border bg-card p-3 text-sm">
         <div className="flex items-center gap-2 px-0.5">
           {icon ?? <ListChecksIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />}
           <span className="min-w-0 flex-1 truncate">
@@ -281,7 +279,7 @@ export function ReviewCard({
               >
                 <ArrowUpRightIcon aria-hidden="true" />
               </TooltipTrigger>
-              <TooltipPopup side="top">Open the reviewer's chat</TooltipPopup>
+              <TooltipPopup side="top">Open the reviewer's chat: {title}</TooltipPopup>
             </Tooltip>
             {running ? (
               <Button
@@ -306,8 +304,9 @@ export function ReviewCard({
             ) : null}
           </span>
         </div>
+        {note !== null ? <p className="px-0.5 text-muted-foreground text-xs">{note}</p> : null}
         {running ? (
-          <ReviewTree step={step} agents={agents} />
+          tree
         ) : (
           <p
             className={cn(
@@ -331,7 +330,14 @@ const COLLAPSED_AGENT_LIMIT = 3;
  * deep review's lenses) with where each stands. Agents arrive as rows opening in; past a few,
  * one row counts them until asked for the list.
  */
-function ReviewTree({ step, agents }: { step: ReactNode; agents: ReadonlyArray<ReviewAgent> }) {
+export function ReviewTree({
+  step,
+  agents,
+}: {
+  /** The reviewer's current step, as the top row's text. */
+  step: ReactNode;
+  agents: ReadonlyArray<ReviewAgent>;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [initialIds] = useState(() => new Set(agents.map((agent) => agent.id)));
   const folded = agents.length > COLLAPSED_AGENT_LIMIT && !expanded;
@@ -441,6 +447,23 @@ function ReviewTree({ step, agents }: { step: ReactNode; agents: ReadonlyArray<R
     </div>
   );
 }
+
+/** The tree read from the thread: only this re-renders as the agents' shells change. */
+const ThreadReviewTree = memo(function ThreadReviewTree({
+  environmentId,
+  threadId,
+}: {
+  environmentId: EnvironmentId;
+  threadId: ThreadId;
+}) {
+  const agents = useReviewAgents(environmentId, threadId);
+  return (
+    <ReviewTree
+      step={<ReviewWorkLine environmentId={environmentId} threadId={threadId} live />}
+      agents={agents}
+    />
+  );
+});
 
 /**
  * The reviewer's current step; reads only that thread's activities. `live` draws it the way the

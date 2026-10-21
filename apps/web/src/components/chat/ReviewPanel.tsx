@@ -179,6 +179,7 @@ export function ReviewSurface({
     >
       {review !== null ? (
         <ReviewStatusBar
+          key={review.threadId}
           environmentId={environmentId}
           review={review}
           newer={source !== null && !ownFindings}
