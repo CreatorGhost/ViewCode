@@ -10,7 +10,8 @@ T3 Code has one server-side observability model:
 
 The local trace file is the persisted source of truth for normal local launches. Those launches do not
 write a separate server log file, but SSH-managed launches also persist the remote process's
-stdout/stderr at `~/.t3/ssh-launch/<state>/server.log`.
+stdout/stderr at `~/.t3/ssh-launch/<state>/server.log`, and the ViewCode desktop app persists its
+backend's stdout/stderr in `server-child.log`.
 
 ## Where To Find Things
 
@@ -22,6 +23,10 @@ Logs are human-facing:
 - format: `Logger.consolePretty()`
 - normal local persistence: none
 - SSH-managed launch persistence: `~/.t3/ssh-launch/<state>/server.log`
+- ViewCode desktop persistence: `<home>/userdata/logs/server-child.log`, written as the output
+  arrives, one NDJSON record per chunk with START and END records around each backend run. Extra
+  backend instances (such as WSL) write `server-child-<id>.log`. Each file rotates at 10 MB and keeps
+  10 copies.
 - remote export: OTLP only, when configured
 
 If you want a log message to show up in the trace file, emit it inside an active span with `Effect.log...`. `Logger.tracerLogger` will attach it as a span event.

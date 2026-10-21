@@ -131,6 +131,7 @@ import {
   parseCodexFeedbackCommand,
   shouldShowLoadEarlierControl,
   submitCodexFeedback,
+  THREAD_TOO_LARGE_FOR_CONNECTION_MESSAGE,
   type CodexFeedbackSubmission,
 } from "@t3tools/client-runtime/state/threads";
 import { resolveThreadLastVisitedAt } from "./Sidebar.logic";
@@ -397,6 +398,7 @@ import {
   useProjects,
   useThreadProjection,
   useThreadStatus,
+  useThreadSyncError,
   useThreadHistory,
   useQuietThreadShell,
   useThreadShell,
@@ -1555,8 +1557,12 @@ export default function ChatView(props: ChatViewProps) {
           threadId: parentSubagentThreadRef.threadId,
           title: parentSubagentThread?.title ?? "Parent thread",
         };
+  const threadSyncError = useThreadSyncError(routeThreadDetailRef);
+  // Only this one: other sync errors retry on their own and would flash.
+  const threadTooLargeError =
+    threadSyncError === THREAD_TOO_LARGE_FOR_CONNECTION_MESSAGE ? threadSyncError : null;
   const threadError = isServerThread
-    ? (localServerError ?? serverRuntime?.lastError ?? null)
+    ? (localServerError ?? serverRuntime?.lastError ?? threadTooLargeError)
     : localDraftError;
   const threadErrorBannerKey = getThreadErrorBannerKey(routeThreadKey, threadError);
   const visibleThreadError = shouldShowThreadErrorBanner(

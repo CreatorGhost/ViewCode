@@ -69,6 +69,7 @@ import {
   THREAD_SIDEBAR_MIN_WIDTH,
   THREAD_SIDEBAR_OVERLAY_BREAKPOINT,
   THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+  threadLayoutWidth,
 } from "./threadSidebarWidth";
 import {
   Sidebar,
@@ -87,18 +88,18 @@ function subscribeToViewportWidth(onChange: () => void): () => void {
 }
 
 function readViewportWidth(): number {
-  return window.innerWidth;
+  return threadLayoutWidth(window.innerWidth);
 }
 
 function readInitialThreadSidebarWidth(): number {
   try {
     return resolveInitialThreadSidebarWidth(
       getLocalStorageItem(THREAD_SIDEBAR_WIDTH_STORAGE_KEY, Schema.Finite),
-      window.innerWidth,
+      readViewportWidth(),
     );
   } catch (error) {
     console.error("Could not read persisted thread sidebar width.", error);
-    return resolveInitialThreadSidebarWidth(null, window.innerWidth);
+    return resolveInitialThreadSidebarWidth(null, readViewportWidth());
   }
 }
 

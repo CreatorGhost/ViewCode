@@ -10,8 +10,8 @@ remain the authority for the native runtime.
 ViewCode follows upstream by ordinary `git merge` again. The v2 port merges
 `13aa882c22d584de5388dfce3b3ca413387ba059` (0.1.0), replacing the cherry-pick-only
 policy used after common base `024d49520`. The latest merge includes upstream
-`8f026485df097cca71f80218a514f4d2e13bbf43`. Future updates start with
-`git fetch upstream main` and merge on a review branch. See
+`8f026485df097cca71f80218a514f4d2e13bbf43`. Every update follows
+[Merging upstream T3 Code](../operations/upstream-merge.md); conflict policy is in
 [NEXT_AGENT.md](../NEXT_AGENT.md#staying-mergeable-with-upstream-t3-code).
 
 Keep upstream names, directories, commands, events and provider contracts.
@@ -653,6 +653,11 @@ send as usual. There is no loop or queue behind it.
 
 ## Desktop local mode and phone access
 
+- The desktop writes its backend's stdout/stderr to `server-child.log` as it
+  arrives (`DesktopObservability.ts`). Upstream keeps the last 1 MiB in memory and
+  writes it only after a crash, which lost every warning logged outside a span,
+  since only in-span messages reach `server.trace.ndjson`. A merge that restores
+  upstream's version fails `DesktopObservability.viewcode.test.ts`.
 - By default the desktop backend listens on a Unix socket (named pipe on
   Windows), reached by the window through the main process as
   `t3code-backend://<id>/`; providers reach MCP through a stdio bridge. No TCP
@@ -713,11 +718,20 @@ send as usual. There is no loop or queue behind it.
   stream as `viewcodeRelay`, like `managedTunnel`; the switch is the `viewcodeRelay.enabled`
   server setting and the host secret lives only in the secret store. The desktop backend is
   spawned with `--use-system-ca` so corporate TLS inspection does not break the socket.
-- Cloudflare's Durable Object caps each WebSocket message at 1 MiB. Provider
-  `workspaceSnapshots` stay in the server registry; config snapshots, provider
-  status updates and refresh replies omit them. Composers fetch one cwd's
-  snapshot through `server.getProviderWorkspaceSnapshot`. Splitting host relay
-  frames cannot help because the phone expects one WebSocket message.
+- Cloudflare's Durable Object caps each WebSocket message at 1 MiB. The forwarder
+  will not send a larger one: it closes the client's whole socket with 1009 and
+  names the RPC tag (`Message too big: <tag>`), so one oversized reply breaks every
+  request on that phone, sends included. Every server-to-client RPC message must
+  stay under it: bounded thread snapshots stop at `THREAD_SNAPSHOT_MAX_WIRE_BYTES`
+  even inside one long agent turn (Load earlier pages the rest over HTTP, which
+  the relay already chunks); replay and live batches split at
+  `RPC_STREAM_CHUNK_MAX_BYTES` (`rpcChunkBudget.ts`); config and provider status
+  messages carry only the newest workspace catalogs that fit
+  (`provider/providerWire.ts`). Clients hold back a subscription whose opening
+  data drew a 1009 rather than reconnect into the same close
+  (`isMessageTooBigFailure`). Splitting host frames alone cannot help, because the
+  phone expects one WebSocket message: it would need Durable Object reassembly,
+  a protocol capability check and a Worker redeploy.
 - Quick connect is set up from the app by the server (`relay/ViewCodeRelaySetup.ts`), which
   runs `npx --yes wrangler@4` from PATH. A desktop without Node 22+ still works where the server
   is Electron-as-node (not Apple Silicon, whose backend is standalone ViewCode
@@ -1194,6 +1208,15 @@ T3 binaries, so enabling that path would replace the fork. Manual npm guidance
 uses the optional installation package identity and preserves `viewcode-app`.
 
 ## Traps (things that cost hours)
+
+- **Upstream merges drop ViewCode fixes without a conflict** when upstream
+  rewrites or deletes the file a fix lived in, and a ViewCode case inside an
+  upstream test file goes with it: `58e4b0a77` lost the 1 MiB catalog guard in
+  `ws.ts` together with `server.test.ts`. Guard ViewCode behaviour in
+  upstream-owned code with a `*.viewcode.test.ts(x)` beside it, which upstream
+  never has, and merge by [the procedure](../operations/upstream-merge.md). A guard
+  covers a function, not its call sites: wiring in a rewritten upstream file still
+  needs the review the merge check lists.
 
 - **Running as root in a sandbox:** Claude refuses `bypassPermissions` as root;
   start the isolated test server with `IS_SANDBOX=1` when that sandbox requires it.

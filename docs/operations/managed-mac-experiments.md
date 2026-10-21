@@ -211,5 +211,6 @@ the missing signature is not sufficient on its own (it may still add to the
 score). The provider gate is the fix; signing matters for sharing builds.
 
 Logs in this build are OpenTelemetry span files
-(`~/.viewcode/userdata/logs/server.trace.ndjson`, `desktop.trace.ndjson`), not
-`server-child.log`; earlier references to that file are wrong.
+(`~/.viewcode/userdata/logs/server.trace.ndjson`, `desktop.trace.ndjson`). That
+build wrote `server-child.log` only after the backend died; current builds write
+the server's console output there as it runs.
