@@ -8,6 +8,7 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -108,6 +109,34 @@ export const isRpcClientError = Schema.is(RpcClientError.RpcClientError);
 const isEnvironmentAuthorizationError = Schema.is(EnvironmentAuthorizationError);
 
 const MAX_EXPECTED_FAILURE_RETRY_DELAY_MS = 30_000;
+
+/** WebSocket close code for a message over the receiver's size limit (RFC 6455). */
+const MESSAGE_TOO_BIG_CLOSE_CODE = 1009;
+const MESSAGE_TOO_BIG_FIRST_HOLD_MS = 60_000;
+const MESSAGE_TOO_BIG_MAX_HOLD_MS = 15 * 60_000;
+
+/**
+ * Quick connect's relay closes the whole socket with 1009 when one message is
+ * over its 1 MiB limit, and every request on the socket fails with that close.
+ * A newer host names the request's method in the reason ("Message too big:
+ * <tag>"); an older one does not, so `waitingForFirstValue` narrows it to
+ * subscriptions still waiting for their opening snapshot or replay.
+ */
+export function isMessageTooBigFailure(
+  cause: Cause.Cause<unknown>,
+  tag: string,
+  waitingForFirstValue: boolean,
+): boolean {
+  return cause.reasons.some((reason) => {
+    if (reason._tag !== "Fail" || !isRpcClientError(reason.error)) return false;
+    const close = reason.error.reason;
+    if (close._tag !== "SocketCloseError" || close.code !== MESSAGE_TOO_BIG_CLOSE_CODE) {
+      return false;
+    }
+    const named = /^Message too big: (\S+)$/.exec(close.closeReason ?? "")?.[1];
+    return waitingForFirstValue && (named === undefined || named === tag);
+  });
+}
 
 export type EnvironmentRpcInput<TTag extends EnvironmentRpcTag> = Parameters<RpcMethod<TTag>>[0];
 
@@ -246,6 +275,14 @@ interface SubscriptionOptions<TTag extends EnvironmentSubscriptionRpcTag> {
   ) => Effect.Effect<void, never, never>;
   readonly retryExpectedFailureAfter?: Duration.Input;
   readonly resubscribe?: Stream.Stream<unknown, never, never>;
+  /**
+   * This subscription's opening data was too big for the connection (see
+   * `isMessageTooBigFailure`). Resubscribing at once would close the socket
+   * again for every other request, so the subscription waits a minute, then
+   * longer, before trying again; a `resubscribe` signal (the app returning to
+   * the foreground) tries at once.
+   */
+  readonly onMessageTooBig?: Effect.Effect<void>;
 }
 
 function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
@@ -266,15 +303,26 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
       const supervisor = yield* EnvironmentSupervisor.EnvironmentSupervisor;
       const observer = yield* EnvironmentRpcSubscriptionObserver;
       const sessionChanges = SubscriptionRef.changes(supervisor.session);
+      let messageTooBigStrikes = 0;
+      let holdUntil = 0;
       const sessions =
         options?.resubscribe === undefined
           ? sessionChanges
           : Stream.merge(
               sessionChanges,
               options.resubscribe.pipe(
-                Stream.mapEffect(() => SubscriptionRef.get(supervisor.session)),
+                Stream.mapEffect(() =>
+                  Effect.sync(() => {
+                    holdUntil = 0;
+                  }).pipe(Effect.andThen(SubscriptionRef.get(supervisor.session))),
+                ),
               ),
             );
+      const waitOutHold = Clock.currentTimeMillis.pipe(
+        Effect.flatMap((now) =>
+          holdUntil > now ? Effect.sleep(Duration.millis(holdUntil - now)) : Effect.void,
+        ),
+      );
       return sessions.pipe(
         Stream.switchMap(
           Option.match({
@@ -291,10 +339,13 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                 EnvironmentRpcStreamFailure<TTag>
               >;
               let expectedFailureRetries = 0;
+              let waitingForFirstValue = true;
               const subscribeToSession = (): Stream.Stream<A, EnvironmentRpcStreamFailure<TTag>> =>
                 Stream.suspend(() =>
                   Stream.unwrap(
                     Effect.gen(function* () {
+                      yield* waitOutHold;
+                      waitingForFirstValue = true;
                       const input = yield* makeInput(session);
                       const completeObservation = yield* observer.observe({
                         environmentId: supervisor.target.environmentId,
@@ -305,6 +356,8 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                         Stream.onFirst(() =>
                           Effect.sync(() => {
                             expectedFailureRetries = 0;
+                            waitingForFirstValue = false;
+                            messageTooBigStrikes = 0;
                           }),
                         ),
                       );
@@ -332,6 +385,32 @@ function subscribeDynamicMapped<TTag extends EnvironmentSubscriptionRpcTag, A>(
                         cause.reasons.every(
                           (reason) => reason._tag === "Fail" && isRpcClientError(reason.error),
                         );
+                      const onMessageTooBig = options?.onMessageTooBig;
+                      if (
+                        isTransportFailure &&
+                        onMessageTooBig !== undefined &&
+                        isMessageTooBigFailure(cause, tag, waitingForFirstValue)
+                      ) {
+                        return Stream.fromEffect(
+                          Effect.gen(function* () {
+                            messageTooBigStrikes += 1;
+                            const holdMs = Math.min(
+                              MESSAGE_TOO_BIG_FIRST_HOLD_MS * 2 ** (messageTooBigStrikes - 1),
+                              MESSAGE_TOO_BIG_MAX_HOLD_MS,
+                            );
+                            holdUntil = (yield* Clock.currentTimeMillis) + holdMs;
+                            yield* Effect.logWarning(
+                              "A subscription's data was too big for the connection; holding it.",
+                              {
+                                method: tag,
+                                environmentId: supervisor.target.environmentId,
+                                holdMs,
+                              },
+                            );
+                            yield* onMessageTooBig;
+                          }),
+                        ).pipe(Stream.drain);
+                      }
                       if (isTransportFailure) {
                         return Stream.fromEffect(
                           Effect.logWarning(

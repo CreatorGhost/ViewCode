@@ -713,11 +713,20 @@ send as usual. There is no loop or queue behind it.
   stream as `viewcodeRelay`, like `managedTunnel`; the switch is the `viewcodeRelay.enabled`
   server setting and the host secret lives only in the secret store. The desktop backend is
   spawned with `--use-system-ca` so corporate TLS inspection does not break the socket.
-- Cloudflare's Durable Object caps each WebSocket message at 1 MiB. Provider
-  `workspaceSnapshots` stay in the server registry; config snapshots, provider
-  status updates and refresh replies omit them. Composers fetch one cwd's
-  snapshot through `server.getProviderWorkspaceSnapshot`. Splitting host relay
-  frames cannot help because the phone expects one WebSocket message.
+- Cloudflare's Durable Object caps each WebSocket message at 1 MiB. The forwarder
+  will not send a larger one: it closes the client's whole socket with 1009 and
+  names the RPC tag (`Message too big: <tag>`), so one oversized reply breaks every
+  request on that phone, sends included. Every server-to-client RPC message must
+  stay under it: bounded thread snapshots stop at `THREAD_SNAPSHOT_MAX_WIRE_BYTES`
+  even inside one long agent turn (Load earlier pages the rest over HTTP, which
+  the relay already chunks); replay and live batches split at
+  `RPC_STREAM_CHUNK_MAX_BYTES` (`rpcChunkBudget.ts`); config and provider status
+  messages carry only the newest workspace catalogs that fit
+  (`provider/providerWire.ts`). Clients hold back a subscription whose opening
+  data drew a 1009 rather than reconnect into the same close
+  (`isMessageTooBigFailure`). Splitting host frames alone cannot help, because the
+  phone expects one WebSocket message: it would need Durable Object reassembly,
+  a protocol capability check and a Worker redeploy.
 - Quick connect is set up from the app by the server (`relay/ViewCodeRelaySetup.ts`), which
   runs `npx --yes wrangler@4` from PATH. A desktop without Node 22+ still works where the server
   is Electron-as-node (not Apple Silicon, whose backend is standalone ViewCode
@@ -1194,6 +1203,13 @@ T3 binaries, so enabling that path would replace the fork. Manual npm guidance
 uses the optional installation package identity and preserves `viewcode-app`.
 
 ## Traps (things that cost hours)
+
+- **Upstream merges drop ViewCode fixes without a conflict** when upstream
+  rewrites or deletes the file a fix lived in. The upstream 0.1.0 merge
+  (`58e4b0a77`) removed the 1 MiB workspace-catalog guard from `ws.ts` and
+  deleted `server.test.ts`, the test that guarded it. After a merge, check that
+  ViewCode's regression tests and the code they guard still exist, not only that
+  the merge is clean; upstream does not test against Quick connect's limits.
 
 - **Running as root in a sandbox:** Claude refuses `bypassPermissions` as root;
   start the isolated test server with `IS_SANDBOX=1` when that sandbox requires it.

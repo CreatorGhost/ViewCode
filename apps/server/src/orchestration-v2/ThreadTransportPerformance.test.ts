@@ -29,7 +29,7 @@ const PROVIDER_INSTANCE_ID = ProviderInstanceId.make("codex");
 
 const HISTORICAL_FULL_SNAPSHOT_APPLICATION_BYTES = 10_375_079;
 const FULL_SNAPSHOT_RPC_JSON_BYTES = 10_375_121;
-const PRE_OMISSION_BOUNDED_SNAPSHOT_RPC_JSON_BYTES = 1_038_647;
+const PRE_OMISSION_BOUNDED_SNAPSHOT_RPC_JSON_BYTES = 900_319;
 const MAX_PROJECTED_BOUNDED_SNAPSHOT_RPC_JSON_BYTES = 131_072;
 const PRE_OMISSION_COMMAND_EVENT_RPC_JSON_BYTES = 8_790;
 const MAX_PROJECTED_COMMAND_EVENT_RPC_JSON_BYTES = 1_024;
@@ -187,7 +187,7 @@ describe("thread transport payload budget", () => {
       MAX_PROJECTED_BOUNDED_SNAPSHOT_RPC_JSON_BYTES,
     );
     expect(projectedBoundedRpcJsonBytes / fullRpcJsonBytes).toBeLessThanOrEqual(0.02);
-    expect(preOmissionBoundedSnapshot.projection.visibleTurnItems).toHaveLength(60);
+    expect(preOmissionBoundedSnapshot.projection.visibleTurnItems).toHaveLength(52);
     expect(projectedBoundedSnapshot.projection.visibleTurnItems).toHaveLength(75);
     expect(projectedBoundedSnapshot.hasMoreHistory).toBe(true);
     expect(projectedBoundedSnapshot.payloadBudgetExceeded).toBe(false);

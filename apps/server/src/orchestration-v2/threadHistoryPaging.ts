@@ -18,6 +18,13 @@ export const THREAD_HISTORY_PAGE_POLICY = {
 
 export const OLDER_THREAD_USER_TURN_LIMIT = 20;
 
+/**
+ * A bounded snapshot travels as one WebSocket message, and Quick connect's relay
+ * (a Cloudflare Durable Object) refuses any message over 1 MiB, which closes the
+ * client's socket. Stay well under it so the RPC envelope always fits.
+ */
+export const THREAD_SNAPSHOT_MAX_WIRE_BYTES = 896 * 1024;
+
 export function isConversationHistoryItem(item: Pick<OrchestrationV2TurnItem, "type">): boolean {
   return !["command_execution", "reasoning", "file_change", "dynamic_tool"].includes(item.type);
 }
@@ -31,6 +38,12 @@ export type ThreadHistoryPagePolicy = {
   readonly maxUserTurns?: number | undefined;
   readonly maxItems: number;
   readonly maxEncodedBytes: number;
+  /**
+   * Also stop a turn-bounded window at `maxEncodedBytes`, even inside a turn.
+   * Snapshots sent over a WebSocket need it: Quick connect's relay drops any
+   * message over 1 MiB, and one long agent turn can hold megabytes.
+   */
+  readonly bytesBoundTurns?: boolean | undefined;
 };
 
 export type ThreadHistoryCursorPayload = {
@@ -199,7 +212,7 @@ function selectOlderTimelinePage<Row extends HistoryRow>(input: {
   readonly policy?: ThreadHistoryPagePolicy | undefined;
   readonly rowEncodedBytes?: ((row: Row) => number) | undefined;
 }): SelectTimelinePageResult<Row> {
-  const policy = input.policy ?? THREAD_HISTORY_PAGE_POLICY;
+  const policy: ThreadHistoryPagePolicy = input.policy ?? THREAD_HISTORY_PAGE_POLICY;
   const rowCost = input.rowEncodedBytes ?? projectedRowEncodedBytes;
   const end = Math.min(Math.max(input.exclusiveEndIndex, 0), input.items.length);
   if (end <= 0) {
@@ -215,14 +228,16 @@ function selectOlderTimelinePage<Row extends HistoryRow>(input: {
   const turnLimit = candidates.some((row) => isThreadHistoryUserTurn(row.item))
     ? policy.maxUserTurns
     : undefined;
+  const countBytes = turnLimit === undefined || policy.bytesBoundTurns === true;
   for (let index = end - 1; index >= 0; index -= 1) {
     const row = input.items[index]!;
-    const rowBytes = turnLimit === undefined ? rowCost(row) : 0;
+    const rowBytes = countBytes ? rowCost(row) : 0;
+    const overBytes = countBytes && encodedBytes + rowBytes > policy.maxEncodedBytes;
     if (
       selected.length > 0 &&
       (turnLimit === undefined
-        ? selected.length >= policy.maxItems || encodedBytes + rowBytes > policy.maxEncodedBytes
-        : userTurns >= turnLimit || rawTurns >= THREAD_HISTORY_MAX_RAW_TURNS)
+        ? selected.length >= policy.maxItems || overBytes
+        : userTurns >= turnLimit || rawTurns >= THREAD_HISTORY_MAX_RAW_TURNS || overBytes)
     ) {
       break;
     }
@@ -459,7 +474,7 @@ export function buildBoundedThreadProjection(input: {
   readonly snapshotSequence: number;
   readonly policy?: ThreadHistoryPagePolicy | undefined;
 }): BoundedProjectionResult {
-  const policy = input.policy ?? THREAD_HISTORY_PAGE_POLICY;
+  const policy: ThreadHistoryPagePolicy = input.policy ?? THREAD_HISTORY_PAGE_POLICY;
   const threadId = input.projection.thread.id;
   const controlProjection = {
     ...input.projection,
@@ -485,83 +500,104 @@ export function buildBoundedThreadProjection(input: {
     turnItems: [],
     visibleTurnItems: [],
   });
+  const assemble = (maxEncodedBytes: number) => {
+    const window = selectRecentTimelineWindow({
+      items: controlProjection.visibleTurnItems,
+      snapshotSequence: input.snapshotSequence,
+      policy: {
+        maxUserTurns: policy.maxUserTurns,
+        maxItems: policy.maxItems,
+        maxEncodedBytes,
+        bytesBoundTurns: true,
+      },
+      rowEncodedBytes: (row) => projectedRowBoundedSnapshotEncodedBytes(row, threadId),
+    });
+    const visibleTurnItems = renumberPositions(window.items);
+    const windowTurnItems = localTurnItemsForVisibleWindow(controlProjection, visibleTurnItems);
+    const dependencyTurnItems = retainedInterruptRequestTurnItems(
+      controlProjection,
+      visibleTurnItems,
+    );
+    const turnItemById = new Map<string, OrchestrationV2TurnItem>();
+    for (const item of windowTurnItems) {
+      turnItemById.set(String(item.id), item);
+    }
+    for (const item of dependencyTurnItems) {
+      turnItemById.set(String(item.id), item);
+    }
+    const turnItems = [...turnItemById.values()];
+
+    const visiblePlanIds = new Set(
+      turnItems.flatMap((item) =>
+        item.type === "proposed_plan" || item.type === "todo_list" ? [String(item.planId)] : [],
+      ),
+    );
+    const visibleHandoffIds = new Set(
+      turnItems.flatMap((item) => (item.type === "handoff" ? [String(item.contextHandoffId)] : [])),
+    );
+    const plans = input.projection.plans
+      .filter((plan) => plan.status === "active" || visiblePlanIds.has(String(plan.id)))
+      .map((plan) =>
+        plan.status === "active"
+          ? plan
+          : plan.kind === "proposed_plan"
+            ? { ...plan, markdown: "", detailInTurnItem: true as const }
+            : { ...plan, explanation: undefined, detailInTurnItem: true as const },
+      );
+    const contextHandoffs = input.projection.contextHandoffs
+      .filter(
+        (handoff) =>
+          handoff.status === "pending" ||
+          handoff.status === "ready" ||
+          visibleHandoffIds.has(String(handoff.id)),
+      )
+      .map((handoff) =>
+        handoff.status === "pending" || handoff.status === "ready"
+          ? handoff
+          : { ...handoff, summaryText: "", detailInTurnItem: true as const },
+      );
+
+    const projection = {
+      ...controlProjection,
+      plans,
+      contextHandoffs,
+      messages: messagesForBoundedProjection(controlProjection, turnItems),
+      turnItems,
+      visibleTurnItems,
+    };
+    return { window, projection, bytes: bytesOfJson(projection) };
+  };
+
   // Control state (checkpoint file lists, an active plan) cannot be paged, so it may claim at most
   // half the budget; past that the window would shrink to the one row every page admits.
-  const windowBudget = Math.max(
+  let windowBudget = Math.max(
     policy.maxEncodedBytes / 2,
     policy.maxEncodedBytes - dependencyReserve - controlBytes - 1_024,
   );
-  const windowPolicy: ThreadHistoryPagePolicy = {
-    maxUserTurns: policy.maxUserTurns,
-    maxItems: policy.maxItems,
-    maxEncodedBytes: windowBudget,
-  };
-
-  const window = selectRecentTimelineWindow({
-    items: controlProjection.visibleTurnItems,
-    snapshotSequence: input.snapshotSequence,
-    policy: windowPolicy,
-    rowEncodedBytes: (row) => projectedRowBoundedSnapshotEncodedBytes(row, threadId),
-  });
-  const visibleTurnItems = renumberPositions(window.items);
-  const windowTurnItems = localTurnItemsForVisibleWindow(controlProjection, visibleTurnItems);
-  const dependencyTurnItems = retainedInterruptRequestTurnItems(
-    controlProjection,
-    visibleTurnItems,
-  );
-  const turnItemById = new Map<string, OrchestrationV2TurnItem>();
-  for (const item of windowTurnItems) {
-    turnItemById.set(String(item.id), item);
-  }
-  for (const item of dependencyTurnItems) {
-    turnItemById.set(String(item.id), item);
-  }
-  const turnItems = [...turnItemById.values()];
-
-  const visiblePlanIds = new Set(
-    turnItems.flatMap((item) =>
-      item.type === "proposed_plan" || item.type === "todo_list" ? [String(item.planId)] : [],
-    ),
-  );
-  const visibleHandoffIds = new Set(
-    turnItems.flatMap((item) => (item.type === "handoff" ? [String(item.contextHandoffId)] : [])),
-  );
-  const plans = input.projection.plans
-    .filter((plan) => plan.status === "active" || visiblePlanIds.has(String(plan.id)))
-    .map((plan) =>
-      plan.status === "active"
-        ? plan
-        : plan.kind === "proposed_plan"
-          ? { ...plan, markdown: "", detailInTurnItem: true as const }
-          : { ...plan, explanation: undefined, detailInTurnItem: true as const },
+  let built = assemble(windowBudget);
+  // The window's estimate leaves out the messages it keeps, so measure what is sent and give the
+  // window back the overshoot. Shrinking only helps while control state itself fits.
+  for (
+    let attempt = 0;
+    attempt < 4 &&
+    built.bytes > THREAD_SNAPSHOT_MAX_WIRE_BYTES &&
+    built.projection.visibleTurnItems.length > 1 &&
+    controlBytes + dependencyReserve < THREAD_SNAPSHOT_MAX_WIRE_BYTES;
+    attempt += 1
+  ) {
+    windowBudget = Math.max(
+      1,
+      windowBudget - (built.bytes - THREAD_SNAPSHOT_MAX_WIRE_BYTES) - 16_384,
     );
-  const contextHandoffs = input.projection.contextHandoffs
-    .filter(
-      (handoff) =>
-        handoff.status === "pending" ||
-        handoff.status === "ready" ||
-        visibleHandoffIds.has(String(handoff.id)),
-    )
-    .map((handoff) =>
-      handoff.status === "pending" || handoff.status === "ready"
-        ? handoff
-        : { ...handoff, summaryText: "", detailInTurnItem: true as const },
-    );
-
-  const projection = {
-    ...controlProjection,
-    plans,
-    contextHandoffs,
-    messages: messagesForBoundedProjection(controlProjection, turnItems),
-    turnItems,
-    visibleTurnItems,
-  };
+    built = assemble(windowBudget);
+  }
+  const { window, projection } = built;
   return {
     projection,
     historyCursor: window.nextCursor,
     hasMoreHistory: window.hasMoreHistory,
     latestLocalTurnOrdinal,
     payloadBudgetExceeded:
-      controlBytes > policy.maxEncodedBytes || bytesOfJson(projection) > policy.maxEncodedBytes,
+      controlBytes > policy.maxEncodedBytes || built.bytes > policy.maxEncodedBytes,
   };
 }

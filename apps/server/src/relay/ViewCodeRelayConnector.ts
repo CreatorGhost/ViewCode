@@ -461,8 +461,16 @@ export const layer = Layer.effect(
                     target,
                     send,
                     onOversizedMessage: (details) => {
+                      // Its own short span puts the warning in server.trace.ndjson. Without
+                      // one it reached only the console (server-child.log on desktop): the
+                      // trace logger files messages under the current span, and the
+                      // connector's long-running fiber has none that ever ends.
                       runFork(
-                        Effect.logWarning("Quick connect WebSocket message too big", details),
+                        Effect.logWarning("Quick connect WebSocket message too big", details).pipe(
+                          Effect.withSpan("ViewCodeRelay.messageTooBig", {
+                            attributes: { ...details },
+                          }),
+                        ),
                       );
                     },
                   }),

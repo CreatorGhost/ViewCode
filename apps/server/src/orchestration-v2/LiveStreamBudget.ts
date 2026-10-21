@@ -9,6 +9,8 @@ import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
+import { RPC_STREAM_CHUNK_MAX_BYTES } from "../rpcChunkBudget.ts";
+
 export class LiveStreamBufferError extends Schema.TaggedError<LiveStreamBufferError>()(
   "LiveStreamBufferError",
   { message: Schema.String },
@@ -142,10 +144,14 @@ export const makeLiveStreamBudget = Effect.fn("makeLiveStreamBudget")(function* 
           pull: yield* Stream.toPull(stream).pipe(Scope.provide(sourceScope)),
         };
         let inFlight: ReadonlyArray<RetainedLiveItem<A>> = [];
+        // Pulled but not yet delivered: a backlog larger than one message waits here.
+        let pending: Array<RetainedLiveItem<A>> = [];
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => {
             release(inFlight);
+            release(pending);
             inFlight = [];
+            pending = [];
             source.pull = Effect.interrupt;
           }),
         );
@@ -180,10 +186,26 @@ export const makeLiveStreamBudget = Effect.fn("makeLiveStreamBudget")(function* 
           release(inFlight);
           inFlight = [];
           yield* check;
-          const items = yield* Effect.raceFirst(source.pull, Deferred.await(failed));
-          inFlight = items;
+          const items =
+            pending.length > 0
+              ? pending
+              : yield* Effect.raceFirst(source.pull, Deferred.await(failed));
+          // A reader that acknowledges slowly (a phone on mobile data) lets a
+          // backlog build up; each batch is one WebSocket message, and Quick
+          // connect's relay drops any message over 1 MiB.
+          let batchBytes = 0;
+          let batchLength = 0;
+          for (const item of items) {
+            if (batchLength > 0 && batchBytes + item.serializedBytes > RPC_STREAM_CHUNK_MAX_BYTES)
+              break;
+            batchBytes += item.serializedBytes;
+            batchLength += 1;
+          }
+          const batch = items.slice(0, batchLength);
+          pending = items.slice(batchLength);
+          inFlight = batch;
           yield* check;
-          return Arr.map(items, (item) => item.value);
+          return Arr.map(batch, (item) => item.value) as Arr.NonEmptyArray<A>;
         });
       }),
     ).pipe(Stream.scoped);
