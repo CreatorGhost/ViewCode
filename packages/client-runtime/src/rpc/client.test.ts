@@ -20,6 +20,7 @@ import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as TestClock from "effect/testing/TestClock";
 import { RpcClientError } from "effect/rpc";
+import * as Socket from "effect/socket/Socket";
 
 import {
   AVAILABLE_CONNECTION_STATE,
@@ -339,6 +340,65 @@ describe("environment RPC", () => {
 
       expect(subscriptions).toEqual(["first", "second"]);
       expect(yield* Ref.get(retryCount)).toBe(0);
+    }),
+  );
+
+  it.effect("holds back a subscription whose opening data was too big for the relay", () =>
+    Effect.gen(function* () {
+      const messageTooBig = new RpcClientError.RpcClientError({
+        reason: new Socket.SocketCloseError({
+          code: 1009,
+          closeReason: `Message too big: ${WS_METHODS.subscribeTerminalEvents}`,
+        }),
+      });
+      const subscriptions: string[] = [];
+      const heldBack = yield* Ref.make(0);
+      const makeClient = (name: string) =>
+        ({
+          [WS_METHODS.subscribeTerminalEvents]: () => {
+            subscriptions.push(name);
+            return name === "second" ? Stream.never : Stream.fail(messageTooBig);
+          },
+          // Already live when the socket closed: an innocent bystander.
+          [WS_METHODS.subscribeServerLifecycle]: () => {
+            subscriptions.push(`${name}:lifecycle`);
+            return Stream.make({ type: "welcome" }).pipe(
+              Stream.concat(name === "first" ? Stream.fail(messageTooBig) : Stream.never),
+            );
+          },
+        }) as unknown as WsRpcProtocolClient;
+      const { activeSession, supervisor } = yield* makeHarness();
+
+      const fibers = yield* Effect.all([
+        subscribe(
+          WS_METHODS.subscribeTerminalEvents,
+          {},
+          { onMessageTooBig: Ref.update(heldBack, (count) => count + 1) },
+        ).pipe(Stream.runDrain, Effect.forkChild),
+        subscribe(
+          WS_METHODS.subscribeServerLifecycle,
+          {},
+          { onMessageTooBig: Effect.die("not this one") },
+        ).pipe(Stream.runDrain, Effect.forkChild),
+      ]).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+      yield* SubscriptionRef.set(activeSession, Option.some(session(makeClient("first"))));
+      for (let attempt = 0; attempt < 100 && subscriptions.length < 2; attempt += 1) {
+        yield* Effect.yieldNow;
+      }
+      // The socket comes back: the bystander resubscribes, the oversized one waits.
+      yield* SubscriptionRef.set(activeSession, Option.some(session(makeClient("second"))));
+      for (let attempt = 0; attempt < 100 && subscriptions.length < 3; attempt += 1) {
+        yield* Effect.yieldNow;
+      }
+      expect(yield* Ref.get(heldBack)).toBe(1);
+      expect(subscriptions).toEqual(["first", "first:lifecycle", "second:lifecycle"]);
+
+      yield* TestClock.adjust("60 seconds");
+      for (let attempt = 0; attempt < 100 && subscriptions.length < 4; attempt += 1) {
+        yield* Effect.yieldNow;
+      }
+      expect(subscriptions.at(-1)).toBe("second");
+      yield* Effect.forEach(fibers, Fiber.interrupt);
     }),
   );
 
