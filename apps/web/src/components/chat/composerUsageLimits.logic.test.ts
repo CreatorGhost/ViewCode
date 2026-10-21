@@ -11,7 +11,6 @@ import {
   contextSegments,
   formatBankedResets,
   formatContextHeadline,
-  formatContextWindowSummary,
   formatTokenCount,
   formatUsageReset,
   formatUsedPercent,
@@ -231,11 +230,6 @@ describe("context window formatting", () => {
     expect(formatTokenCount(999_990)).toBe("1M");
     expect(formatTokenCount(1_200_000)).toBe("1.2M");
   });
-
-  it("summarises used against the window with its percent", () => {
-    expect(formatContextWindowSummary(19_700, 258_400)).toBe("19.7k / 258.4k (8%)");
-    expect(formatContextWindowSummary(19_700, null)).toBe("19.7k");
-  });
 });
 
 describe("resolveUsageRing", () => {
@@ -310,7 +304,7 @@ describe("contextSegments", () => {
       }),
     ).toEqual({ used: 10, free: null, reserved: null, untilAutoCompact: null });
   });
-  it("never reports negative space once the thread passes the threshold", () => {
+  it("gives the reserve up to what is used once the thread passes the threshold", () => {
     expect(
       contextSegments({
         usedTokens: 980,
@@ -318,7 +312,7 @@ describe("contextSegments", () => {
         autoCompactThreshold: 900,
         compactsAutomatically: true,
       }),
-    ).toEqual({ used: 980, free: 0, reserved: 100, untilAutoCompact: 0 });
+    ).toEqual({ used: 980, free: 0, reserved: 20, untilAutoCompact: 0 });
   });
 });
 

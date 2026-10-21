@@ -132,6 +132,7 @@ function UsageCardPreview() {
           compactDisabled={compacting}
           compactDisabledReason={null}
           compacting={compacting}
+          threadKey="preview"
         />
       </div>
     </div>

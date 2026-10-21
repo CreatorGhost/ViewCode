@@ -74,6 +74,8 @@ export const ComposerUsageLimitsPopover = memo(function ComposerUsageLimitsPopov
   compactDisabledReason: string | null;
   /** A compaction the thread is running right now, from this card or `/compact`. */
   compacting: boolean;
+  /** Identifies the thread the readings belong to, so a switch resets the card. */
+  threadKey: string;
 }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [open, setOpen] = useState(false);
@@ -143,7 +145,7 @@ export const ComposerUsageLimitsPopover = memo(function ComposerUsageLimitsPopov
       >
         {open ? (
           <UsageLimitsPanel
-            key={`${props.environmentId}:${leadEntry.instanceId}`}
+            key={`${props.environmentId}:${leadEntry.instanceId}:${props.threadKey}`}
             environmentId={props.environmentId}
             leadEntry={leadEntry}
             contextWindow={props.contextWindow}
@@ -182,23 +184,35 @@ function UsageLimitsPanel(props: {
   // Reset times read from the moment the panel opened; a ticking clock would repaint it.
   const now = openedAt;
 
-  // A compaction started while this card is open reports what it freed once the
-  // next context reading lands, so the number comes from the readings, not a guess.
+  // A compaction started while this card is open counts as done only once a
+  // lower reading lands, and the freed amount is fixed at that first reading: the
+  // compacting flag also drops when a run fails or is stopped, and later turns
+  // would otherwise erode the number.
   const [compactionRun, setCompactionRun] = useState<{
     compacting: boolean;
     usedBefore: number | null;
-  }>({ compacting: false, usedBefore: null });
+    freed: number | null;
+  }>({ compacting: false, usedBefore: null, freed: null });
   if (compacting !== compactionRun.compacting) {
     setCompactionRun({
       compacting,
       usedBefore: compacting ? (contextWindow?.usedTokens ?? null) : compactionRun.usedBefore,
+      freed: null,
+    });
+  } else if (
+    !compacting &&
+    compactionRun.usedBefore !== null &&
+    contextWindow &&
+    contextWindow.usedTokens < compactionRun.usedBefore
+  ) {
+    setCompactionRun({
+      compacting: false,
+      usedBefore: null,
+      freed: compactionRun.usedBefore - contextWindow.usedTokens,
     });
   }
-  const compacted = !compacting && compactionRun.usedBefore !== null;
-  const freedTokens =
-    compacted && contextWindow && contextWindow.usedTokens < compactionRun.usedBefore!
-      ? compactionRun.usedBefore! - contextWindow.usedTokens
-      : null;
+  const freedTokens = compacting ? null : compactionRun.freed;
+  const compacted = freedTokens !== null;
 
   const segments = contextWindow
     ? contextSegments({
@@ -216,16 +230,16 @@ function UsageLimitsPanel(props: {
     segments === null
       ? null
       : segments.untilAutoCompact !== null
-        ? `${formatTokenCount(segments.untilAutoCompact)} until auto-compact`
+        ? segments.untilAutoCompact > 0
+          ? `${formatTokenCount(segments.untilAutoCompact)} until auto-compact`
+          : "At the auto-compact threshold"
         : contextWindow?.compactsAutomatically
           ? "Compacts automatically when needed"
           : null;
   const footerNote = compacting
     ? "Summarizing messages"
-    : compacted
-      ? freedTokens !== null
-        ? `Freed ${formatTokenCount(freedTokens)} tokens`
-        : "Context compacted"
+    : freedTokens !== null
+      ? `Freed ${formatTokenCount(freedTokens)} tokens`
       : autoCompactNote;
   const showFooter = props.onCompact !== undefined || footerNote !== null;
 
@@ -342,6 +356,7 @@ function UsageLimitsPanel(props: {
             {props.onCompact &&
             props.compactDisabled &&
             !compacting &&
+            !compacted &&
             props.compactDisabledReason ? (
               <p className="text-muted-foreground text-2xs">{props.compactDisabledReason}</p>
             ) : null}
@@ -443,7 +458,10 @@ function UsageSectionView(props: {
 }) {
   const { section, entry } = props;
   return (
-    <section className="flex flex-col gap-3 px-4 py-3" aria-label={section.title}>
+    <section
+      className="flex flex-col gap-3 px-4 py-3"
+      aria-label={providerTitle(entry.displayName, entry.snapshot.auth.label)}
+    >
       <div className="flex items-center gap-2">
         <ProviderInstanceIcon
           driverKind={entry.driverKind}

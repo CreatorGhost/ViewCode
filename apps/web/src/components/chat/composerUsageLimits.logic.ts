@@ -45,7 +45,7 @@ export function usageTone(usedPercent: number): UsageTone {
 }
 
 export { formatUsedPercent, orderUsageWindows } from "@t3tools/shared/usagePace";
-import { formatUsedPercent, orderUsageWindows } from "@t3tools/shared/usagePace";
+import { orderUsageWindows } from "@t3tools/shared/usagePace";
 
 /** A full all-model week takes precedence over a newly reset session. */
 export function planUsageWindow(
@@ -178,12 +178,6 @@ export function formatTokenCount(tokens: number): string {
   return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
 }
 
-/** `19.7k / 258.4k (8%)`, or just the tokens used when the window size is unknown. */
-export function formatContextWindowSummary(usedTokens: number, maxTokens: number | null): string {
-  if (maxTokens === null || maxTokens <= 0) return formatTokenCount(usedTokens);
-  return `${formatTokenCount(usedTokens)} / ${formatTokenCount(maxTokens)} (${formatUsedPercent((usedTokens / maxTokens) * 100)})`;
-}
-
 /** The send-button ring warns earlier than the plan bars: amber from 80%, red from 95%. */
 export function usageRingTone(percent: number): UsageTone {
   if (percent >= 95) return "critical";
@@ -236,7 +230,11 @@ export function contextSegments(snapshot: {
     snapshot.autoCompactThreshold > 0
       ? snapshot.autoCompactThreshold
       : null;
-  const reserved = max !== null && threshold !== null && threshold < max ? max - threshold : null;
+  // Past the threshold the reserve gives way to what is used, so the blocks still sum to the window.
+  const reserved =
+    max !== null && threshold !== null && threshold < max
+      ? Math.max(0, Math.min(max - threshold, max - used))
+      : null;
   return {
     used,
     free: max === null ? null : Math.max(0, max - used - (reserved ?? 0)),
