@@ -122,7 +122,7 @@ function UsageCardPreview() {
           Near limit
         </Button>
       </div>
-      <div className="flex h-14 w-full max-w-2xl items-center justify-end gap-1 rounded-3xl border border-border bg-popover px-3">
+      <div className="flex h-14 w-144 max-w-full items-center justify-end gap-1 rounded-3xl border border-border bg-popover px-3">
         <ComposerUsageLimitsPopover
           environmentId={EnvironmentId.make("env-local")}
           leadInstanceId={entry.instanceId}
