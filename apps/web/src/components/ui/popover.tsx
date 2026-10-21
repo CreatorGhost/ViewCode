@@ -40,7 +40,9 @@ const popoverViewportPaddingClassName = {
 const popoverPopupVariantClassName = {
   default: "rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]",
   panel: "rounded-xl before:rounded-[calc(var(--radius-xl)-1px)]",
-  floating: "rounded-3xl before:rounded-[calc(var(--radius-3xl)-1px)]",
+  // Grows from its caret as it fades in, so the card reads as coming out of the pill.
+  floating:
+    "rounded-3xl before:rounded-[calc(var(--radius-3xl)-1px)] transition-[width,height,translate,scale,opacity] motion-safe:data-starting-style:scale-[0.96] motion-safe:data-ending-style:scale-[0.98]",
 } as const;
 
 function PopoverPopup({

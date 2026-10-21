@@ -65,6 +65,9 @@ const buttonVariants = cva(
         // Solid foreground disc/pill: the composer send and stop actions.
         "primary-solid":
           "[--control-icon-color:currentColor] border-transparent bg-foreground text-background shadow-xs [:hover,[data-pressed]]:bg-foreground/85 disabled:bg-foreground/12 disabled:text-foreground/40 disabled:opacity-100 disabled:shadow-none",
+        // A tinted primary pill for a card's one soft call to action (the usage card's Compact).
+        "primary-soft":
+          "[--control-icon-color:currentColor] border-transparent bg-primary/10 text-primary [:hover,[data-pressed]]:bg-primary/16 dark:bg-primary/16 dark:[:hover,[data-pressed]]:bg-primary/24 disabled:bg-foreground/6 disabled:text-muted-foreground disabled:opacity-100",
         "ghost-destructive":
           "[--control-icon-color:currentColor] border-transparent text-muted-foreground data-pressed:bg-accent [:hover,[data-pressed]]:bg-accent [:hover,[data-pressed]]:text-destructive",
         glass:

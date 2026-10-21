@@ -632,3 +632,34 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   resize: none;
   min-height: 3.5rem;
 }
+
+/* Composer usage card: while a compaction runs, the context bar's used block
+   carries moving stripes. The stripe sheet is one period wider than the block
+   and slides with `transform`, so it runs on the compositor, only while the
+   card is open and a compaction is in flight. Static under reduced motion. */
+[data-context-segment="used"][data-compacting] {
+  position: relative;
+}
+[data-context-segment="used"][data-compacting]::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(100% + 16px);
+  /* 45° stripes with an 11.31px period read as a 16px period along x. */
+  background: repeating-linear-gradient(
+    45deg,
+    transparent 0 5.657px,
+    rgb(255 255 255 / 0.4) 5.657px 11.314px
+  );
+  animation: viewcode-context-stripes 0.6s linear infinite;
+}
+@keyframes viewcode-context-stripes {
+  to {
+    transform: translateX(-16px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-context-segment="used"][data-compacting]::after {
+    animation-name: none;
+  }
+}

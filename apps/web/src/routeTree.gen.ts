@@ -33,6 +33,7 @@ import { Route as SettingsArchivedRouteImport } from './routes/settings.archived
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as DevUsageLimitsRouteImport } from './routes/dev.usage-limits'
+import { Route as DevUsageCardRouteImport } from './routes/dev.usage-card'
 import { Route as DevPrFlowRouteImport } from './routes/dev.pr-flow'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as ChatNewRouteImport } from './routes/_chat.new'
@@ -159,6 +160,11 @@ const DevUsageLimitsRoute = DevUsageLimitsRouteImport.update({
   path: '/dev/usage-limits',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DevUsageCardRoute = DevUsageCardRouteImport.update({
+  id: '/dev/usage-card',
+  path: '/dev/usage-card',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DevPrFlowRoute = DevPrFlowRouteImport.update({
   id: '/dev/pr-flow',
   path: '/dev/pr-flow',
@@ -197,6 +203,7 @@ export interface FileRoutesByFullPath {
   '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/dev/pr-flow': typeof DevPrFlowRoute
+  '/dev/usage-card': typeof DevUsageCardRoute
   '/dev/usage-limits': typeof DevUsageLimitsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -226,6 +233,7 @@ export interface FileRoutesByTo {
   '/new': typeof ChatNewRoute
   '/pull-requests': typeof ChatPullRequestsRoute
   '/dev/pr-flow': typeof DevPrFlowRoute
+  '/dev/usage-card': typeof DevUsageCardRoute
   '/dev/usage-limits': typeof DevUsageLimitsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -258,6 +266,7 @@ export interface FileRoutesById {
   '/_chat/new': typeof ChatNewRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRoute
   '/dev/pr-flow': typeof DevPrFlowRoute
+  '/dev/usage-card': typeof DevUsageCardRoute
   '/dev/usage-limits': typeof DevUsageLimitsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -291,6 +300,7 @@ export interface FileRouteTypes {
     | '/new'
     | '/pull-requests'
     | '/dev/pr-flow'
+    | '/dev/usage-card'
     | '/dev/usage-limits'
     | '/projects/$projectKey'
     | '/settings/appearance'
@@ -320,6 +330,7 @@ export interface FileRouteTypes {
     | '/new'
     | '/pull-requests'
     | '/dev/pr-flow'
+    | '/dev/usage-card'
     | '/dev/usage-limits'
     | '/projects/$projectKey'
     | '/settings/appearance'
@@ -351,6 +362,7 @@ export interface FileRouteTypes {
     | '/_chat/new'
     | '/_chat/pull-requests'
     | '/dev/pr-flow'
+    | '/dev/usage-card'
     | '/dev/usage-limits'
     | '/projects/$projectKey'
     | '/settings/appearance'
@@ -381,6 +393,7 @@ export interface RootRouteChildren {
   UsageRoute: typeof UsageRoute
   WelcomeRoute: typeof WelcomeRoute
   DevPrFlowRoute: typeof DevPrFlowRoute
+  DevUsageCardRoute: typeof DevUsageCardRoute
   DevUsageLimitsRoute: typeof DevUsageLimitsRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
 }
@@ -555,6 +568,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DevUsageLimitsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dev/usage-card': {
+      id: '/dev/usage-card'
+      path: '/dev/usage-card'
+      fullPath: '/dev/usage-card'
+      preLoaderRoute: typeof DevUsageCardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dev/pr-flow': {
       id: '/dev/pr-flow'
       path: '/dev/pr-flow'
@@ -658,6 +678,7 @@ const rootRouteChildren: RootRouteChildren = {
   UsageRoute: UsageRoute,
   WelcomeRoute: WelcomeRoute,
   DevPrFlowRoute: DevPrFlowRoute,
+  DevUsageCardRoute: DevUsageCardRoute,
   DevUsageLimitsRoute: DevUsageLimitsRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
 }

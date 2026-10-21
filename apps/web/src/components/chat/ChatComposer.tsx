@@ -7580,6 +7580,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       leadInstanceId={selectedInstanceId}
                       instanceEntries={providerInstanceEntries}
                       contextWindow={activeContextWindow}
+                      compactDisabled={
+                        compactDisabled ||
+                        noProviderAvailable ||
+                        isSendBusy ||
+                        isConnecting ||
+                        phase === "running"
+                      }
+                      compactDisabledReason={resolvedCompactDisabledReason}
+                      compacting={isCompacting}
+                      {...(compactCommandAvailable
+                        ? { onCompact: compactThreadContextStable }
+                        : {})}
                     />
                   )}
                   <ComposerFooterPrimaryActions

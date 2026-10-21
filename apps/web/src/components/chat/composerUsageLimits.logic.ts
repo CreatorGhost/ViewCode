@@ -207,3 +207,55 @@ export function resolveUsageRing(input: {
   }
   return null;
 }
+
+/**
+ * The context bar's segments in tokens: what the thread holds, what is still
+ * free, and what the provider keeps back for auto-compaction. `free` and
+ * `reserved` are null when the window size is unknown; `reserved` also when the
+ * provider does not report an auto-compact threshold below the window size.
+ */
+export type ContextSegments = {
+  used: number;
+  free: number | null;
+  reserved: number | null;
+  /** Tokens left before auto-compaction triggers, when the provider reports it. */
+  untilAutoCompact: number | null;
+};
+
+export function contextSegments(snapshot: {
+  usedTokens: number;
+  maxTokens: number | null;
+  autoCompactThreshold: number | null;
+  compactsAutomatically: boolean | null;
+}): ContextSegments {
+  const used = Math.max(0, snapshot.usedTokens);
+  const max = snapshot.maxTokens !== null && snapshot.maxTokens > 0 ? snapshot.maxTokens : null;
+  const threshold =
+    snapshot.compactsAutomatically !== false &&
+    snapshot.autoCompactThreshold !== null &&
+    snapshot.autoCompactThreshold > 0
+      ? snapshot.autoCompactThreshold
+      : null;
+  const reserved = max !== null && threshold !== null && threshold < max ? max - threshold : null;
+  return {
+    used,
+    free: max === null ? null : Math.max(0, max - used - (reserved ?? 0)),
+    reserved,
+    untilAutoCompact: threshold === null ? null : Math.max(0, threshold - used),
+  };
+}
+
+/** `604.1k of 1M`, or `604.1k used` when the window size is unknown. */
+export function formatContextHeadline(usedTokens: number, maxTokens: number | null): string {
+  if (maxTokens === null || maxTokens <= 0) return `${formatTokenCount(usedTokens)} used`;
+  return `${formatTokenCount(usedTokens)} of ${formatTokenCount(maxTokens)}`;
+}
+
+/** `Session limit`, `Weekly limit`; a model bucket such as `Weekly · Fable` keeps its label. */
+export function usageWindowTitle(
+  window: Pick<ServerProviderUsageWindow, "kind" | "label">,
+): string {
+  if (window.kind === "session") return "Session limit";
+  if (/^[A-Za-z0-9-]+$/.test(window.label)) return `${window.label} limit`;
+  return window.label;
+}
