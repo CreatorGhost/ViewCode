@@ -10,8 +10,8 @@ remain the authority for the native runtime.
 ViewCode follows upstream by ordinary `git merge` again. The v2 port merges
 `13aa882c22d584de5388dfce3b3ca413387ba059` (0.1.0), replacing the cherry-pick-only
 policy used after common base `024d49520`. The latest merge includes upstream
-`8f026485df097cca71f80218a514f4d2e13bbf43`. Future updates start with
-`git fetch upstream main` and merge on a review branch. See
+`8f026485df097cca71f80218a514f4d2e13bbf43`. Every update follows
+[Merging upstream T3 Code](../operations/upstream-merge.md); conflict policy is in
 [NEXT_AGENT.md](../NEXT_AGENT.md#staying-mergeable-with-upstream-t3-code).
 
 Keep upstream names, directories, commands, events and provider contracts.
@@ -1205,11 +1205,13 @@ uses the optional installation package identity and preserves `viewcode-app`.
 ## Traps (things that cost hours)
 
 - **Upstream merges drop ViewCode fixes without a conflict** when upstream
-  rewrites or deletes the file a fix lived in. The upstream 0.1.0 merge
-  (`58e4b0a77`) removed the 1 MiB workspace-catalog guard from `ws.ts` and
-  deleted `server.test.ts`, the test that guarded it. After a merge, check that
-  ViewCode's regression tests and the code they guard still exist, not only that
-  the merge is clean; upstream does not test against Quick connect's limits.
+  rewrites or deletes the file a fix lived in, and a ViewCode case inside an
+  upstream test file goes with it: `58e4b0a77` lost the 1 MiB catalog guard in
+  `ws.ts` together with `server.test.ts`. Guard ViewCode behaviour in
+  upstream-owned code with a `*.viewcode.test.ts(x)` beside it, which upstream
+  never has, and merge by [the procedure](../operations/upstream-merge.md). A guard
+  covers a function, not its call sites: wiring in a rewritten upstream file still
+  needs the review the merge check lists.
 
 - **Running as root in a sandbox:** Claude refuses `bypassPermissions` as root;
   start the isolated test server with `IS_SANDBOX=1` when that sandbox requires it.
