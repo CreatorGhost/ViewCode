@@ -19,6 +19,24 @@ import * as ProviderHost from "./ProviderHost.ts";
 import { applyUsageLimitsUpdate, resolveUsageLimitsAfterProbe } from "./usageLimits.ts";
 import type { ManagedServerProvider } from "./snapshot.ts";
 
+/**
+ * Every provider is probed at once when the server starts, so a slow CLI can miss its probe
+ * timeout and come back with no verdict (Codex "timed out", Grok's login unread, so no usage).
+ * Left alone that sticks until the next health interval, minutes later, and the rail shows no
+ * ring until the user toggles the provider. An inconclusive startup probe is retried shortly
+ * instead, a bounded number of times.
+ */
+const STARTUP_RETRY_DELAYS = [Duration.seconds(15), Duration.seconds(60)] as const;
+
+/** Enabled and installed, yet the probe could not tell whether it works or who is signed in. */
+function isInconclusiveProbe(snapshot: ServerProvider): boolean {
+  return (
+    snapshot.enabled &&
+    snapshot.installed &&
+    (snapshot.status === "error" || snapshot.auth.status === "unknown")
+  );
+}
+
 interface ProviderSnapshotState {
   readonly snapshot: ServerProvider;
   readonly enrichmentGeneration: number;
@@ -285,10 +303,21 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     ),
   ).pipe(Effect.forkScoped);
 
-  yield* applySnapshot(initialSettings, { forceRefresh: true }).pipe(
-    Effect.ignoreCause({ log: true }),
-    Effect.forkScoped,
-  );
+  yield* Effect.gen(function* () {
+    let snapshot = yield* applySnapshot(initialSettings, { forceRefresh: true });
+    // A provider that opts out of re-probing (OpenCode, whose sign-in is often unknown by
+    // design) is left alone, and like interval refreshes a retry waits for status demand.
+    if (input.refreshOnInterval === false) return;
+    for (const delay of STARTUP_RETRY_DELAYS) {
+      if (!isInconclusiveProbe(snapshot)) return;
+      yield* Effect.sleep(delay);
+      // A refresh that landed meanwhile (settings change, interval, manual) may have settled it.
+      const current = yield* Ref.get(snapshotStateRef);
+      if (!isInconclusiveProbe(current.snapshot)) return;
+      if (!(yield* hasProviderStatusDemand)) return;
+      snapshot = yield* refreshSnapshot();
+    }
+  }).pipe(Effect.ignoreCause({ log: true }), Effect.forkScoped);
 
   return {
     resolveMaintenance: input.resolveMaintenance,
