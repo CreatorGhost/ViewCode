@@ -139,11 +139,15 @@ export function codexMainAllowance(input: {
 }): CodexRateLimitSnapshot {
   const buckets = input.rateLimitsByLimitId;
   if (buckets?.codex) return buckets.codex;
+  if (!input.snapshot.limitId || input.snapshot.limitId === "codex") return input.snapshot;
   const first = buckets ? Object.values(buckets)[0] : undefined;
   if (!first) return input.snapshot;
-  // Drop the id so the row filter does not throw the fallback away.
+  // Drop the id so the row filter does not throw the fallback away; the plan type decides
+  // whether a lone window is monthly, so it carries over from the snapshot when missing.
   const { limitId: _ignored, ...rest } = first;
-  return rest;
+  return rest.planType === undefined && input.snapshot.planType !== undefined
+    ? { ...rest, planType: input.snapshot.planType }
+    : rest;
 }
 
 export function codexRateLimitsToUpdate(

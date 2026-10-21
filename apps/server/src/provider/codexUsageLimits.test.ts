@@ -116,6 +116,25 @@ describe("codexRateLimitsToLimits", () => {
     ]);
   });
 
+  it("keeps a main snapshot over a foreign bucket", () => {
+    const spark = { limitId: "codex_bengalfox", secondary: { usedPercent: 90 } };
+    expect(
+      codexRateLimitsToLimits({
+        checkedAt,
+        snapshot: { primary: { usedPercent: 12, windowDurationMins: 300 } },
+        rateLimitsByLimitId: { codex_bengalfox: spark },
+      }).windows,
+    ).toEqual([
+      {
+        id: "primary",
+        kind: "session",
+        label: "Session",
+        usedPercent: 12,
+        windowDurationMins: 300,
+      },
+    ]);
+  });
+
   it.each([undefined, null, {}])(
     "supports legacy reads with no bucket map: %j",
     (rateLimitsByLimitId) => {

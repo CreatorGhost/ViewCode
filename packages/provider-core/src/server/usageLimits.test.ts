@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  applyUsageLimitsUpdate,
-  EMPTY_READ_NOTE,
-  resolveUsageLimitsAfterProbe,
-} from "./usageLimits.ts";
+import { applyUsageLimitsUpdate, resolveUsageLimitsAfterProbe } from "./usageLimits.ts";
 
 const checkedAt = "2026-09-03T12:00:00.000Z";
 const session = {
@@ -105,17 +101,31 @@ describe("resolveUsageLimitsAfterProbe", () => {
     expect(resolveUsageLimitsAfterProbe({ published: undefined, probed: failed })).toBe(failed);
   });
 
-  it("keeps existing windows through an empty successful read, and says so", () => {
+  it("keeps existing windows through an empty successful read", () => {
     const empty = { checkedAt: "2026-09-03T12:10:00.000Z", windows: [] };
-    const kept = { ...published, refreshError: EMPTY_READ_NOTE };
-    expect(resolveUsageLimitsAfterProbe({ published, probed: empty })).toEqual(kept);
+    expect(resolveUsageLimitsAfterProbe({ published, probed: empty })).toEqual(published);
     expect(
       resolveUsageLimitsAfterProbe({
         published: { ...published, refreshError: "x" },
         probed: empty,
       }),
-    ).toEqual(kept);
+    ).toEqual(published);
     expect(resolveUsageLimitsAfterProbe({ published: undefined, probed: empty })).toBe(empty);
+  });
+
+  it("drops a kept window whose reset has passed, and all of them once none is live", () => {
+    const empty = { checkedAt: "2026-09-03T12:10:00.000Z", windows: [] };
+    const past = { ...published.windows[0]!, id: "past", resetsAt: "2026-09-03T12:00:00.000Z" };
+    const future = { ...published.windows[0]!, id: "future", resetsAt: "2026-09-04T12:00:00.000Z" };
+    expect(
+      resolveUsageLimitsAfterProbe({
+        published: { ...published, windows: [past, future] },
+        probed: empty,
+      })?.windows,
+    ).toEqual([future]);
+    expect(
+      resolveUsageLimitsAfterProbe({ published: { ...published, windows: [past] }, probed: empty }),
+    ).toBe(empty);
   });
 
   it("keeps the original reading time across failures and clears the warning on recovery", () => {
