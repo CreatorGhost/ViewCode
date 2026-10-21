@@ -867,8 +867,10 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
 - The tab strip is per project, like the rail and the sidebar. `threadTabsStore` still keeps
   one list per environment (a tab on another machine never shows here), and
   `OpenThreadTabs` shows the tabs that share the active thread's project; the strip shows
-  six and folds the rest into a "+N" menu, the active tab always among the six. Every open
-  thread across projects in one strip was unreadable past a handful (user decision).
+  as many as fit its measured width, at most six, and folds the rest into a "+N" menu, the
+  active tab always shown; with no room for a tab and the menu it draws the active tab alone.
+  Tabs were cut at the strip's edge when a panel narrowed the chat column. Every open thread
+  across projects in one strip was unreadable past a handful (user decision).
   The ViewCode default ("Obsidian", id `viewcode-teal`) is one neutral black family with no
   cast: window `#080808`, sheet `#0e0e0e`, raised `#161616`. Separation comes from hairlines and
   the composer, which is the one raised card; teal sits only on actions. Its light half is warm

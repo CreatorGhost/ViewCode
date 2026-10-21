@@ -13,6 +13,7 @@ import {
   stepRecentSelection,
   threadTabTitle,
   touchRecentView,
+  threadTabsThatFit,
   visibleThreadTabs,
 } from "./threadTabs.logic";
 
@@ -152,5 +153,15 @@ describe("visibleThreadTabs", () => {
       visible: ["a", "b", "c", "d", "e", "h"],
       overflow: ["f", "g"],
     });
+  });
+});
+
+describe("threadTabsThatFit", () => {
+  it("folds tabs into the menu as the strip narrows, down to the active tab alone", () => {
+    expect(threadTabsThatFit(1000)).toBe(6);
+    expect(threadTabsThatFit(344)).toBe(3);
+    expect(threadTabsThatFit(144)).toBe(1);
+    expect(threadTabsThatFit(123)).toBe(0);
+    expect(threadTabsThatFit(0)).toBe(6);
   });
 });

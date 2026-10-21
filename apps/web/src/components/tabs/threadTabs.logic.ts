@@ -54,6 +54,27 @@ export function projectThreadTabs(
 /** The strip shows this many tabs; the rest wait in its overflow menu. */
 export const MAX_VISIBLE_THREAD_TABS = 6;
 
+/** A tab's minimum width (`min-w-24`) plus the strip's gap, and the "+N" button's room. */
+const THREAD_TAB_SLOT_PX = 96 + 4;
+const THREAD_TAB_OVERFLOW_PX = 44;
+
+/**
+ * How many tabs the strip can show in `width` pixels before the rest fold into the "+N" menu,
+ * at most the cap; 0 when not even one tab and the menu fit, so the strip draws the active
+ * tab alone. Tabs that did not fit used to be cut at the strip's edge when a panel narrowed the
+ * chat column. An unknown width (0) folds nothing.
+ */
+export function threadTabsThatFit(width: number): number {
+  if (!Number.isFinite(width) || width <= 0) return MAX_VISIBLE_THREAD_TABS;
+  return Math.max(
+    0,
+    Math.min(
+      MAX_VISIBLE_THREAD_TABS,
+      Math.floor((width - THREAD_TAB_OVERFLOW_PX) / THREAD_TAB_SLOT_PX),
+    ),
+  );
+}
+
 /**
  * Splits a project's tabs into the ones the strip shows and the ones its overflow menu holds.
  * The active tab is always shown: past the cap it takes the last visible slot.

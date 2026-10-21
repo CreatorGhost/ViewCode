@@ -6,8 +6,9 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { Atom } from "effect/reactivity";
 import { ChevronDownIcon, XIcon } from "lucide-react";
 import { Menu, MenuItem, MenuItemLabel, MenuPopup, MenuTrigger } from "../ui/menu";
-import { memo, useEffect, useLayoutEffect, useRef } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 import { environmentCatalog } from "../../connection/catalog";
 import { isEditableFocused } from "../../lib/editableFocus";
@@ -35,6 +36,8 @@ import {
   projectThreadTabs,
   resolveThreadTabCommand,
   threadTabTitle,
+  MAX_VISIBLE_THREAD_TABS,
+  threadTabsThatFit,
   visibleThreadTabs,
 } from "./threadTabs.logic";
 
@@ -217,7 +220,8 @@ const TabItem = memo(function TabItem(props: {
       }}
       className={cn(
         "group/tab relative flex h-7 max-w-56 cursor-pointer items-center gap-1.5 rounded-lg pr-1 pl-2 text-xs outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        props.alone ? "min-w-0 shrink" : "min-w-24 shrink-0",
+        // Tabs give way to their minimum before the strip folds them.
+        props.alone ? "min-w-0 shrink" : "min-w-24 shrink",
         props.active
           ? "bg-foreground/10 text-foreground"
           : "text-muted-foreground hover:bg-foreground/6 hover:text-foreground",
@@ -289,6 +293,17 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
   const shells = useThreadShells();
   const visited = useUiStateStore((state) => state.threadLastVisitedAtById);
   const scroller = useRef<HTMLDivElement>(null);
+  // How many tabs the strip has room for, from its container's width; the rest fold into
+  // the "+N" menu instead of being cut at the strip's edge.
+  const [fit, setFit] = useState(MAX_VISIBLE_THREAD_TABS);
+  useLayoutEffect(() => {
+    const container = scroller.current?.parentElement;
+    if (!container) return;
+    return observeResize(container, ([entry]) => {
+      const next = threadTabsThatFit(entry?.contentRect.width ?? 0);
+      setFit((current) => (current === next ? current : next));
+    });
+  }, []);
   // A custom instance id says nothing about its driver, so the glyph comes from the provider list.
   const providers = useAtomValue(primaryServerProvidersAtom);
   const driverByInstance = new Map(
@@ -320,10 +335,11 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
   const projectTabs = projectThreadTabs(tabs ?? [], activeKey, byKey);
   const showList =
     !props.paneOnly &&
+    fit > 0 &&
     projectTabs.length >= 2 &&
     activeKey !== null &&
     projectTabs.includes(activeKey);
-  const { visible, overflow } = visibleThreadTabs(projectTabs, activeKey);
+  const { visible, overflow } = visibleThreadTabs(projectTabs, activeKey, fit);
 
   const select = (key: string) => {
     const ref = parseScopedThreadKey(key);
@@ -350,6 +366,7 @@ export const OpenThreadTabs = memo(function OpenThreadTabs(props: {
       <div
         role="tablist"
         aria-label="Open threads"
+        ref={scroller}
         className="flex min-w-0 items-center overflow-hidden [-webkit-app-region:no-drag]"
       >
         <TabItem
