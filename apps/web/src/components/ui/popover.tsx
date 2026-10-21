@@ -160,6 +160,7 @@ function PopoverTitle({ className, ...props }: PopoverPrimitive.Title.Props) {
 }
 
 export {
+  popoverPopupVariantClassName,
   PopoverCreateHandle,
   Popover,
   PopoverTrigger,

@@ -56,7 +56,23 @@ On a dev server with copied data ([Test data](../../AGENTS.md#test-data)):
 - Child agents: create, message, stop and resume one.
 - A Command Code turn.
 - The composer: send, queue while busy, attachments.
+- The look and the motion. ViewCode Teal is Obsidian: a raised composer card, a lifted
+  panel, light sidebar type, a whisper of project colour. The sidebar and the right panel
+  slide for 300 ms with their edges on the content sheet, sidebar rows glide when they move,
+  and the ring beside the send button opens the context and limits card with Compact now.
 - Mobile against the merged server.
+
+## Where the look lives in upstream files
+
+ViewCode's styling is in `viewcode-theme.css`, `viewcode-chat.css` and `viewcode-native.css`,
+which upstream never has. What a merge can lose is the upstream-owned code that reaches
+them: the imports in `apps/web/src/main.tsx` and `apps/web/src/index.css`, the ViewCode
+Teal palette in `packages/shared/src/themePalettes.ts`, the ViewCode variants in
+`apps/web/src/components/ui/button.tsx` and `popover.tsx`, the 300 ms default in
+`packages/contracts/src/settings.ts`, and the sidebar, header and composer wiring in
+`Sidebar.tsx`, `AppSidebarLayout.tsx` and `ChatComposer.tsx`. The `*.viewcode.test` guards
+beside them fail when the imports, variants or default go; the rest shows up in the
+check's missing-line counts, so review those files first.
 
 ## Write it up
 
