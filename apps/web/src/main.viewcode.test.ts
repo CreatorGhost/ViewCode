@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - a read of this folder's own files, no Effect runtime.
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";

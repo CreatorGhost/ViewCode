@@ -284,7 +284,7 @@ function PrFlowRows({
   );
 }
 
-function PrFlowRowFrame({
+export function PrFlowRowFrame({
   index,
   arriving = false,
   highlight = false,
@@ -791,7 +791,7 @@ function PrFlowFooter({
  * screen, and with `glow` a soft amber pulse behind it on the same beat. Settled, it is just the
  * label. `text` is what the shine draws, the label as plain text.
  */
-function ShimmerLabel({
+export function ShimmerLabel({
   live,
   glow = false,
   text,

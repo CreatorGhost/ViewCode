@@ -8,6 +8,7 @@ import {
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
+import { ComposerSurface } from "~/components/chat/ComposerSurface";
 import { ComposerUsageLimitsPopover } from "~/components/chat/ComposerUsageLimitsPopover";
 import { Button } from "~/components/ui/button";
 import type { ContextWindowSnapshot } from "~/lib/contextWindow";
@@ -104,6 +105,7 @@ const contextAt = (usedTokens: number): ContextWindowSnapshot => ({
 function UsageCardPreview() {
   const [used, setUsed] = useState(604_100);
   const [compacting, setCompacting] = useState(false);
+  const [live, setLive] = useState(false);
   useEffect(() => {
     if (!compacting) return;
     const timer = window.setTimeout(() => {
@@ -121,8 +123,15 @@ function UsageCardPreview() {
         <Button variant="outline" size="xs" onClick={() => setUsed(930_000)}>
           Near limit
         </Button>
+        <Button variant="outline" size="xs" onClick={() => setLive((value) => !value)}>
+          {live ? "Turn off the live ring" : "Turn on the live ring"}
+        </Button>
       </div>
-      <div className="flex h-14 w-144 max-w-full items-center justify-end gap-1 rounded-3xl border border-border bg-popover px-3">
+      <div
+        data-chat-composer-main-surface="true"
+        className="relative isolate flex h-14 w-144 max-w-full items-center justify-end gap-1 rounded-3xl border border-border bg-popover px-3"
+      >
+        {live ? <ComposerSurface.LiveRing /> : null}
         <ComposerUsageLimitsPopover
           environmentId={EnvironmentId.make("env-local")}
           leadInstanceId={entry.instanceId}

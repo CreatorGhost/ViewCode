@@ -637,6 +637,11 @@ A card the conversation just received (its link younger than `PR_APPEAR_WINDOW_M
 with `appear`: it rises in and every row arrives staggered. Without it the card, which replaces
 the creating card at the end of the chat, mounted as a hard cut and its rows counted as initial.
 
+The Review panel's review card (`ReviewCard` in `chat/ReviewProgress.tsx`) is drawn with the PR
+card's exported row frame, lanes and shimmer label: the reviewer on the head lane with its live
+step, its agents on the side lane. Keep the two cards one language; a change to the row frame or
+the lane tones is a change to both.
+
 "Resolving" survives reloads and other devices without stored state. The thread's latest user
 message being the Resolve prompt, while its run is active, means the agent is resolving.
 `prFlowResolvePrompt` and `prFlowResolvePromptNumber` must keep matching each other.
