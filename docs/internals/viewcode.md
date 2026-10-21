@@ -653,6 +653,11 @@ send as usual. There is no loop or queue behind it.
 
 ## Desktop local mode and phone access
 
+- The desktop writes its backend's stdout/stderr to `server-child.log` as it
+  arrives (`DesktopObservability.ts`). Upstream keeps the last 1 MiB in memory and
+  writes it only after a crash, which lost every warning logged outside a span,
+  since only in-span messages reach `server.trace.ndjson`. A merge that restores
+  upstream's version fails `DesktopObservability.viewcode.test.ts`.
 - By default the desktop backend listens on a Unix socket (named pipe on
   Windows), reached by the window through the main process as
   `t3code-backend://<id>/`; providers reach MCP through a stdio bridge. No TCP

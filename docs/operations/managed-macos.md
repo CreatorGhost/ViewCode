@@ -396,9 +396,10 @@ pnpm dist:desktop:dmg:arm64                # output in release/
 - `.electron-runtime/ViewCode (Alpha).app` is the bare Electron shell; launching
   it directly starts Electron's `default_app.asar`, not ViewCode. Start the app
   with `node apps/desktop/scripts/start-electron.mjs` or `./build.sh`.
-- Logs are OpenTelemetry spans in `server.trace.ndjson` and
-  `desktop.trace.ndjson` under `~/.viewcode/userdata/logs/`, not
-  `server-child.log`.
+- Logs are under `~/.viewcode/userdata/logs/`: OpenTelemetry spans in
+  `server.trace.ndjson` and `desktop.trace.ndjson`, the server's console output
+  (including warnings logged outside a span) in `server-child.log`, and child
+  process launches in `spawn-trace.log`.
 - Don't detach processes with `setsid`, `perl` `POSIX::setsid` or other fork
   tricks. On EDR-managed machines that pattern triggers Behavioral Threat
   Protection alerts under the user's name and contaminates the experiment.
