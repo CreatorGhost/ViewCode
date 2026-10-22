@@ -24,6 +24,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
@@ -56,8 +57,10 @@ import {
   CURSOR_AGENT_CLIENT_META,
   cursorAgentBaseModelId,
   CursorAgentModelDiscoveryError,
+  CURSOR_AGENT_PROMPT_STALL_TIMEOUT,
   cursorAgentPromptAuthProblem,
   cursorAgentPromptFailure,
+  cursorAgentPromptStalled,
   listCursorAgentModels,
   makeCursorAgentAcpRuntime,
   registerCursorAgentExtensions,
@@ -132,6 +135,14 @@ const createCursorAgentInstance = (input: ProviderDriverCreateInput<CursorSettin
             problem,
           }).pipe(Effect.andThen(recheckStatus), Effect.as(true));
     };
+    // A stalled prompt never answers, so the hung process must not take the next one.
+    const restartAfterPromptFailure = (cause: unknown) =>
+      cursorAgentPromptStalled(cause)
+        ? Effect.logWarning("Cursor CLI stopped responding mid-turn; replacing the process").pipe(
+            Effect.andThen(recheckStatus),
+            Effect.as(true),
+          )
+        : recheckAfterAuthProblem(cause);
     const flavor: AcpAdapterV2Flavor = {
       driver: DRIVER_KIND,
       runtimeHarness: "Cursor CLI",
@@ -141,7 +152,7 @@ const createCursorAgentInstance = (input: ProviderDriverCreateInput<CursorSettin
       },
       clientCapabilitiesMeta: CURSOR_AGENT_CLIENT_META,
       promptFailure: cursorAgentPromptFailure,
-      restartRuntimeAfterPromptFailure: recheckAfterAuthProblem,
+      restartRuntimeAfterPromptFailure: restartAfterPromptFailure,
       withRuntimeStartup: (startup) => startup.pipe(Effect.tapError(recheckAfterAuthProblem)),
       resolveModelId: (selection) => cursorAgentBaseModelId(selection.model),
       applyModelSelection: ({ runtime, modelSelection }) =>
@@ -158,6 +169,7 @@ const createCursorAgentInstance = (input: ProviderDriverCreateInput<CursorSettin
           ),
           childProcessSpawner: spawner,
           runtimeMode: cursorAgentLaunchRuntimeMode(runtimePolicy),
+          promptStallTimeout: CURSOR_AGENT_PROMPT_STALL_TIMEOUT,
         }),
     };
     const orchestrationAdapter = yield* makeAcpAdapterV2({
@@ -214,8 +226,13 @@ const createCursorAgentInstance = (input: ProviderDriverCreateInput<CursorSettin
         ) => (Exit.isSuccess(exit) && exit.value.length > 0 ? MODEL_CACHE_TTL : Duration.zero),
       },
     );
+    const lastKnownModels = yield* Ref.make<ReadonlyArray<ServerProviderModel>>([]);
     const discoverModels = (about: CursorAgentAbout) =>
-      Cache.get(models, JSON.stringify([about.version, about.auth.email ?? null]));
+      Cache.get(models, JSON.stringify([about.version, about.auth.email ?? null])).pipe(
+        Effect.tap((listed) =>
+          listed.length > 0 ? Ref.set(lastKnownModels, listed) : Effect.void,
+        ),
+      );
 
     const auth = yield* makeCursorAgentAuth({
       instanceId: input.instanceId,
@@ -244,6 +261,7 @@ const createCursorAgentInstance = (input: ProviderDriverCreateInput<CursorSettin
       environment,
       discoverModels,
       hasSavedCliLogin,
+      Ref.get(lastKnownModels),
     ).pipe(
       Effect.flatMap((draft) =>
         settings.enabled && draft.installed && draft.auth.status === "authenticated"

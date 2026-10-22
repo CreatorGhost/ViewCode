@@ -16,10 +16,12 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import { causeErrorTag } from "@t3tools/shared/observability";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
+import * as Schedule from "effect/Schedule";
 import * as ChildProcess from "effect/process/ChildProcess";
 import type * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
@@ -45,13 +47,17 @@ const CURSOR_AGENT_PRESENTATION = {
 
 const ABOUT_TIMEOUT_MS = 8_000;
 const MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
+/** Right after a wake the network or a cold CLI can need a moment; one retry waits this long. */
+export const MODEL_DISCOVERY_RETRY_DELAY = Duration.seconds(5);
 const INSTALL_DOCS_URL = "https://cursor.com/docs/cli/installation";
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({ optionDescriptors: [] });
 
 const CURSOR_AGENT_NOT_SIGNED_IN_MESSAGE =
   "The Cursor CLI is not signed in. Sign in here, or run `cursor-agent login` in a terminal.";
+// A failed list says nothing about the CLI's version, so it never suggests an update.
+const CURSOR_AGENT_MODELS_UNREACHABLE_MESSAGE = "Couldn't reach Cursor to list models; will retry.";
 const CURSOR_AGENT_LOGIN_UNREADABLE_MESSAGE =
-  "The Cursor CLI has a saved sign-in but could not confirm it just now. The Mac's login Keychain may be locked (for example after sleep) or the network may be down. ViewCode checks again when a message fails and on its next status refresh. If `cursor-agent status` in a terminal says you are signed out, run `cursor-agent login`.";
+  "The Cursor CLI has a saved sign-in but could not confirm it just now. The Mac's login Keychain may be locked (for example after sleep) or the network may be down. ViewCode checks again when a message fails, when the Mac wakes or you return to the window, and on its next status refresh. If `cursor-agent status` in a terminal says you are signed out, run `cursor-agent login`.";
 
 /**
  * Why the Cursor CLI could not use its sign-in. Only `signed-out` means the user
@@ -255,6 +261,8 @@ export const checkCursorAgentProviderStatus = Effect.fn("checkCursorAgentProvide
     ) => Effect.Effect<ReadonlyArray<ServerProviderModel>, CursorAgentModelDiscoveryError>,
     /** Whether the CLI's config still names a logged-in account (no secret is read). */
     hasSavedLogin: Effect.Effect<boolean> = Effect.succeed(false),
+    /** The last list that loaded; a check that cannot reach Cursor keeps it. */
+    lastKnownModels: Effect.Effect<ReadonlyArray<ServerProviderModel>> = Effect.succeed([]),
   ): Effect.fn.Return<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> {
     const checkedAt = DateTime.formatIso(yield* DateTime.now);
     if (!settings.enabled) {
@@ -273,24 +281,34 @@ export const checkCursorAgentProviderStatus = Effect.fn("checkCursorAgentProvide
     );
     if (Result.isFailure(aboutResult)) {
       const missing = isCommandMissingCause(aboutResult.failure);
-      return snapshot(settings, checkedAt, {
-        installed: !missing,
-        version: null,
-        status: "error",
-        auth: { status: "unknown" },
-        message: missing
-          ? `The Cursor CLI (\`${cursorAgentCommand(settings)}\`) was not found. Install it (${INSTALL_DOCS_URL}), set its binary path, or choose the Cursor SDK runtime in Settings → Providers → Cursor.`
-          : "Failed to run the Cursor CLI health check.",
-      });
+      return snapshot(
+        settings,
+        checkedAt,
+        {
+          installed: !missing,
+          version: null,
+          status: "error",
+          auth: { status: "unknown" },
+          message: missing
+            ? `The Cursor CLI (\`${cursorAgentCommand(settings)}\`) was not found. Install it (${INSTALL_DOCS_URL}), set its binary path, or choose the Cursor SDK runtime in Settings → Providers → Cursor.`
+            : "Failed to run the Cursor CLI health check.",
+        },
+        missing ? [] : yield* lastKnownModels,
+      );
     }
     if (Option.isNone(aboutResult.success)) {
-      return snapshot(settings, checkedAt, {
-        installed: true,
-        version: null,
-        status: "error",
-        auth: { status: "unknown" },
-        message: "The Cursor CLI timed out while running `cursor-agent about`.",
-      });
+      return snapshot(
+        settings,
+        checkedAt,
+        {
+          installed: true,
+          version: null,
+          status: "error",
+          auth: { status: "unknown" },
+          message: "The Cursor CLI timed out while running `cursor-agent about`.",
+        },
+        yield* lastKnownModels,
+      );
     }
 
     const about = parseCursorAgentAbout(aboutResult.success.value);
@@ -309,29 +327,34 @@ export const checkCursorAgentProviderStatus = Effect.fn("checkCursorAgentProvide
         exitCode: aboutResult.success.value.code,
       });
       if (!transient) return snapshot(settings, checkedAt, { installed: true, ...about });
-      return snapshot(settings, checkedAt, {
-        installed: true,
-        version: about.version,
-        status: "warning",
-        auth: { status: "unknown", label: CLI_AUTH_LABEL },
-        message: CURSOR_AGENT_LOGIN_UNREADABLE_MESSAGE,
-      });
+      return snapshot(
+        settings,
+        checkedAt,
+        {
+          installed: true,
+          version: about.version,
+          status: "warning",
+          auth: { status: "unknown", label: CLI_AUTH_LABEL },
+          message: CURSOR_AGENT_LOGIN_UNREADABLE_MESSAGE,
+        },
+        yield* lastKnownModels,
+      );
     }
     const discovery = yield* discoverModels(about).pipe(
-      Effect.timeoutOption(MODEL_DISCOVERY_TIMEOUT_MS),
+      Effect.timeout(MODEL_DISCOVERY_TIMEOUT_MS),
+      Effect.filterOrFail((models) => models.length > 0),
+      Effect.retry({ times: 1, schedule: Schedule.exponential(MODEL_DISCOVERY_RETRY_DELAY) }),
       Effect.exit,
     );
-    const discovered =
-      Exit.isSuccess(discovery) && Option.isSome(discovery.value) ? discovery.value.value : [];
     if (Exit.isFailure(discovery)) {
       yield* Effect.logWarning("Cursor CLI model discovery failed", {
         errorTag: causeErrorTag(discovery.cause),
       });
     }
-    const discoveryWarning =
-      discovered.length > 0
-        ? undefined
-        : "Could not read the Cursor CLI model list. Update it with `cursor-agent update` if this persists.";
+    const discovered = Exit.isSuccess(discovery) ? discovery.value : yield* lastKnownModels;
+    const discoveryWarning = Exit.isSuccess(discovery)
+      ? undefined
+      : CURSOR_AGENT_MODELS_UNREACHABLE_MESSAGE;
     const message = [about.message, discoveryWarning].filter(Boolean).join(" ");
     return snapshot(
       settings,

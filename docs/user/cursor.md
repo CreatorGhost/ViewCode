@@ -41,9 +41,12 @@ choose **Sign in** to run `cursor-agent login` in a terminal inside Settings, or
 the account the CLI is signed in with.
 
 After the computer sleeps or changes network, a Cursor message can fail because the CLI could not
-read its saved sign-in (for example while the Mac's Keychain is locked) or reach Cursor. Send the
-message again: ViewCode starts a fresh `cursor-agent` for it. Sign in again only if
-`cursor-agent status` in a terminal says you are signed out.
+read its saved sign-in (for example while the Mac's Keychain is locked) or reach Cursor, or it can
+end with "Cursor stopped responding; send it again" when the CLI went quiet for ten minutes. Send
+the message again: ViewCode starts a fresh `cursor-agent` for it. Sign in again only if
+`cursor-agent status` in a terminal says you are signed out. "Couldn't reach Cursor to list models"
+in the settings card clears by itself; ViewCode checks again when the computer wakes, the network
+comes back or you return to the window, and keeps the models it last listed meanwhile.
 
 With the **SDK runtime**, choose **Sign in**, then open the sign-in page and complete it in your
 browser. ViewCode updates automatically when sign-in finishes. This works when connected to a remote

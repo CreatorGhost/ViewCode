@@ -525,9 +525,17 @@ closes any left from a restart.
   sleeps), and the CLI can keep a lost sign-in or dead connection in memory after a wake
   while a new process signs in fine. So a prompt that fails with a sign-in, Keychain or
   network error replaces the process before the next turn (`restartRuntimeAfterPromptFailure`)
-  and re-checks status. `about` says "Not logged in" when it cannot read its Keychain token
+  and re-checks status. A process can also leave `session/prompt` unanswered for good: only the
+  Cursor CLI runtime watches for that (`watchPromptStalls` in `cursorAgentAcpSupport.ts`, not
+  the shared ACP adapter). Ten minutes of awake time with no stdout from the agent ends the
+  turn and takes the same restart; a running tool call or a request we have not answered
+  pauses it, because `delegate_task` waits and builds are silent far longer. The prompt is
+  never resent. `about` says "Not logged in" when it cannot read its Keychain token
   too; with `authInfo` still in `~/.cursor/cli-config.json` that is reported as unconfirmed,
-  not signed out. Running the SDK in
+  not signed out. A status that is not ready is re-checked on wake or unlock, on a client
+  coming to the front and on a client's network coming back (`cursorStatusRecheck.ts`, from
+  `BackgroundPolicy` edges; the web report carries `networkType` for the last one), and a
+  failed model list keeps the last good one. Running the SDK in
   a child `node` process was rejected: the tools' parent would still be a generic
   `node`, which is what the EDR objects to, and it needs a new packaged entry and an
   IPC protocol for the SDK runner's callbacks.
