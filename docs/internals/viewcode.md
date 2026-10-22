@@ -848,7 +848,7 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   classes; nothing re-renders when it changes. Layer strengths come from
   `shellTint.ts` per theme, written beside the palette by `themePalette.ts`; its
   test holds every built-in theme to readable contrast under the tint, so a new
-  theme must pass it. The wash is a whisper (5 % to 1.5 % on dark): at the
+  theme must pass it. The wash is a whisper (7.5 % to 2.5 % on dark): at the
   design's 10 % the whole left side read as a grey-tinted plane (user decision).
   The project colour stays strong on the rail tile, the folder badge, the edge
   bar and the open row. The composer change is limited to the glow's colour and

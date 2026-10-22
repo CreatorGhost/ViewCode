@@ -831,8 +831,8 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
  */
 :root {
   --shell-glow-color: var(--app-theme-accent, var(--ring));
-  --shell-tint-surface-top: 5%;
-  --shell-tint-surface-bottom: 1.5%;
+  --shell-tint-surface-top: 7.5%;
+  --shell-tint-surface-bottom: 2.5%;
   --shell-tint-border: 25%;
   --shell-tint-selected-row: 10%;
   --shell-tint-guide: 30%;
@@ -843,8 +843,8 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
   --shell-glow-far: 12%;
 }
 :root:not(.dark) {
-  --shell-tint-surface-top: 3.5%;
-  --shell-tint-surface-bottom: 1%;
+  --shell-tint-surface-top: 5%;
+  --shell-tint-surface-bottom: 1.5%;
   --shell-tint-border: 20%;
   --shell-tint-selected-row: 7%;
   --shell-tint-guide: 20%;
