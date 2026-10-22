@@ -1063,6 +1063,23 @@ function makeModelDisabledReason(
   };
 }
 
+/**
+ * The banner lane (provider notices, thread errors) floats over the canvas, and the draft hero
+ * centres in the canvas below it (viewcode-chat.css reads `--chat-banner-lane-height`). The lane
+ * wraps as the column narrows, so its height is measured rather than guessed; written straight
+ * to the canvas's style, since a notice changing is no reason to render the view again.
+ */
+function observeBannerLaneHeight(lane: HTMLDivElement | null) {
+  const host = lane?.parentElement;
+  if (!lane || !host) return;
+  return observeResize(lane, ([entry]) => {
+    host.style.setProperty(
+      "--chat-banner-lane-height",
+      `${Math.ceil(entry?.contentRect.height ?? 0)}px`,
+    );
+  });
+}
+
 export default function ChatView(props: ChatViewProps) {
   const {
     environmentId,
@@ -8170,7 +8187,10 @@ export default function ChatView(props: ChatViewProps) {
                 </div>
               </div>
             ) : null}
-            <div className="chat-banner-lane pointer-events-none absolute top-0 z-20 flex flex-col">
+            <div
+              ref={observeBannerLaneHeight}
+              className="chat-banner-lane pointer-events-none absolute top-0 z-20 flex flex-col"
+            >
               <NoProviderPrompt environmentId={environmentId} prompt={providerPickerPrompt} />
               <ProviderStatusBanner
                 status={visibleProviderStatus}
@@ -8372,7 +8392,7 @@ export default function ChatView(props: ChatViewProps) {
                   className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-content-max-width)"
                 >
                   {isDraftHeroState ? (
-                    <div className="absolute inset-x-0 bottom-full">
+                    <div data-chat-hero-headline="" className="absolute inset-x-0 bottom-full">
                       <div
                         className="pb-4 group-has-data-[composer-shoulder-tab]/composer-stack:pb-0"
                         style={

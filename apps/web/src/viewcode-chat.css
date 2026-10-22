@@ -378,12 +378,22 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
 [data-chat-notice] [data-slot="alert"][data-variant="warning"] {
   background: color-mix(in srgb, var(--warning) 8%, transparent) !important;
 }
-/* The draft hero centres in the canvas; with a notice at the top and a short canvas (terminal
-   open, side chat, small window) the headline slid under the notice. Reserve the notice's height
-   so the hero centres in what is left. */
-[data-chat-workspace-drop-target="true"]:has(.chat-banner-lane [data-chat-notice])
-  [data-chat-composer-overlay="true"].inset-0 {
-  padding-top: 7rem;
+/* The draft hero centres in the canvas; with a notice at the top and a short or narrow canvas
+   (terminal open, side chat, small window) the headline slid under the notice, and a fixed
+   reserve was wrong as soon as the notice wrapped. The lane's measured height
+   (observeBannerLaneHeight in ChatView) is reserved instead, and the hero starts at the top
+   rather than rising under the header when the canvas is shorter than the hero. */
+[data-chat-canvas] [data-chat-composer-overlay="true"].inset-0 {
+  padding-top: var(--chat-banner-lane-height, 0px);
+  align-items: safe center;
+}
+/* The headline hangs above the composer (bottom-full) so the composer stays put when the hero
+   leaves. Under a notice it joins the flow, so the pair centres below the notice as a whole
+   instead of the headline rising into it. */
+[data-chat-canvas]:has(.chat-banner-lane [data-chat-notice])
+  [data-chat-composer-overlay="true"].inset-0
+  [data-chat-hero-headline] {
+  position: static;
 }
 
 /* Composer context row (workspace, PR, branch): a quiet borderless row on the
