@@ -63,7 +63,7 @@ jobs:
   # at once. Runs for pushes too, as a no-op, so `check` never sees it skipped.
   upstream_merge:
     name: Upstream merge check
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       # Full history, without file contents until git needs them.
