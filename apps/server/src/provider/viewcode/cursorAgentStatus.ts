@@ -50,6 +50,50 @@ const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({ optionDe
 
 const CURSOR_AGENT_NOT_SIGNED_IN_MESSAGE =
   "The Cursor CLI is not signed in. Sign in here, or run `cursor-agent login` in a terminal.";
+const CURSOR_AGENT_LOGIN_UNREADABLE_MESSAGE =
+  "The Cursor CLI has a saved sign-in but could not confirm it just now. The Mac's login Keychain may be locked (for example after sleep) or the network may be down. ViewCode checks again when a message fails and on its next status refresh. If `cursor-agent status` in a terminal says you are signed out, run `cursor-agent login`.";
+
+/**
+ * Why the Cursor CLI could not use its sign-in. Only `signed-out` means the user
+ * must log in; the others clear up on their own once the Keychain is unlocked or
+ * the network is back, and a fresh `cursor-agent` process reads the login again.
+ */
+export type CursorAgentAuthProblem = "signed-out" | "credentials-unreadable" | "network";
+
+const KEYCHAIN_FAILURE = /keychain|errsec|user interaction is not allowed|-25308|secitem/i;
+const NETWORK_FAILURE =
+  /enotfound|econnrefused|econnreset|etimedout|eai_again|enetunreach|enetdown|getaddrinfo|fetch failed|network|socket hang up|offline/i;
+const SIGNED_OUT_FAILURE =
+  /not (?:logged|signed) in|log ?in required|authenticat(?:ion|e) required|unauthenticated|unauthori[sz]ed|(?:cursor-)?agent login/i;
+
+/** The readable text of a failure: messages, ACP error messages and stderr, outermost first. */
+export function cursorAgentFailureText(cause: unknown): string {
+  const parts: Array<string> = [];
+  const seen = new Set<unknown>();
+  let current = cause;
+  for (let depth = 0; depth < 8 && current != null && !seen.has(current); depth++) {
+    seen.add(current);
+    if (typeof current === "string") {
+      parts.push(current);
+      break;
+    }
+    if (typeof current !== "object") break;
+    const record = current as Record<string, unknown>;
+    for (const key of ["errorMessage", "message", "stderr"] as const) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim() && !parts.includes(value)) parts.push(value);
+    }
+    current = record.cause;
+  }
+  return parts.join("\n");
+}
+
+export function classifyCursorAgentAuthProblem(text: string): CursorAgentAuthProblem | undefined {
+  if (KEYCHAIN_FAILURE.test(text)) return "credentials-unreadable";
+  if (NETWORK_FAILURE.test(text)) return "network";
+  if (SIGNED_OUT_FAILURE.test(text)) return "signed-out";
+  return undefined;
+}
 
 export interface CursorAgentAbout {
   readonly version: string | null;
@@ -209,6 +253,8 @@ export const checkCursorAgentProviderStatus = Effect.fn("checkCursorAgentProvide
     discoverModels: (
       about: CursorAgentAbout,
     ) => Effect.Effect<ReadonlyArray<ServerProviderModel>, CursorAgentModelDiscoveryError>,
+    /** Whether the CLI's config still names a logged-in account (no secret is read). */
+    hasSavedLogin: Effect.Effect<boolean> = Effect.succeed(false),
   ): Effect.fn.Return<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> {
     const checkedAt = DateTime.formatIso(yield* DateTime.now);
     if (!settings.enabled) {
@@ -249,7 +295,27 @@ export const checkCursorAgentProviderStatus = Effect.fn("checkCursorAgentProvide
 
     const about = parseCursorAgentAbout(aboutResult.success.value);
     if (about.auth.status === "unauthenticated") {
-      return snapshot(settings, checkedAt, { installed: true, ...about });
+      // "Not logged in" is also what the CLI says when it cannot read its token
+      // (a locked Keychain after sleep) or reach Cursor. Reporting that as signed
+      // out sends the user to a login that cannot help, so only a CLI with no
+      // saved login, or one that says nothing about why, counts as signed out.
+      const output = `${aboutResult.success.value.stdout}\n${aboutResult.success.value.stderr}`;
+      const problem = classifyCursorAgentAuthProblem(output);
+      const savedLogin = yield* hasSavedLogin;
+      const transient = problem === "credentials-unreadable" || problem === "network" || savedLogin;
+      yield* Effect.logWarning("Cursor CLI reports no sign-in", {
+        reading: transient ? (problem ?? "saved-login-unconfirmed") : "signed-out",
+        savedLogin,
+        exitCode: aboutResult.success.value.code,
+      });
+      if (!transient) return snapshot(settings, checkedAt, { installed: true, ...about });
+      return snapshot(settings, checkedAt, {
+        installed: true,
+        version: about.version,
+        status: "warning",
+        auth: { status: "unknown", label: CLI_AUTH_LABEL },
+        message: CURSOR_AGENT_LOGIN_UNREADABLE_MESSAGE,
+      });
     }
     const discovery = yield* discoverModels(about).pipe(
       Effect.timeoutOption(MODEL_DISCOVERY_TIMEOUT_MS),
