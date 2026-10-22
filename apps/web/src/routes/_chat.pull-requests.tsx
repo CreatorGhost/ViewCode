@@ -162,6 +162,10 @@ import { useDebouncedValue } from "../state/queries";
 import { useAllEnvironmentShellsBootstrapped, useProjects } from "../state/entities";
 import { useSidebarProjectGroups } from "../hooks/useSidebarProjectGroups";
 import { useSidebarProjectSnapshots } from "../components/sidebar/useSidebarProjectGroups";
+import {
+  isUpstreamPullRequestGroupKey,
+  pullRequestProjectKeyOfGroup,
+} from "@t3tools/client-runtime/pull-request-list-groups";
 import { ViewCodePullRequestProjectGroup } from "../components/pullRequest/ViewCodePullRequestProjectGroup";
 import {
   viewCodePullRequestProjectGroups,
@@ -358,7 +362,7 @@ function PullRequestsRouteView() {
   const selectedPullRequestSurface =
     selectedRightPanelSurface?.kind === "pull-request" ? selectedRightPanelSurface : null;
   const activePullRequestSurface = rightPanelState.isOpen ? selectedPullRequestSurface : null;
-  const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
+  const { active: panelAnimationsActive, durationMs: panelAnimationMs } =
     usePanelAnimationSettings();
   const rightPanelPresenceValue = {
     activeSurface: selectedPullRequestSurface,
@@ -369,7 +373,7 @@ function PullRequestsRouteView() {
     rightPanelPresenceValue,
     panelAnimationsActive,
     rightPanelRef?.threadId ?? null,
-    panelAnimationDurationMs,
+    panelAnimationMs,
   );
   const rightPanelPresent = rightPanelPresence.present;
   const renderedPullRequestSurface = rightPanelPresence.value?.activeSurface ?? null;
@@ -1095,8 +1099,12 @@ function PullRequestsRouteView() {
     involvement: search.involvement,
   });
   const showProvider = hosts.length > 1;
+  // Upstream rows always say so, even when they are all there is.
   const showProjectGroupHeaders =
-    displayGroups.filter((group) => group.entries.length > 0).length > 1;
+    displayGroups.filter((group) => group.entries.length > 0).length > 1 ||
+    displayGroups.some(
+      (group) => group.entries.length > 0 && isUpstreamPullRequestGroupKey(group.key),
+    );
   const [closeSweepKeys, setCloseSweepKeys] = useState<ReadonlySet<string>>(() => new Set());
   const closeSensorRef = useRef<SidebarPointerSensor | null>(null);
   // A sweep spans many renders; each step reads the rows on screen at that moment.
@@ -1360,7 +1368,7 @@ function PullRequestsRouteView() {
             <ViewCodePullRequestProjectGroup
               key={group.key}
               group={group}
-              project={projectFolderByKey.get(group.key)}
+              project={projectFolderByKey.get(pullRequestProjectKeyOfGroup(group.key))}
               showHeader={showProjectGroupHeaders}
             >
               {group.entries.map((entry) => {
@@ -1535,11 +1543,7 @@ function PullRequestsRouteView() {
           rightPanelState.isOpen ? "-ml-3 w-0" : "w-7 sm:w-5",
           panelAnimationsActive && "transition-[width,margin] ease-out",
         )}
-        style={
-          panelAnimationsActive
-            ? { transitionDuration: `${panelAnimationDurationMs}ms` }
-            : undefined
-        }
+        style={panelAnimationsActive ? { transitionDuration: `${panelAnimationMs}ms` } : undefined}
       />
     ),
     titlebarControls:

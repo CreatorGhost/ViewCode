@@ -28,6 +28,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
+import * as DesktopTailscaleGate from "./DesktopTailscaleGate.ts";
 import * as DesktopNetworkInterfaces from "./DesktopNetworkInterfaces.ts";
 import { resolveTailscaleAdvertisedEndpoints } from "./tailscaleEndpointProvider.ts";
 
@@ -505,6 +506,7 @@ export const make = Effect.gen(function* () {
   const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const httpClient = yield* HttpClient.HttpClient;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
+  const tailscaleGate = yield* DesktopTailscaleGate.DesktopTailscaleGate;
   const stateRef = yield* Ref.make(initialRuntimeState());
   // Each change reads the runtime state, persists settings, then writes the
   // state back. Run them one at a time so a change never writes over another
@@ -682,14 +684,18 @@ export const make = Effect.gen(function* () {
     if (state.mode !== "network-accessible" && !state.tailscaleServeEnabled) {
       return coreEndpoints;
     }
+    if ((yield* tailscaleGate.blockReason) !== null) return coreEndpoints;
     const currentNetworkInterfaces = yield* readNetworkInterfaces;
 
+    // Only Tailscale Serve, which the user turned on, reads `tailscale status`.
+    // Same Wi-Fi alone finds tailnet addresses from the interfaces: endpoint
+    // security on managed Macs kills the app that spawns the CLI.
     const tailscaleEndpoints = yield* resolveTailscaleAdvertisedEndpoints({
       port: state.port,
       serveEnabled: state.tailscaleServeEnabled,
       servePort: state.tailscaleServePort,
       networkInterfaces: currentNetworkInterfaces,
-      readStatus: cachedReadTailscaleStatus,
+      readStatus: state.tailscaleServeEnabled ? cachedReadTailscaleStatus : Effect.succeed(null),
     }).pipe(
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
       Effect.provideService(HttpClient.HttpClient, httpClient),

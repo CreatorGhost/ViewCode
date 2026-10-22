@@ -179,6 +179,7 @@ export function ReviewSurface({
     >
       {review !== null ? (
         <ReviewStatusBar
+          key={review.threadId}
           environmentId={environmentId}
           review={review}
           newer={source !== null && !ownFindings}
@@ -292,7 +293,7 @@ export function ReviewPanel({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 px-3 pt-3 empty:hidden">
-        <ThreadPrFlowCard threadRef={threadRef} compact />
+        <ThreadPrFlowCard threadRef={threadRef} />
       </div>
       <div className="min-h-0 flex-1">
         <ReviewSurface

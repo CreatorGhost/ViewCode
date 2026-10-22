@@ -16,6 +16,7 @@ import {
   DEFAULT_TAILSCALE_SERVE_PORT,
   ensureTailscaleServe,
   readTailscaleStatus,
+  TailscaleDisabledError,
 } from "@t3tools/tailscale";
 import * as Config from "effect/Config";
 import * as Console from "effect/Console";
@@ -145,12 +146,13 @@ export class RelayNotConfiguredError extends Schema.TaggedError<RelayNotConfigur
     ].join("\n");
   }
 }
-const RelaySettingsJson = fromLenientJson(
+const PairSettingsJson = fromLenientJson(
   Schema.Struct({
     viewcodeRelay: Schema.optional(Schema.Struct({ url: Schema.optional(Schema.String) })),
+    tailscaleEnabled: Schema.optional(Schema.Boolean),
   }),
 );
-const decodeRelaySettingsJson = Schema.decodeUnknownEffect(RelaySettingsJson);
+const decodePairSettingsJson = Schema.decodeUnknownEffect(PairSettingsJson);
 
 export class DevServerNotProxiableError extends Schema.TaggedError<DevServerNotProxiableError>()(
   "DevServerNotProxiableError",
@@ -371,7 +373,10 @@ const resolveTailscalePairingBase = Effect.fn("pair.resolveTailscalePairingBase"
   function* (input: { readonly target: DiscoveredPairTarget; readonly servePort: number }) {
     const notes: Array<string> = [];
     const status = yield* readTailscaleStatus.pipe(
-      Effect.mapError((cause) => new TailscaleUnavailableError({ cause })),
+      // The environment switch is already a clear answer; pass it through.
+      Effect.mapError((cause) =>
+        cause._tag === "TailscaleDisabledError" ? cause : new TailscaleUnavailableError({ cause }),
+      ),
     );
     if (status.magicDnsName === null) {
       return yield* new MagicDnsNameMissingError();
@@ -470,7 +475,8 @@ const labelFlag = Flag.String("label").pipe(
   Flag.optional,
 );
 
-const resolveRelayPairingBase = Effect.fn("pair.resolveRelayPairingBase")(function* (
+/** The target server's settings file, or none when it is missing or unreadable. */
+const readPairTargetSettings = Effect.fn("pair.readPairTargetSettings")(function* (
   target: DiscoveredPairTarget,
 ) {
   const fs = yield* FileSystem.FileSystem;
@@ -480,15 +486,34 @@ const resolveRelayPairingBase = Effect.fn("pair.resolveRelayPairingBase")(functi
     {},
   );
   const { settingsPath } = derivedPaths;
-  const origin = (yield* fs.exists(settingsPath))
-    ? yield* fs.readFileString(settingsPath).pipe(
-        Effect.flatMap(decodeRelaySettingsJson),
-        Effect.map((decoded) => normalizeRelayOrigin(decoded.viewcodeRelay?.url)),
-        Effect.catch(() => Effect.succeed(null)),
-      )
-    : null;
+  const settings = (yield* fs.exists(settingsPath))
+    ? yield* fs
+        .readFileString(settingsPath)
+        .pipe(Effect.flatMap(decodePairSettingsJson), Effect.option)
+    : Option.none();
+  return { settingsPath, settings };
+});
+
+const resolveRelayPairingBase = Effect.fn("pair.resolveRelayPairingBase")(function* (
+  target: DiscoveredPairTarget,
+) {
+  const { settingsPath, settings } = yield* readPairTargetSettings(target);
+  const origin = Option.match(settings, {
+    onNone: () => null,
+    onSome: (decoded) => normalizeRelayOrigin(decoded.viewcodeRelay?.url),
+  });
   if (origin === null) return yield* new RelayNotConfiguredError({ settingsPath });
   return origin;
+});
+
+/** `--tailscale` honours the server's Tailscale switch; the environment switch stops the CLI itself. */
+const ensureTailscaleSettingEnabled = Effect.fn("pair.ensureTailscaleSettingEnabled")(function* (
+  target: DiscoveredPairTarget,
+) {
+  const { settings } = yield* readPairTargetSettings(target);
+  if (Option.getOrUndefined(settings)?.tailscaleEnabled === false) {
+    return yield* new TailscaleDisabledError({ reason: "setting" });
+  }
 });
 
 const tailscaleFlag = Flag.Boolean("tailscale").pipe(
@@ -546,6 +571,7 @@ export const pairCommand = Command.make("pair", {
           "Pairing through your Quick connect relay. The phone reaches this computer through your Cloudflare Worker.",
         );
       } else if (flags.tailscale) {
+        yield* ensureTailscaleSettingEnabled(target);
         const resolved = yield* resolveTailscalePairingBase({
           target,
           servePort: flags.tailscaleServePort,

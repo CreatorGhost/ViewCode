@@ -4,6 +4,7 @@ import {
   OrchestrationV2SearchThreadResult,
 } from "./orchestrationV2.ts";
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
+import { RockBotOpenInput, RockBotOpenResult } from "./rockbot.ts";
 import {
   McpAppCallToolInput,
   McpAppCallToolResult,
@@ -135,6 +136,8 @@ import {
   GitPreparePullRequestThreadResult,
   VcsPullInput,
   GitPullRequestRefInput,
+  GitPullRequestGraph,
+  GitPullRequestGraphInput,
   VcsPullResult,
   VcsRemoveWorktreeInput,
   GitResolvePullRequestResult,
@@ -176,7 +179,11 @@ import {
   OrchestrationSearchThreadsInput,
   OrchestrationSearchThreadsResult,
 } from "./threadSearch.ts";
-import { PullRequestStartReviewInput, PullRequestStartReviewResult, ReviewStartLocalInput } from "./viewcodeReview.ts";
+import {
+  PullRequestStartReviewInput,
+  PullRequestStartReviewResult,
+  ReviewStartLocalInput,
+} from "./viewcodeReview.ts";
 import {
   ProviderUploadFeedbackError,
   ProviderUploadFeedbackInput,
@@ -184,7 +191,12 @@ import {
 } from "./provider.ts";
 import { ProviderInstanceId, ProviderInstanceMutation } from "./providerInstance.ts";
 import { PullRequestReviewGuideResult } from "./pullRequestReviewGuide.ts";
-import { VoiceModelError, VoiceModelTierInput, VoiceModelsState } from "./voiceModels.ts";
+import {
+  VoiceModelError,
+  VoiceModelRemoveInput,
+  VoiceModelTierInput,
+  VoiceModelsState,
+} from "./voiceModels.ts";
 import {
   ProviderAccountAddInput,
   ProviderAccountAddResult,
@@ -338,6 +350,7 @@ import {
   ServerLifecycleStreamEvent,
   ServerRemoveKeybindingInput,
   ServerRemoveKeybindingResult,
+  ServerRemoteOpenTargetsResult,
   ServerProviderUpdatedPayload,
   ServerProviderWorkspaceSnapshot,
   ServerSelfUpdateError,
@@ -496,6 +509,7 @@ export const WS_METHODS = {
   gitRunStackedAction: "git.runStackedAction",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
+  gitPullRequestGraph: "git.pullRequestGraph",
 
   reviewGetDiffPreview: "review.getDiffPreview",
   reviewGetDiffFileContents: "review.getDiffFileContents",
@@ -544,6 +558,7 @@ export const WS_METHODS = {
   serverGetProviderWorkspaceSnapshot: "server.getProviderWorkspaceSnapshot",
   serverGetComputerUseStatus: "server.getComputerUseStatus",
   serverGetComputerUseActivity: "server.getComputerUseActivity",
+  serverResolveRemoteOpenTargets: "server.resolveRemoteOpenTargets",
   serverUpdateProvider: "server.updateProvider",
   serverUpdateServer: "server.updateServer",
   serverUpdateServerWithProgress: "server.updateServerWithProgress",
@@ -646,7 +661,10 @@ export const WS_METHODS = {
   usageResumeCancel: "usageResume.cancel",
   usageResumeNow: "usageResume.now",
 
-  // ViewCode read aloud: the natural voice's model, downloaded by the environment
+  // RockBot: the environment's one chat over every project
+  rockbotOpen: "rockbot.open",
+
+  // ViewCode read aloud and dictation: their models, downloaded by the environment
   voiceModelsDownload: "voiceModels.download",
   voiceModelsCancel: "voiceModels.cancel",
   voiceModelsRemove: "voiceModels.remove",
@@ -739,6 +757,17 @@ const WsServerGetComputerUseStatusRpc = Rpc.make(WS_METHODS.serverGetComputerUse
 const WsServerGetComputerUseActivityRpc = Rpc.make(WS_METHODS.serverGetComputerUseActivity, {
   payload: Schema.Struct({}),
   success: ComputerUseActivity,
+  error: EnvironmentAuthorizationError,
+});
+
+/**
+ * Looks for an SSH route to this server for "open in editor" now, reading
+ * Tailscale status when it is allowed. Clients call it when that feature is
+ * used, never on load.
+ */
+const WsServerResolveRemoteOpenTargetsRpc = Rpc.make(WS_METHODS.serverResolveRemoteOpenTargets, {
+  payload: Schema.Struct({}),
+  success: ServerRemoteOpenTargetsResult,
   error: EnvironmentAuthorizationError,
 });
 
@@ -1372,6 +1401,12 @@ const WsUsageResumeNowRpc = Rpc.make(WS_METHODS.usageResumeNow, {
   error: Schema.Union([AgentControlError, EnvironmentAuthorizationError]),
 });
 
+const WsRockBotOpenRpc = Rpc.make(WS_METHODS.rockbotOpen, {
+  payload: RockBotOpenInput,
+  success: RockBotOpenResult,
+  error: Schema.Union([OrchestrationDispatchCommandError, EnvironmentAuthorizationError]),
+});
+
 const WsPushRegisterRpc = Rpc.make(WS_METHODS.pushRegister, {
   payload: PushRegisterInput,
   success: PushRegistrationResult,
@@ -1430,9 +1465,9 @@ const WsVoiceModelsCancelRpc = Rpc.make(WS_METHODS.voiceModelsCancel, {
   error: VoiceModelRpcError,
 });
 
-/** Removes every downloaded tier. */
+/** Removes every downloaded read-aloud tier, or the dictation model. */
 const WsVoiceModelsRemoveRpc = Rpc.make(WS_METHODS.voiceModelsRemove, {
-  payload: Schema.Struct({}),
+  payload: VoiceModelRemoveInput,
   success: VoiceModelsState,
   error: VoiceModelRpcError,
 });
@@ -1650,6 +1685,12 @@ const WsGitPreparePullRequestThreadRpc = Rpc.make(WS_METHODS.gitPreparePullReque
   payload: GitPreparePullRequestThreadInput,
   success: GitPreparePullRequestThreadResult,
   error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
+});
+
+const WsGitPullRequestGraphRpc = Rpc.make(WS_METHODS.gitPullRequestGraph, {
+  payload: GitPullRequestGraphInput,
+  success: Schema.NullOr(GitPullRequestGraph),
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
 const WsVcsListRefsRpc = Rpc.make(WS_METHODS.vcsListRefs, {
@@ -2198,6 +2239,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetProviderWorkspaceSnapshotRpc,
   WsServerGetComputerUseStatusRpc,
   WsServerGetComputerUseActivityRpc,
+  WsServerResolveRemoteOpenTargetsRpc,
   WsServerUpdateProviderRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,
@@ -2314,6 +2356,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeVoiceModelsRpc,
   WsUsageResumeCancelRpc,
   WsUsageResumeNowRpc,
+  WsRockBotOpenRpc,
   WsPushRegisterRpc,
   WsPushUnregisterRpc,
   WsViewCodeRelaySetupStartRpc,
@@ -2353,6 +2396,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
+  WsGitPullRequestGraphRpc,
   WsVcsListRefsRpc,
   WsVcsCreateWorktreeRpc,
   WsVcsRemoveWorktreeRpc,

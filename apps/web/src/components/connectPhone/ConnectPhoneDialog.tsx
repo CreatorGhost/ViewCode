@@ -736,7 +736,6 @@ function ReadyBody({
               </Button>
             </InputGroupAddon>
           </InputGroup>
-          <p className="text-xs text-muted-foreground">Treat this link like a password.</p>
         </div>
       ) : null}
 

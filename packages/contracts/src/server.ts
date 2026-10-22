@@ -9,6 +9,7 @@ import {
 import { ServerAuthDescriptor } from "./auth.ts";
 import {
   ForwardCompatibleArray,
+  ForwardCompatibleOptional,
   IsoDateTime,
   NonNegativeInt,
   PositiveInt,
@@ -608,6 +609,12 @@ export const ServerDirectEndpoint = Schema.Struct({
 });
 export type ServerDirectEndpoint = typeof ServerDirectEndpoint.Type;
 
+/** What `server.resolveRemoteOpenTargets` found when "open in editor" asked. */
+export const ServerRemoteOpenTargetsResult = Schema.Struct({
+  targets: ForwardCompatibleArray(RemoteOpenTarget),
+});
+export type ServerRemoteOpenTargetsResult = typeof ServerRemoteOpenTargetsResult.Type;
+
 export const ServerConfig = Schema.Struct({
   adminBlockedProviderDrivers: Schema.optionalKey(Schema.Array(ProviderDriverKind)),
   environment: ExecutionEnvironmentDescriptor,
@@ -618,7 +625,19 @@ export const ServerConfig = Schema.Struct({
   issues: ServerConfigIssues,
   providers: ServerProviders,
   availableEditors: ForwardCompatibleArray(EditorId),
+  /**
+   * Where "open in editor" can reach this server over SSH, once a client has
+   * asked with `server.resolveRemoteOpenTargets`. Building the config never
+   * probes for it (no `tailscale` spawn on page load).
+   */
   remoteOpenTargets: Schema.optionalKey(ForwardCompatibleArray(RemoteOpenTarget)),
+  /**
+   * ViewCode: set when something outside the settings turns Tailscale off on
+   * this server (IT's admin policy or `VIEWCODE_DISABLE_TAILSCALE`), so the
+   * `tailscaleEnabled` setting cannot turn it back on. A reason this client does
+   * not know decodes as absent.
+   */
+  tailscaleBlockedBy: ForwardCompatibleOptional(Schema.Literals(["policy", "environment"])),
   /**
    * Direct addresses this server listens on right now (LAN and tailnet), so a
    * client connected one way can learn the others. Hints only: the client

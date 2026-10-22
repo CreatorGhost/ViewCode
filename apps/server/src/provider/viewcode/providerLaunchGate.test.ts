@@ -3,7 +3,7 @@ import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
-import { AdminProviderPolicyRef } from "../AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 import { guardProviderInstance } from "./providerLaunchGate.ts";
 
 const makeFixture = (enabled: boolean) => {
@@ -84,7 +84,13 @@ describe("ViewCode provider launch gate", () => {
       assert.deepEqual(calls, []);
       yield* instance.auth!.start({} as never);
       assert.deepEqual(calls, ["auth"]);
-    }).pipe(Effect.provideService(AdminProviderPolicyRef, { blockedDrivers: [], problem: null })),
+    }).pipe(
+      Effect.provideService(AdminPolicyRef, {
+        blockedDrivers: [],
+        tailscaleBlocked: false,
+        problem: null,
+      }),
+    ),
   );
 
   it.effect(
@@ -104,7 +110,11 @@ describe("ViewCode provider launch gate", () => {
         yield* instance.snapshot.resolveMaintenance({ fresh: true });
         assert.deepEqual(calls, []);
       }).pipe(
-        Effect.provideService(AdminProviderPolicyRef, { blockedDrivers: ["muse"], problem: null }),
+        Effect.provideService(AdminPolicyRef, {
+          blockedDrivers: ["muse"],
+          tailscaleBlocked: false,
+          problem: null,
+        }),
       ),
   );
 
@@ -114,15 +124,21 @@ describe("ViewCode provider launch gate", () => {
       const instance = guardProviderInstance(original, false);
       const runtime = yield* instance.orchestrationAdapter.openSession({} as never);
       yield* runtime.startTurn({} as never);
-      const blocked = { blockedDrivers: ["muse"], problem: null };
+      const blocked = { blockedDrivers: ["muse"], tailscaleBlocked: false, problem: null };
       yield* Effect.all([
         runtime.startTurn({} as never).pipe(Effect.result),
         runtime.resumeThread({} as never).pipe(Effect.result),
         runtime.injectHistory!({} as never).pipe(Effect.result),
-      ]).pipe(Effect.provideService(AdminProviderPolicyRef, blocked));
+      ]).pipe(Effect.provideService(AdminPolicyRef, blocked));
       yield* runtime.interruptTurn({} as never);
       assert.deepEqual(calls, ["open", "turn", "interrupt"]);
-    }).pipe(Effect.provideService(AdminProviderPolicyRef, { blockedDrivers: [], problem: null })),
+    }).pipe(
+      Effect.provideService(AdminPolicyRef, {
+        blockedDrivers: [],
+        tailscaleBlocked: false,
+        problem: null,
+      }),
+    ),
   );
 
   it.effect("refuses to launch a provider whose executable is missing, with a clear reason", () =>
@@ -153,6 +169,12 @@ describe("ViewCode provider launch gate", () => {
       yield* runtime.interruptTurn({} as never);
       yield* instance.snapshot.refresh;
       assert.deepEqual(calls, ["open", "approval", "interrupt", "probe"]);
-    }).pipe(Effect.provideService(AdminProviderPolicyRef, { blockedDrivers: [], problem: null })),
+    }).pipe(
+      Effect.provideService(AdminPolicyRef, {
+        blockedDrivers: [],
+        tailscaleBlocked: false,
+        problem: null,
+      }),
+    ),
   );
 });

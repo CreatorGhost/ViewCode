@@ -118,7 +118,7 @@ export const PanelAnimationDurationMs = Schema.Int.check(
   }),
 );
 export type PanelAnimationDurationMs = typeof PanelAnimationDurationMs.Type;
-const DEFAULT_PANEL_ANIMATION_DURATION_MS: PanelAnimationDurationMs = 200;
+const DEFAULT_PANEL_ANIMATION_DURATION_MS: PanelAnimationDurationMs = 300;
 
 export const MIN_INTERFACE_FONT_SIZE = 12;
 export const MAX_INTERFACE_FONT_SIZE = 20;
@@ -336,7 +336,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   // Panel motion slides content on the compositor and changes the layout once, never per
   // frame (PreviewPanelShell, index.css), so it can be on by default; 0 turns it off.
-  panelAnimationDurationMs: PanelAnimationDurationMs.pipe(
+  // Renamed from `panelAnimationDurationMs`: clients save the whole settings object, so every
+  // existing browser and desktop app had stored that key's old default of 0 and never got motion.
+  panelAnimationMs: PanelAnimationDurationMs.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_PANEL_ANIMATION_DURATION_MS)),
   ),
   browserDefaultViewport: PreviewViewportSetting.pipe(
@@ -498,6 +500,8 @@ export const ClientSettingsSchema = Schema.Struct({
   readAloudRate: ReadAloudRate.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_READ_ALOUD_RATE)),
   ),
+  // ViewCode: the composer's microphone, which dictates with a local speech model.
+  dictationEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -1499,6 +1503,12 @@ export const ServerSettings = Schema.Struct({
     enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
     url: Schema.optionalKey(TrimmedNonEmptyString),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  /**
+   * ViewCode: whether this server may run the `tailscale` CLI at all. Off
+   * turns every Tailscale feature into a no-op that says so; the
+   * `VIEWCODE_DISABLE_TAILSCALE` environment switch outranks it.
+   */
+  tailscaleEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 
   usageModelAliases: Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -1780,6 +1790,7 @@ export const ServerSettingsPatch = Schema.Struct({
       url: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
     }),
   ),
+  tailscaleEnabled: Schema.optionalKey(Schema.Boolean),
 
   usageModelAliases: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(TrimmedNonEmptyString)),
@@ -1830,7 +1841,7 @@ export const ClientSettingsPatch = Schema.Struct({
   loadBalancingEnabled: Schema.optionalKey(Schema.Boolean),
   loadBalancingWeights: Schema.optionalKey(LoadBalancingWeights),
   appearanceContrast: Schema.optionalKey(AppearanceContrast),
-  panelAnimationDurationMs: Schema.optionalKey(PanelAnimationDurationMs),
+  panelAnimationMs: Schema.optionalKey(PanelAnimationDurationMs),
   browserDefaultViewport: Schema.optionalKey(PreviewViewportSetting),
   browserDefaultZoomFactor: Schema.optionalKey(PreviewZoomFactor),
   browserDefaultAppearance: Schema.optionalKey(PreviewAppearancePreference),
@@ -1901,5 +1912,6 @@ export const ClientSettingsPatch = Schema.Struct({
   composerGlow: Schema.optionalKey(Schema.Boolean),
   readAloudVoice: Schema.optionalKey(Schema.NullOr(ReadAloudVoice)),
   readAloudRate: Schema.optionalKey(ReadAloudRate),
+  dictationEnabled: Schema.optionalKey(Schema.Boolean),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

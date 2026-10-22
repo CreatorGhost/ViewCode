@@ -29,9 +29,9 @@ describe("resolveShellTintAlphas", () => {
   it("uses the design's values on dark sidebars and about half on light ones", () => {
     const dark = resolveShellTintAlphas(0.2);
     const light = resolveShellTintAlphas(0.97);
-    expect(dark.surfaceTop).toBe(0.1);
-    expect(dark.selectedRow).toBe(0.14);
-    expect(light.surfaceTop).toBeCloseTo(0.06);
+    expect(dark.surfaceTop).toBe(0.075);
+    expect(dark.selectedRow).toBe(0.1);
+    expect(light.surfaceTop).toBeCloseTo(0.05);
     expect(light.glowNear).toBeLessThan(dark.glowNear);
     // Lines keep more than half, so a pale project colour still draws the tree.
     expect(light.guide / dark.guide).toBeGreaterThan(0.6);
@@ -40,14 +40,14 @@ describe("resolveShellTintAlphas", () => {
   it("writes each alpha as a CSS percentage", () => {
     expect(shellTintCssVariables(resolveShellTintAlphas(0.2))).toContainEqual([
       "--shell-tint-selected-row",
-      "14%",
+      "10%",
     ]);
   });
 
   it("eases between the two for mid-grey sidebars", () => {
     const mid = resolveShellTintAlphas(0.55);
-    expect(mid.surfaceTop).toBeLessThan(0.1);
-    expect(mid.surfaceTop).toBeGreaterThan(0.06);
+    expect(mid.surfaceTop).toBeLessThan(0.075);
+    expect(mid.surfaceTop).toBeGreaterThan(0.05);
   });
 });
 

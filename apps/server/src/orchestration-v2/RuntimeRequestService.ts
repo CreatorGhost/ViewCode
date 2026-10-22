@@ -108,6 +108,9 @@ export const layer: Layer.Layer<
               requestId: input.requestId,
             });
           }
+          // RockBot's confirmations are its server's own questions: the respond
+          // command already resolved them, and the waiting tool call reads that.
+          if (request.viewcodeRockBotConfirm === true) return;
           if (request.viewcodeComputerUse === true) {
             if (
               input.decision !== undefined &&

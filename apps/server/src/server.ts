@@ -2,9 +2,7 @@ import * as UsageResume from "./agents/UsageResume.ts";
 import * as UsageResumeRuntime from "./agents/UsageResumeRuntime.ts";
 import * as ViewCodeRelayLayers from "./server/viewcodeRelayLayers.ts";
 import { resolveLocalTarget } from "./relay/viewCodeRelayHealth.ts";
-import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
-import * as CursorHistory from "./project/CursorHistory.ts";
-import * as T3CodeHistory from "./project/T3CodeHistory.ts";
+import * as ViewCodeAgentSessionScanner from "./project/ViewCodeAgentSessionScanner.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Clock from "effect/Clock";
@@ -74,6 +72,8 @@ import * as ViewCodeAgentsLayers from "./server/viewcodeAgentsLayers.ts";
 import * as ViewCodeComputerUseLayers from "./server/viewcodeComputerUseLayers.ts";
 import * as AgentMessaging from "./agents/AgentMessagingV2.ts";
 import * as ComputerUseBridge from "./computerUse/ComputerUseV2Bridge.ts";
+import * as RockBotConfirmation from "./rockbot/RockBotConfirmation.ts";
+import * as RockBotService from "./rockbot/RockBotService.ts";
 import * as PushNotifications from "./notifications/PushNotifications.ts";
 import { computerUseRouteLayer } from "./computerUse/ComputerUseRoute.ts";
 import { browserCliRouteLayer } from "./browserCli/BrowserCliRoute.ts";
@@ -135,6 +135,7 @@ import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
+import * as TailscaleAccess from "./environment/TailscaleAccess.ts";
 import * as AuthHttp from "./auth/http.ts";
 import * as ReplayMarkers from "./auth/replayMarkers.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
@@ -483,6 +484,7 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
 );
 
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
+  Layer.provide(ViewCodeAgentSessionScanner.layer),
   Layer.provide(ViewCodeComputerUseLayers.layerRuntimeResponse),
   Layer.provide(layerScheduledTaskWebhookOrigin),
   Layer.provide(ProviderEventIngestor.layerAnalytics),
@@ -545,6 +547,7 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
 
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   VoiceModelStore.layer,
+  RockBotService.layer,
   Layer.mergeAll(
     Layer.effectDiscard(
       Effect.flatMap(AgentMessaging.AgentMessaging, (service) => service.start()),
@@ -695,6 +698,7 @@ const layerRuntimeDependencies = layerRuntimeCoreDependencies.pipe(
   Layer.provideMerge(ExternalLauncher.layer),
   Layer.provideMerge(RemoteOpenTargets.layer),
   Layer.provideMerge(DirectEndpoints.layer),
+  Layer.provideMerge(TailscaleAccess.layer.pipe(Layer.provide(layerServerSettings))),
   Layer.provideMerge(ServerLifecycleEvents.layer),
   Layer.provide(NetService.layer),
 );
@@ -732,13 +736,10 @@ const layerMakeRoutes = Layer.mergeAll(
     Ws.layer,
   ),
   McpHttpServer.layer.pipe(
-    Layer.provide(
-      AgentSessionScanner.layer.pipe(
-        Layer.provide(Layer.merge(CursorHistory.layer, T3CodeHistory.layer)),
-      ),
-    ),
+    Layer.provide(ViewCodeAgentSessionScanner.layer),
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
+    Layer.provide(RockBotConfirmation.layer),
   ),
 ).pipe(
   Layer.provide(
@@ -824,30 +825,43 @@ const layerMakeServer = Layer.unwrap(
               }
 
               const localPort = address.port;
-              return yield* ensureTailscaleServe({
-                localPort,
-                servePort: config.tailscaleServePort,
-                localHost: "127.0.0.1",
-              }).pipe(
-                Effect.as({ localPort, servePort: config.tailscaleServePort }),
-                Effect.tap(() =>
-                  Effect.logInfo("Tailscale Serve configured", {
+              // The user asked for Serve, so this is the one startup path that
+              // runs `tailscale`; the off switch still stops it.
+              const tailscale = yield* TailscaleAccess.TailscaleAccess;
+              return yield* tailscale
+                .run(
+                  ensureTailscaleServe({
                     localPort,
                     servePort: config.tailscaleServePort,
+                    localHost: "127.0.0.1",
                   }),
-                ),
-                Effect.catch((cause) =>
-                  Effect.logWarning("Failed to configure Tailscale Serve", {
-                    cause,
-                    localPort,
-                    servePort: config.tailscaleServePort,
-                  }).pipe(Effect.as(null)),
-                ),
-              );
+                )
+                .pipe(
+                  // Reads the tailnet name once, for the config's direct endpoints.
+                  Effect.tap(() => tailscale.status.pipe(Effect.ignore)),
+                  Effect.as({ localPort, servePort: config.tailscaleServePort }),
+                  Effect.tap(() =>
+                    Effect.logInfo("Tailscale Serve configured", {
+                      localPort,
+                      servePort: config.tailscaleServePort,
+                    }),
+                  ),
+                  Effect.catch((cause) =>
+                    Effect.logWarning("Failed to configure Tailscale Serve", {
+                      cause,
+                      localPort,
+                      servePort: config.tailscaleServePort,
+                    }).pipe(Effect.as(null)),
+                  ),
+                );
             }),
             (configured) =>
               configured
-                ? disableTailscaleServe({ servePort: configured.servePort }).pipe(
+                ? TailscaleAccess.TailscaleAccess.pipe(
+                    Effect.flatMap((tailscale) =>
+                      tailscale.run(disableTailscaleServe({ servePort: configured.servePort })),
+                    ),
+                  ).pipe(
                     Effect.tap(() =>
                       Effect.logInfo("Tailscale Serve disabled", {
                         servePort: configured.servePort,

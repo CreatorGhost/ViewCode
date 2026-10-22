@@ -5,13 +5,17 @@ import {
 import { AntigravityDriver, type AntigravityDriverEnv } from "./Drivers/AntigravityDriver.ts";
 import { ClaudeDriver, type ClaudeDriverEnv } from "./Drivers/ClaudeDriver.ts";
 import { CodexDriver, type CodexDriverEnv } from "./Drivers/CodexDriver.ts";
-import { CursorDriver, type CursorDriverEnv } from "@t3tools/provider-cursor/server";
+import type { CursorDriverEnv } from "@t3tools/provider-cursor/server";
 import { GrokDriver, type GrokDriverEnv } from "@t3tools/provider-grok/server";
 import { OpenCodeDriver, type OpenCodeDriverEnv } from "@t3tools/provider-opencode/server";
 import { MuseDriver, type MuseDriverEnv } from "@t3tools/provider-muse/server";
 import { PiDriver, type PiDriverEnv } from "@t3tools/provider-pi/server";
 import { DroidDriver, DevinDriver, type ViewCodeAcpDriverEnv } from "./viewcode/acpDrivers.ts";
 import { CommandCodeDriver, type CommandCodeDriverEnv } from "./viewcode/commandCodeDriver.ts";
+import {
+  ViewCodeCursorDriver as CursorDriver,
+  type CursorAgentDriverEnv,
+} from "./viewcode/cursorDriver.ts";
 import type {
   AnyProviderDriver,
   ProviderUsageReaderEnv,
@@ -25,6 +29,7 @@ export type BuiltInDriversEnv =
   | ClaudeDriverEnv
   | CodexDriverEnv
   | CursorDriverEnv
+  | CursorAgentDriverEnv
   | GrokDriverEnv
   | OpenCodeDriverEnv
   | PiDriverEnv

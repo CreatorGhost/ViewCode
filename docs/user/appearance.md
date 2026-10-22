@@ -47,7 +47,7 @@ applies to the web and desktop clients.
 
 ## Motion
 
-The main sidebar, right panel, and terminal drawer slide open and closed in 200 ms by default. Use the
+The main sidebar, right panel, and terminal drawer slide open and closed in 300 ms by default. Use the
 **Panel animations** slider to change the speed, up to 400 ms, or set it to 0 ms to open and close them
 immediately. Motion is off when reduced motion is enabled in your operating system. Moving between
 threads always snaps to the selected thread's panel state without replaying its transitions.

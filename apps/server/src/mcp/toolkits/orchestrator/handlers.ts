@@ -108,6 +108,13 @@ const handlers = {
       return yield* service.listThreads(scope, input);
     }),
   ),
+  t3_attention_list: McpToolAccess.reads((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.listAttention(scope, input);
+    }),
+  ),
   t3_thread_read: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
@@ -124,7 +131,7 @@ const handlers = {
         return yield* service.update(scope, input);
       }),
   ),
-  t3_thread_send: McpToolAccess.writesThreads(
+  t3_thread_send: McpToolAccess.sendsForUser(
     (input) => [input.threadId],
     (input) =>
       Effect.gen(function* () {

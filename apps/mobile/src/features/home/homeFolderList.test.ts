@@ -255,6 +255,27 @@ describe("resolveHomeAgentStatus", () => {
     expect(resolveHomeAgentStatus({ ...base, session: sessionWith("stopped") })).toBe("stopped");
     expect(resolveHomeAgentStatus(base)).toBe("stopped");
     expect(resolveHomeAgentStatus({ ...base, session: sessionWith("error") })).toBe("failed");
+    const turn = (state: "completed" | "interrupted" | "error") => ({
+      turnId: TurnId.make("turn"),
+      state,
+      requestedAt: NOW,
+      startedAt: NOW,
+      completedAt: NOW,
+      assistantMessageId: null,
+    });
+    // A finished turn is done, whatever its session does next; a stopped one stays stopped.
+    expect(
+      resolveHomeAgentStatus({
+        ...base,
+        session: sessionWith("ready"),
+        latestTurn: turn("completed"),
+      }),
+    ).toBe("done");
+    expect(resolveHomeAgentStatus({ ...base, latestTurn: turn("completed") })).toBe("done");
+    expect(resolveHomeAgentStatus({ ...base, latestTurn: turn("interrupted") })).toBe("stopped");
+    expect(
+      resolveHomeAgentStatus({ ...base, session: sessionWith("ready"), latestTurn: turn("error") }),
+    ).toBe("failed");
     expect(
       resolveHomeAgentStatus({
         ...base,
@@ -262,6 +283,43 @@ describe("resolveHomeAgentStatus", () => {
         hasPendingApprovals: true,
       }),
     ).toBe("needs-you");
+  });
+});
+
+describe("provider-native subagents", () => {
+  // Their threads never get a run; the lead's shell says which it runs now.
+  const lead = (running: string[]) =>
+    thread("lead", "app", {
+      session: sessionWith("running"),
+      runningSubagentThreadIds: running.map((id) => ThreadId.make(id)),
+    });
+
+  it("reads an agent its lead runs as working, and as stopped once the lead lets it go", () => {
+    const agent = child("native", "lead");
+    const rows = (running: string[]) =>
+      describeRows(build([lead(running), agent], { expandedLeadKeys: ["lead"] }).items);
+    expect(rows(["native"])).toContain("  child native working");
+    expect(rows([])).toContain("  child native stopped");
+  });
+
+  it("reads a native agent that did its work as done once the lead lets it go", () => {
+    // Its thread holds the agent's work but never got a run or a session of its own.
+    const agent = child("native", "lead", {
+      source: { itemCount: 4 } as EnvironmentThreadShell["source"],
+    });
+    const rows = (running: string[]) =>
+      describeRows(build([lead(running), agent], { expandedLeadKeys: ["lead"] }).items);
+    expect(rows(["native"])).toContain("  child native working");
+    expect(rows([])).toContain("  child native done");
+    expect(resolveHomeAgentStatus(agent)).toBe("done");
+  });
+
+  it("counts a lead with a running native agent under Working", () => {
+    const idleLead = thread("lead", "app", {
+      session: sessionWith("ready"),
+      runningSubagentThreadIds: [ThreadId.make("native")],
+    });
+    expect(countHomeStatusFilters([idleLead, child("native", "lead")]).working).toBe(1);
   });
 });
 
@@ -373,11 +431,11 @@ describe("home status filter", () => {
   });
 
   it("counts lead trees per chip", () => {
-    expect(countHomeStatusFilters(threads)).toEqual({ all: 5, working: 2, "needs-you": 2 });
+    expect(countHomeStatusFilters(threads)).toEqual({ all: 5, working: 2, "needs-you": 1 });
   });
 
-  it("keeps approvals and failures for needs you", () => {
-    expect(leads("needs-you").sort()).toEqual(["blocked", "broken"]);
+  it("keeps approvals and questions for needs you, not failures", () => {
+    expect(leads("needs-you")).toEqual(["blocked"]);
   });
 });
 
@@ -478,8 +536,8 @@ describe("agent groups and folder sort", () => {
     ]);
     expect(describeRows(listWith({ expandedDone: true }).items).slice(-3)).toEqual([
       "[done 2 open]",
-      "  child new idle",
-      "  child old idle",
+      "  child new done",
+      "  child old done",
     ]);
   });
 
@@ -487,8 +545,8 @@ describe("agent groups and folder sort", () => {
     const list = listWith({ sortOrders: new Map([[appKey, "name"]]) });
     expect(describeRows(list.items).slice(3)).toEqual([
       "  child asks needs-you",
-      "  child new idle",
-      "  child old idle",
+      "  child new done",
+      "  child old done",
       "  child zeta working",
     ]);
     const header = list.items.find((item) => item.type === "folder-header");

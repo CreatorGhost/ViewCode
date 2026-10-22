@@ -1,9 +1,12 @@
-import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
+import { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { isFreshFirstRunWorkspace, resolveFirstRunDecision } from "../../onboarding/firstRun.logic";
-import { providerPickerPatch } from "../../onboarding/onboardingAgents.logic";
-import { resolveProviderSetup } from "./providerSetup.logic";
+import {
+  providerPickerPatch,
+  resolveProviderPickerPrompt,
+  resolveProviderSetup,
+} from "@t3tools/client-runtime/provider-picker";
 
 const codex = ProviderDriverKind.make("codex");
 const claude = ProviderDriverKind.make("claudeAgent");
@@ -87,6 +90,86 @@ describe("provider setup", () => {
         providers: [{ enabled: true, status: "ready", disabledByAdmin: true }],
       }).showPicker,
     ).toBe(true);
+  });
+});
+
+describe("provider picker in a chat", () => {
+  const empty = EnvironmentId.make("empty-server");
+  const busy = EnvironmentId.make("busy-server");
+  const allOff = [
+    { enabled: false, status: "disabled" as const },
+    { enabled: false, status: "disabled" as const },
+  ];
+  const codexOn = { ...off, [codexId]: { driver: codex, enabled: true } };
+  const environments = {
+    [empty]: { instances: off, providers: allOff },
+    [busy]: { instances: codexOn, providers: [{ enabled: true, status: "ready" as const }] },
+  };
+  const prompt = (
+    environmentId: EnvironmentId,
+    options: { canManage?: boolean; dismissed?: ReadonlyArray<EnvironmentId> } = {},
+  ) =>
+    resolveProviderPickerPrompt({
+      environmentId,
+      ...environments[environmentId]!,
+      blockedDrivers: [],
+      canManage: options.canManage ?? true,
+      dismissedEnvironmentIds: new Set(options.dismissed ?? []),
+    });
+
+  it("opens the picker when the server has no provider on", () => {
+    expect(prompt(empty)).toBe("picker");
+  });
+  it("shows the notice instead once the picker was closed on that server", () => {
+    expect(prompt(empty, { dismissed: [empty] })).toBe("inline");
+  });
+  it("hides both once a provider is on", () => {
+    expect(prompt(busy)).toBe("hidden");
+    expect(prompt(busy, { dismissed: [busy] })).toBe("hidden");
+  });
+  it("a connection that cannot change providers only gets the notice", () => {
+    expect(prompt(empty, { canManage: false })).toBe("inline-read-only");
+    expect(prompt(busy, { canManage: false })).toBe("hidden");
+  });
+  it("decides each environment on its own state and its own dismissal", () => {
+    expect(prompt(empty, { dismissed: [busy] })).toBe("picker");
+    expect(prompt(busy, { dismissed: [] })).toBe("hidden");
+  });
+  it("only counts providers the administrator allows", () => {
+    expect(
+      resolveProviderPickerPrompt({
+        environmentId: busy,
+        instances: codexOn,
+        blockedDrivers: [codex],
+        providers: [{ enabled: false, status: "disabled" }],
+        canManage: true,
+        dismissedEnvironmentIds: new Set(),
+      }),
+    ).toBe("picker");
+  });
+  it("trusts a running built-in default over settings without provider entries", () => {
+    expect(
+      resolveProviderPickerPrompt({
+        environmentId: busy,
+        instances: {},
+        blockedDrivers: [],
+        providers: [{ enabled: true, status: "ready" }],
+        canManage: true,
+        dismissedEnvironmentIds: new Set(),
+      }),
+    ).toBe("hidden");
+  });
+  it("waits for the server config", () => {
+    expect(
+      resolveProviderPickerPrompt({
+        environmentId: empty,
+        instances: null,
+        blockedDrivers: [],
+        providers: null,
+        canManage: true,
+        dismissedEnvironmentIds: new Set(),
+      }),
+    ).toBe("hidden");
   });
 });
 

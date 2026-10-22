@@ -98,11 +98,19 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-app-sidebar][data-
     margin: var(--vc-sheet-inset) var(--vc-sheet-inset) var(--vc-sheet-inset) 0;
     overflow: hidden;
     border-radius: var(--vc-sheet-radius);
-    border: 1px solid color-mix(in srgb, var(--foreground) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
     background-color: var(--vc-sheet);
     box-shadow:
       0 1px 2px rgb(0 0 0 / 0.3),
       0 12px 32px -16px rgb(0 0 0 / 0.6);
+  }
+
+  /* In dark the window is near-black, so the panel needs a deeper lift to read as a floating
+     object rather than a grey rectangle. */
+  html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="sidebar-inset"] {
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.6),
+      0 24px 56px -24px rgb(0 0 0 / 0.95);
   }
 
   /* With the sidebar collapsed the panel sits right beside the rail: the rail's own 7px padding is
@@ -136,31 +144,54 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""])
 }
 
 /* ---------------------------------------------------------------------------
- * Composer (rows 14–16): one glass pill, radius 22, hairline, no coloured
- * glow; at most a tiny neutral drop in light.
+ * Composer: the one raised object on the sheet. A bordered card, radius 20,
+ * no coloured glow. Its surface is set in viewcode-chat.css; in dark it gets
+ * a visible hairline and a deep drop so it floats off the near-black sheet.
  * ------------------------------------------------------------------------- */
 
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"] {
-  --chat-composer-glass-surface: var(--vc-sheet);
   --chat-composer-outline: var(--vc-hairline);
   --chat-composer-highlight: transparent;
 }
 
 html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"] {
-  --chat-composer-highlight: rgb(255 255 255 / 0.1);
+  --chat-composer-outline: color-mix(in srgb, var(--vc-label) 12%, transparent);
+  --chat-composer-highlight: rgb(255 255 255 / 0.04);
 }
 
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-shell"]::before,
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-host"],
 html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-chat-composer-main-surface] {
-  border-radius: 22px;
+  border-radius: 20px;
 }
 
-html[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-host"] {
+/* The host's lift. With a banner attached (Active agents) the host also wraps the banner,
+   which is inset from the host's edges, so a ring on the host drew a hollow rounded frame
+   around the banner; the lift then moves to the input surface, as upstream's own outline does. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-host"]:not(:has([data-composer-banner-surface="attached"])) {
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+/* The input surface's own outline draws its edge; only the lift moves here. The live ring's
+   glow (viewcode-chat.css) is more specific than this would be, so it is left alone. */
+html[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-host"]:has([data-composer-banner-surface="attached"])
+  [data-chat-composer-main-surface]:not(:has(> [data-composer-live-ring])) {
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
 }
 
-html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""]) [data-slot="composer-host"],
+html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-host"]:not(:has([data-composer-banner-surface="attached"])) {
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.05),
+    0 18px 40px -18px rgb(0 0 0 / 0.9);
+}
+html.dark[data-theme-id^="viewcode"]:not([data-theme-id=""])
+  [data-slot="composer-host"]:has([data-composer-banner-surface="attached"])
+  [data-chat-composer-main-surface]:not(:has(> [data-composer-live-ring])) {
+  box-shadow: 0 18px 40px -18px rgb(0 0 0 / 0.9);
+}
+
 html[data-theme-id^="viewcode"]:not([data-theme-id=""])
   [data-slot="composer-context-strip"]::before {
   box-shadow: none;
@@ -525,14 +556,27 @@ html[data-window-glass="true"] body {
 /*
  * App rail (components/rail/AppRail.tsx): a 3rem strip left of the thread sidebar. The
  * sidebar's fixed container is shifted right of it instead of editing ui/sidebar.tsx, and
- * collapsing slides the sidebar fully off screen, passing under the rail. Parking its edge
- * behind the rail showed through on window glass, where the rail has no fill. Below
- * THREAD_SIDEBAR_OVERLAY_BREAKPOINT (threadSidebarWidth.ts) the thread sidebar is already an
- * overlay sheet beside the rail.
+ * collapsing parks it with its right edge under the rail's: that is the same distance the
+ * content sheet moves, so the two edges stay together while they slide. Parking further off
+ * screen made the sidebar travel 3rem more than the sheet and opened a strip between them for
+ * the whole motion. On window glass the rail has no fill, so what would sit under it is clipped
+ * off instead. Both read one transitioned length. Below THREAD_SIDEBAR_OVERLAY_BREAKPOINT
+ * (threadSidebarWidth.ts) the thread sidebar is already an overlay sheet beside the rail.
  */
+@property --sidebar-x {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 @media (min-width: 768px) {
   [data-app-rail-layout] {
     --app-rail-width: 3rem;
+  }
+  /* The sidebar toggle and the history arrows are one cluster. It starts past the rail, so
+     no button sits on the rail's strip while the rest sit on the sidebar; macOS starts it
+     past the traffic lights instead (below). */
+  html:not([data-macos-window-controls="visible"]) [data-app-rail-layout] {
+    --workspace-controls-left: calc(var(--app-rail-width) + 0.5rem);
   }
   /* The macOS window buttons (12pt in, 52pt wide) need more than the 48px rail: there the rail is
      76px so they sit above it, centred over its icons, and nothing starts under them. */
@@ -543,10 +587,12 @@ html[data-window-glass="true"] body {
     width: var(--app-rail-width);
   }
   [data-app-rail-layout] [data-slot="sidebar-container"] {
-    left: var(--app-rail-width) !important;
+    --sidebar-x: var(--app-rail-width);
+    left: var(--sidebar-x) !important;
+    clip-path: inset(0 0 0 calc(var(--app-rail-width) - var(--sidebar-x)));
   }
   [data-app-rail-layout] [data-collapsible="offcanvas"] [data-slot="sidebar-container"] {
-    left: calc(var(--sidebar-width) * -1) !important;
+    --sidebar-x: calc(var(--app-rail-width) - var(--sidebar-width));
   }
   /* Without traffic lights the control group starts over the rail's top strip and runs past
      it, so content measured from the rail's edge clears what overhangs. */
@@ -610,6 +656,13 @@ html[data-macos-window-controls="visible"] {
         var(--workspace-titlebar-control-gap) - var(--macos-window-controls-clearance)
     );
   }
+  /* That gutter arrives with the panel's collapse and leaves with its expand; declared in both
+     states so it eases on the panel's curve either way instead of stepping. */
+  html[data-macos-window-controls="visible"]
+    [data-panel-animations="true"][data-app-rail-layout]
+    > [data-slot="sidebar-inset"] {
+    transition: margin-left var(--panel-animation-duration) var(--ease-drawer);
+  }
 }
 
 /*
@@ -639,7 +692,7 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
   /* The selected row: a soft neutral fill, nothing more. */
   [data-testid="sidebar-row"][aria-current="page"],
   [data-testid="sidebar-row-child"][aria-current="page"] {
-    background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
+    background-color: color-mix(in srgb, var(--foreground) 6%, transparent);
   }
   [data-testid="sidebar-row"][aria-current="page"]::before,
   [data-testid="sidebar-row-child"][aria-current="page"]::before {
@@ -659,14 +712,14 @@ html[data-theme-id^="viewcode"]:not([data-theme-id=""]) {
   [data-testid="sidebar-row"][aria-current="page"] .tabular-nums {
     opacity: 1;
   }
-  /* Project headers: a small, spaced label rather than another row of equal weight. */
+  /* Project headers: a quiet label, not another row of equal weight. Bold headers made the
+     sidebar heavier than the content it leads to. */
   [data-testid="sidebar-project-row"] {
     height: 2rem;
     margin-top: 0.5rem;
     border-radius: var(--vc-row-radius);
     font-size: 0.8125rem;
-    letter-spacing: 0.01em;
-    font-weight: 600;
+    font-weight: 500;
   }
   /* Settled groups: a whisper under their project. */
   [data-testid="sidebar-settled-group"] {
@@ -778,24 +831,24 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
  */
 :root {
   --shell-glow-color: var(--app-theme-accent, var(--ring));
-  --shell-tint-surface-top: 10%;
-  --shell-tint-surface-bottom: 4%;
-  --shell-tint-border: 35%;
-  --shell-tint-selected-row: 14%;
+  --shell-tint-surface-top: 7.5%;
+  --shell-tint-surface-bottom: 2.5%;
+  --shell-tint-border: 25%;
+  --shell-tint-selected-row: 10%;
   --shell-tint-guide: 30%;
-  --shell-tint-rail-fill: 16%;
+  --shell-tint-rail-fill: 12%;
   --shell-tint-badge-fill: 18%;
   --shell-glow-border: 45%;
   --shell-glow-near: 28%;
   --shell-glow-far: 12%;
 }
 :root:not(.dark) {
-  --shell-tint-surface-top: 6%;
-  --shell-tint-surface-bottom: 2%;
-  --shell-tint-border: 25%;
-  --shell-tint-selected-row: 9%;
+  --shell-tint-surface-top: 5%;
+  --shell-tint-surface-bottom: 1.5%;
+  --shell-tint-border: 20%;
+  --shell-tint-selected-row: 7%;
   --shell-tint-guide: 20%;
-  --shell-tint-rail-fill: 10%;
+  --shell-tint-rail-fill: 8%;
   --shell-tint-badge-fill: 12%;
   --shell-glow-border: 35%;
   --shell-glow-near: 16%;
@@ -816,11 +869,46 @@ html[data-window-glass="true"] [data-slot="composer-shell"] {
     --shell-glow-color: oklch(from var(--project-accent) clamp(0.6, l, 0.8) c h);
   }
 }
-[data-project-tint] {
-  --shell-tint-gradient: linear-gradient(
-    color-mix(in srgb, var(--project-accent) var(--shell-tint-surface-top), transparent),
-    color-mix(in srgb, var(--project-accent) var(--shell-tint-surface-bottom), transparent)
-  );
+/* The wash fades between projects, and from a project to none, instead of swapping in one frame
+   when the rail changes project; without a project the accent is transparent, so it is always
+   painted. A childless pseudo-element paints it and fades a plain background colour under an
+   alpha mask: a transition on a custom property set on the layout wrapper, even a non-inherited
+   one, made Chromium recalc the whole subtree's style every frame (300 ms of style work per
+   switch). No stacking context on the wrapper: fixed layers inside it (the mini player's
+   controls, the recent-thread switcher) must still stack against the webviews outside it. */
+@media (min-width: 768px) {
+  [data-app-rail-layout][data-slot="sidebar-wrapper"] {
+    position: relative;
+  }
+  [data-app-rail-layout][data-slot="sidebar-wrapper"]::before,
+  [data-app-rail-layout] [data-app-rail]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-color: var(--project-accent);
+    -webkit-mask-image: linear-gradient(
+      rgb(0 0 0 / var(--shell-tint-surface-top)),
+      rgb(0 0 0 / var(--shell-tint-surface-bottom))
+    );
+    mask-image: linear-gradient(
+      rgb(0 0 0 / var(--shell-tint-surface-top)),
+      rgb(0 0 0 / var(--shell-tint-surface-bottom))
+    );
+  }
+  /* First positioned box in the wrapper, so every positioned sibling paints over it. */
+  [data-app-rail-layout][data-slot="sidebar-wrapper"]::before {
+    z-index: 0;
+  }
+  /* The rail is its own stacking context (z-20): the wash sits under its tiles. */
+  [data-app-rail-layout] [data-app-rail]::before {
+    z-index: -1;
+  }
+  /* The wrapper carries data-panel-animations itself, so it needs the compound selector. */
+  [data-panel-animations="true"][data-slot="sidebar-wrapper"]::before,
+  [data-panel-animations="true"] [data-app-rail]::before {
+    transition: background-color var(--panel-animation-duration) var(--ease-drawer);
+  }
 }
 /* A coloured folder's badge is filled in its own colour (Sidebar sets --project-accent on it),
    so every folder in an All-projects list keeps its colour. */
@@ -851,13 +939,20 @@ html [data-app-rail] {
   border-color: transparent;
   background-color: transparent;
 }
+/* The rail's glyphs (All projects, RockBot, Settings, Pull Requests, phone) at 18px: 16px read
+   as an afterthought beside the 34px project tiles (user feedback). */
+[data-app-rail] button:not([data-rail-project]) > svg,
+[data-app-rail] button:not([data-rail-project]) [data-rail-phone] > svg {
+  width: 18px;
+  height: 18px;
+}
 [data-app-rail] button[data-rail-project]:hover {
   background-color: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 /* Every lit rail button, the All projects one included, is the same soft neutral tile, with a
    short solid bar on the rail's outer edge: where you are, said plainly, nothing glowing. */
 [data-app-rail] button[data-pressed] {
-  background-color: color-mix(in srgb, var(--foreground) 10%, transparent);
+  background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
 }
 [data-app-rail] button[data-rail-project][data-pressed]::before {
   content: "";
@@ -893,19 +988,17 @@ html [data-app-rail] {
    One gradient on the shell backdrop, with the rail and sidebar see-through over it, so there is
    no seam between them. No glow and no tab. */
 @media (min-width: 768px) {
-  [data-project-tint] [data-slot="sidebar-wrapper"] {
+  /* The rail layout root is the sidebar wrapper itself. */
+  [data-app-rail-layout][data-slot="sidebar-wrapper"] {
     background-color: var(--sidebar);
-    background-image: var(--shell-tint-gradient);
   }
-  /* The sidebar is see-through over the wash. The rail keeps a fill, painting the same
-     viewport-anchored gradient, so a sidebar sliding under it never shows through. */
-  [data-project-tint] [data-slot="sidebar-inner"] {
+  /* The sidebar is see-through over the wash. The rail paints its own, the same full-height
+     ramp as the wrapper's, so a sidebar sliding under it never shows through. */
+  [data-app-rail-layout] [data-slot="sidebar-inner"] {
     background-color: transparent;
   }
-  [data-project-tint] [data-app-rail] {
+  [data-app-rail-layout] [data-app-rail] {
     background-color: var(--sidebar);
-    background-image: var(--shell-tint-gradient);
-    background-attachment: fixed;
   }
   [data-project-tint]
     :is([data-testid="sidebar-row"], [data-testid="sidebar-row-child"])[aria-current="page"] {
@@ -916,6 +1009,30 @@ html [data-app-rail] {
     );
   }
 }
+/*
+ * Sidebar collapse: the gap that holds the content open tweens with the sliding panel, on the
+ * drawer curve, instead of stepping after it (close) or before it (open). Frame capture showed
+ * the content sheet jumping its full width in one frame at either end, which read as fake. The
+ * chat column keeps its width inside the sheet, so the per-frame reflow only re-centres it.
+ * Same specificity as the sidebar's own classes; this file loads later.
+ */
+[data-panel-animations="true"] [data-slot="sidebar"] [data-slot="sidebar-gap"],
+[data-panel-animations="true"]
+  [data-slot="sidebar"][data-collapsible="offcanvas"]
+  [data-slot="sidebar-gap"] {
+  transition-property: width;
+  transition-duration: var(--panel-animation-duration);
+  transition-timing-function: var(--ease-drawer);
+  transition-delay: 0s;
+}
+[data-panel-animations="true"] [data-slot="sidebar"] [data-slot="sidebar-container"],
+[data-panel-animations="true"] [data-slot="sidebar"] [data-slot="sidebar-rail"] {
+  transition-timing-function: var(--ease-drawer);
+}
+[data-panel-animations="true"][data-app-rail-layout] [data-slot="sidebar-container"] {
+  transition-property: --sidebar-x, width;
+}
+
 /* A folder's sort order lives in its menu, in every theme; the row stays a name. */
 [data-folder-sort-label] {
   display: none;

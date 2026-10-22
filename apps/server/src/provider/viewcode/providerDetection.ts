@@ -13,6 +13,8 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as AntigravityInstallation from "../AntigravityInstallation.ts";
 import { resolveCommandCodeBinary } from "../commandCodeCli.ts";
+import type { CursorRuntime } from "@t3tools/provider-cursor/settings";
+import { effectiveCursorRuntime, findCursorAgentExecutable } from "./cursorRuntime.ts";
 
 const COMMANDS: Readonly<Record<string, string | undefined>> = {
   codex: "codex",
@@ -31,7 +33,7 @@ const COMMANDS: Readonly<Record<string, string | undefined>> = {
 /**
  * Where an instance's executable is, by an uncached filesystem lookup only: the configured path,
  * else the driver's command on PATH with the instance's environment. Never spawns. `undefined`
- * when the instance runs no executable of its own to look up (Cursor's bundled SDK, remote
+ * when the instance runs no executable of its own to look up (Cursor's SDK runtime, remote
  * OpenCode, managed Codex) or there is no way to look (an unknown driver, Antigravity without its
  * installation service).
  */
@@ -51,6 +53,7 @@ export const resolveInstanceExecutable = Effect.fn("ViewCode.resolveInstanceExec
           readonly binaryPath?: unknown;
           readonly serverUrl?: unknown;
           readonly setupMode?: unknown;
+          readonly runtime?: unknown;
         })
       : {};
   // Managed Codex runs the copy ViewCode installs itself, not one on PATH.
@@ -67,11 +70,19 @@ export const resolveInstanceExecutable = Effect.fn("ViewCode.resolveInstanceExec
       Effect.orElseSucceed(() => null),
     );
   }
-  // Cursor's v2 runtime is the bundled SDK. Remote OpenCode needs no local executable.
-  if (
-    driver === "cursor" ||
-    (driver === "opencode" && typeof config.serverUrl === "string" && config.serverUrl.trim())
-  ) {
+  // Cursor's SDK runtime is bundled; its cursor-agent runtime runs the CLI.
+  if (driver === "cursor") {
+    const runtime: CursorRuntime | undefined =
+      config.runtime === "sdk" || config.runtime === "cursor-agent" ? config.runtime : undefined;
+    const settings = {
+      ...(configured ? { binaryPath: configured } : {}),
+      ...(runtime ? { runtime } : {}),
+    };
+    if ((yield* effectiveCursorRuntime(settings, env)) === "sdk") return undefined;
+    return (yield* findCursorAgentExecutable(settings, env)) ?? null;
+  }
+  // Remote OpenCode needs no local executable.
+  if (driver === "opencode" && typeof config.serverUrl === "string" && config.serverUrl.trim()) {
     return undefined;
   }
   const command = expandHomePath(

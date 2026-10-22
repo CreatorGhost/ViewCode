@@ -1,5 +1,6 @@
 import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import { threadNeedWithAgents } from "@t3tools/shared/threadNeedsYou";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
 import {
@@ -9,9 +10,11 @@ import {
 import { defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationLatestTurn } from "@t3tools/client-runtime/viewcodeThread";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/reactivity";
 import { planPinnedReorder } from "@t3tools/client-runtime/state/thread-sort";
+import type { AgentStatusGroup } from "@t3tools/client-runtime/state/thread-arrangement";
 import {
   effectiveSnoozed,
   type ThreadSnoozeShell,
@@ -23,6 +26,7 @@ import {
   type ThreadSortInput,
 } from "../lib/threadSort";
 import type { SidebarThreadSummary, Thread } from "../types";
+import { formatRelativeTimeLabel } from "../timestampFormat";
 import { cn, normalizeSearchText } from "../lib/utils";
 import { isLatestRunSettled } from "../session-logic";
 import { resolveServerBackedAppStageLabel } from "../branding.logic";
@@ -920,12 +924,8 @@ type SidebarThreadStatusInput = Pick<
 >;
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
-  if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
-    return "approval";
-  }
-  if (thread.hasPendingUserInput || thread.pendingSubagentRequest === "user_input") {
-    return "input";
-  }
+  const need = threadNeedWithAgents(thread);
+  if (need !== null) return need === "approval" ? "approval" : "input";
   if (
     thread.runtime !== null &&
     ["preparing", "queued", "starting", "running", "waiting"].includes(thread.runtime.status)
@@ -1087,6 +1087,38 @@ export function resolveWorkingStartedAt(
   return resolveThreadWorkingStartedAt(thread);
 }
 
+export function compactSidebarTimeLabel(label: string): string {
+  if (label === "just now") return "now";
+  return label.endsWith(" ago") ? label.slice(0, -4) : label;
+}
+
+/**
+ * What an agent row's trailing text says: how long it has run, what it waits for, or how long
+ * ago it finished. A provider-native subagent's thread never gets a run of its own, so while its
+ * lead runs it the time counts from the thread's creation, when the lead started it.
+ */
+export function agentTimeLabel(
+  thread: {
+    readonly latestTurn: Pick<
+      OrchestrationLatestTurn,
+      "startedAt" | "requestedAt" | "completedAt"
+    > | null;
+    readonly hasPendingApprovals: boolean;
+    readonly createdAt: string;
+    readonly updatedAt: string;
+  },
+  group: AgentStatusGroup,
+  nowMs: number,
+): string {
+  if (group === "needs-you") return thread.hasPendingApprovals ? "approval" : "question";
+  const turn = thread.latestTurn;
+  if (group === "working") {
+    const started = turn?.startedAt ?? turn?.requestedAt ?? thread.createdAt;
+    return compactSidebarTimeLabel(formatRelativeTimeLabel(started, nowMs));
+  }
+  return formatRelativeTimeLabel(turn?.completedAt ?? thread.updatedAt, nowMs);
+}
+
 export function formatWorkingDurationLabel(elapsedMs: number): string {
   const seconds = Number.isFinite(elapsedMs) ? Math.max(0, Math.floor(elapsedMs / 1000)) : 0;
   if (seconds < 60) return `${seconds}s`;
@@ -1100,7 +1132,8 @@ export function resolveThreadStatusPill(input: {
 }): ThreadStatusPill | null {
   const { thread } = input;
 
-  if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
+  const need = threadNeedWithAgents(thread);
+  if (need === "approval") {
     return {
       label: "Pending Approval",
       colorClass: "text-amber-600 dark:text-amber-300/90",
@@ -1109,7 +1142,7 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (thread.hasPendingUserInput || thread.pendingSubagentRequest === "user_input") {
+  if (need === "question") {
     return {
       label: "Awaiting Input",
       colorClass: "text-indigo-600 dark:text-indigo-300/90",

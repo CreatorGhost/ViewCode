@@ -3,10 +3,106 @@
 > **First-run provider gate.** A brand-new data folder (no `settings.json` and no
 > provider ever used) writes every provider off, and the welcome screen asks
 > which to turn on; finding CLIs there is a `PATH` lookup, never a run. Existing
-> installs keep their providers. The other managed-only defaults stay lifted:
-> the Same Wi-Fi test runs when Connect phone opens and Tailscale Serve is on
-> when Tailscale is signed in. The report below is kept as a record; the current
-> findings are next.
+> installs keep their providers. The Same Wi-Fi test runs when Connect phone
+> opens; Tailscale runs only when a Tailscale feature is used (see below). The
+> report further down is kept as a record; the current findings are next.
+
+## October 2026 (v2): `tailscale` on every page load
+
+The v2 server was killed on the first page load. Its `spawn-trace.log` showed
+`tailscale status` spawned in the same second, and the same build with
+`tailscale` short-circuited survived several minutes of chats and Settings. v1
+never ran `tailscale`. The cause was upstream's "open in editor over Tailscale
+SSH" (`b037b9a53`): every server config read (each page load) resolved SSH
+routes with `tailscale status` and `tailscale debug prefs`, and the desktop app
+ran `tailscale status` at every launch to turn Tailscale Serve on.
+
+Now nothing runs `tailscale` at startup, on a config read or on page load:
+
+- The server reaches the CLI only through `TailscaleAccess`
+  (`apps/server/src/environment/TailscaleAccess.ts`), which caches each answer
+  for 60 seconds. The config carries the last resolved SSH routes from memory;
+  the web asks for fresh ones (`server.resolveRemoteOpenTargets`) only when the
+  **Open in** menu opens on a remote environment. Tailscale Serve (`--tailscale-serve`,
+  `pair --tailscale`) still runs it because the user asked for Serve.
+- The desktop turns Serve on at launch only after the user turns on **Turn on
+  Tailscale phone access at launch**, and lists Same Wi-Fi tailnet addresses
+  from the network interfaces without the CLI.
+- Off switches, strongest first: IT's [admin policy](#it-policy-blocking-providers-and-tailscale)
+  (`tailscale.allowed: false`), `VIEWCODE_DISABLE_TAILSCALE=1` in the
+  environment, then **Settings → Connections → Tailscale** (`tailscaleEnabled`
+  in `settings.json`, default on). Each turns every Tailscale command into a
+  no-op that reports why. The one answer is `resolveTailscaleBlock` in
+  `packages/tailscale` (the server's `TailscaleAccess.blockReason`, the
+  desktop's `DesktopTailscaleGate`). The policy and the environment switch are
+  also enforced where `packages/tailscale` spawns, so no caller can bypass them.
+
+On a managed Mac where EDR kills `tailscaled`, have IT block Tailscale with the
+policy, or set `"tailscaleEnabled": false` in `userdata/settings.json` or export
+`VIEWCODE_DISABLE_TAILSCALE=1` before the first launch.
+
+## IT policy: blocking providers and Tailscale
+
+A setting is the user's choice; a company that bans a tool needs a block the
+user cannot lift. ViewCode reads a machine-wide policy once when it starts (the
+server and the desktop app each read it):
+
+- macOS: managed preferences for `dev.viewcode.app`, i.e.
+  `/Library/Managed Preferences/dev.viewcode.app.plist`. ViewCode decodes the
+  plist itself (binary or XML); it runs no `plutil` or `defaults`.
+- Linux `/etc/viewcode/policy.json`, Windows `C:\ProgramData\ViewCode\policy.json`,
+  with the same keys as JSON.
+
+A blocked provider is off for the provider registry, the launch gate, Settings,
+the first-run picker and the "no provider" prompt whatever `settings.json` or a
+project says, and its binary is never probed or spawned (Codex's and
+Antigravity's installation probes included). Blocked Tailscale means no
+`tailscale` spawn at all. `settings.json` keeps the user's own choice, so lifting
+the policy restores it. An unreadable policy is logged and blocks nothing.
+Reader: `packages/shared/src/viewcodeAdminPolicy.ts`.
+
+**How IT sets it on macOS:** a configuration profile installed on the **device**
+(a user-scoped profile lands under `/Library/Managed Preferences/<user>/`, which
+ViewCode does not read) with a Custom Settings (application preferences) payload
+for the domain `dev.viewcode.app`. In Jamf Pro that is Application & Custom
+Settings → Upload, preference domain `dev.viewcode.app`, with:
+
+```xml
+<dict>
+  <key>providers</key>
+  <dict>
+    <key>codex</key>
+    <dict><key>allowed</key><false/></dict>
+  </dict>
+  <key>tailscale</key>
+  <dict><key>allowed</key><false/></dict>
+</dict>
+```
+
+Provider keys are the driver ids (`codex`, `claudeAgent`, `cursor`, `grok`,
+`opencode`, `antigravity`, `commandCode`, `droid`, `devin`, `pi`, `muse`;
+`acpRegistry` blocks every ACP registry agent). Only `allowed: false` blocks.
+
+**Check on the managed Mac:** `plutil -p "/Library/Managed Preferences/dev.viewcode.app.plist"`
+shows the keys above. Restart ViewCode; Settings → Providers shows Codex as
+**Blocked by your organization** with its switch off, the welcome screen and the
+"no provider" prompt do not offer it, and Settings → Connections → Tailscale says
+Tailscale is blocked by your organization. Then `userdata/logs/spawn-trace.log`
+must show no `codex`, no `tailscale` and no `plutil` line, and the server log no
+"Could not read the ViewCode admin policy" warning.
+
+## How to check on a managed Mac
+
+1. Run the new build on a **copy** of real data, on a spare port.
+2. Remove a copied `userdata/server-runtime.json`; v2 refuses to start if it
+   names a live server.
+3. Load the page, open Settings, and send one Cursor message.
+4. Read `userdata/logs/spawn-trace.log`. It must show no `tailscale`, no
+   `codex`, and no `rg` or `cursorsandbox` (see the Cursor section below). Only
+   a Tailscale feature runs `tailscale`: opening the **Open in** menu from a
+   remote browser runs at most one `tailscale status` (plus
+   `tailscale debug prefs` when no local sshd answers) a minute. With
+   Tailscale turned off, nothing.
 
 ## October 2026: what Cortex XDR actually flags
 
@@ -43,6 +139,40 @@ mkdir -p /tmp/rm/darwin-arm64 && cp native/resource-monitor/target/aarch64-apple
 node scripts/build-cli-archive.ts --platform mac --arch arm64 --version "$(node -p 'require("./apps/server/package.json").version')" --resource-monitor-dir /tmp/rm --output-dir release-cli
 pnpm dist:desktop:dmg:arm64 --mac-server-runtime release-cli/t3-*-darwin-arm64.tar.gz
 ```
+
+## Cursor runs as `cursor-agent` again (October 2026)
+
+Measured on 19 October 2026 with the v2 server on a copy of real data: Cursor
+sign-in through the SDK worked, and on the first message the **server process
+itself** spawned the SDK's bundled `@cursor/sdk-darwin-arm64/bin/rg` twice in
+parallel; the server was killed right after. That `rg` is properly signed
+(Developer ID: Anysphere) and identical to the one inside `cursor-agent`, so
+this is not a signature problem. The difference is the parent: v1 ran
+Cursor's own signed `cursor-agent`, which runs `rg` and `cursorsandbox`
+itself, and that runs clean daily; v2 ran Cursor in-process through
+`@cursor/sdk`, so the generic `node` server ran them. Not proven at the rule
+level (only IT's console names the rule), but timing and the v1/v2 difference
+match.
+
+Cursor now has a **Runtime** setting (Settings → Providers → Cursor):
+
+- **Cursor CLI (`cursor-agent`)**: the server spawns `cursor-agent … acp` and
+  nothing else for Cursor. It uses the CLI's own login (`cursor-agent login`).
+- **Cursor SDK**: the in-process SDK, as before.
+- **Automatic** (default): on macOS the CLI when `cursor-agent` is found on
+  `PATH` (a lookup, never a run), otherwise the SDK.
+
+So a managed Mac with `cursor-agent` installed needs no change; set the runtime
+to the CLI explicitly to be sure, and set **Binary path** if `cursor-agent`
+is not on the server's `PATH`. In `settings.json` that is
+`"runtime": "cursor-agent"` in the Cursor instance's `config`.
+
+**Check:** load the page, send one Cursor message, then read
+`userdata/logs/spawn-trace.log`. Every Cursor line must name `cursor-agent`
+with `provider=cursor` (an `about` health check, then the ACP sessions), and
+there must be no `rg` and no `cursorsandbox` line: those now run under
+`cursor-agent`, and the trace only records the server's own children. An `rg` or `cursorsandbox`
+line means the instance is still on the SDK runtime.
 
 Field report from a locked-down company laptop, checked against ViewCode's
 source. Specifics that identify the machine, user or tenant (names, prevention
@@ -121,6 +251,11 @@ Each is independently justified, whether or not the EDR hypothesis holds.
 7. **Trim entitlements** to what's required (`allow-jit`).
 8. **Developer ID signing + notarization** before distributing builds to
    managed machines; ad-hoc builds carry no reputation.
+9. **Admin policy:** IT blocks providers and Tailscale machine-wide (see
+   [IT policy](#it-policy-blocking-providers-and-tailscale)).
+   _Done when:_ a blocked provider cannot be switched on and its binary never
+   runs, and blocked Tailscale means zero `tailscale` spawns, whatever
+   `settings.json` or the environment says.
 
 Items 1 to 3 go upstream as one issue ("managed machines need a way to stop
 provider probes"), item 4 as a separate one. Keep machine specifics out.
@@ -134,7 +269,9 @@ exception, or touches the EDR.
    T3 Code and an exception for the ViewCode app/bundle. This is the one fact
    that ends the guessing. The Cortex XDR app's alert "Details" disclosure shows
    the source PID and command line without admin.
-2. **Pre-disable providers you won't use** before the first launch. The
+2. **Pre-disable providers you won't use** before the first launch (where IT
+   owns the decision, the [IT policy](#it-policy-blocking-providers-and-tailscale)
+   enforces it instead). The
    desktop app reads `~/.viewcode/userdata/settings.json`; create it if absent
    (merge if present) with, for example:
 
@@ -186,6 +323,36 @@ exception, or touches the EDR.
    (`node scripts/pack-viewcode-npm.ts`, see the README) and
    `npm install -g` the tarball here.
 
+## Cursor asks for a login after sleep
+
+Reported October 2026 on a managed Mac, CLI runtime: Cursor worked, the lid closed, and after
+wake and a page reload every message failed with a sign-in error while `cursor-agent` in a
+terminal was signed in. Not reproduced on another managed Mac. Each check below is read-only
+and prints no token; run them while ViewCode is in the failing state.
+
+1. **Same binary?** `command -v cursor-agent` in the terminal, against the executables in
+   `grep cursor-agent ~/.viewcode/userdata/logs/spawn-trace.log | tail -20`. A different path
+   is a second install with its own login.
+2. **Saved login on disk:** `grep -c '"authInfo"' ~/.cursor/cli-config.json` (1 means the CLI
+   has a login; the token itself is in the Keychain and is not read).
+3. **Did ViewCode reuse a process from before the sleep?** Compare the `cursor-agent` start and
+   exit lines in `spawn-trace.log` with the wake time from
+   `pmset -g log | grep -E ' (Sleep|Wake) ' | tail -4`. A Cursor start before the sleep with no
+   exit until after the failures is the stale-process case, which current builds recover from
+   on the next message.
+4. **What ViewCode concluded** (current builds):
+   `cd ~/.viewcode/userdata/logs && grep -h -o -E 'Cursor CLI (reports no sign-in|lost its sign-in)[^]]{0,200}' server-child.log server.trace.ndjson | tail -6`.
+   `"reading": "signed-out"` with `"savedLogin": false` is a real sign-out; any other reading is a
+   login the CLI could not read (Keychain) or confirm (network). The `problem` of "lost its
+   sign-in" lines is what a failed message hit; ViewCode replaced that process.
+5. **What the turns got:** `grep -c 'acp-prompt-failed' ~/.viewcode/userdata/logs/server-child.log`
+   (older builds show these as plain "Provider turn failed."). Settings → Providers → refresh
+   re-runs the status check by hand.
+
+If fresh ViewCode-started processes keep failing (step 4 says Keychain, step 3 shows new
+processes) while the terminal works, the Keychain is refusing ViewCode's children; that is the
+case that needs the Mac itself to understand.
+
 ## Cursor Enterprise MCP policy
 
 If Cursor reports that MCP servers are blocked by team policy, ask the team's
@@ -215,7 +382,7 @@ Each is an IT request. Never circumvent the control.
 | MCP blocked for a reviewer (Cursor policy, Claude `managed-mcp.json`)      | A review finishes but its findings never reach the Review panel    | No IT request: reviewers fall back to `viewcode-review submit`; if it reports `unreachable`, give the review thread full access |
 | macOS application firewall row for the packaged app                        | Incoming-connection prompt or blocked listener for the app         | Ask IT to allow the app, or use the already-allowed `t3`/`node` path                                                            |
 | Cloudflare tunnels blocked by a TLS-inspecting firewall plus always-on VPN | Tunnel never connects                                              | Ask IT for an exception for the tunnel host                                                                                     |
-| EDR terminating `tailscaled`                                               | Tailscale sharing stops with the daemon                            | Ask IT for an exception for the Tailscale daemon                                                                                |
+| EDR terminating `tailscaled`                                               | Tailscale sharing stops with the daemon                            | Ask IT for an exception for the Tailscale daemon; until then turn Tailscale off in ViewCode (see above)                         |
 
 ## Building the installer on the managed Mac
 
@@ -259,9 +426,10 @@ pnpm dist:desktop:dmg:arm64                # output in release/
 - `.electron-runtime/ViewCode (Alpha).app` is the bare Electron shell; launching
   it directly starts Electron's `default_app.asar`, not ViewCode. Start the app
   with `node apps/desktop/scripts/start-electron.mjs` or `./build.sh`.
-- Logs are OpenTelemetry spans in `server.trace.ndjson` and
-  `desktop.trace.ndjson` under `~/.viewcode/userdata/logs/`, not
-  `server-child.log`.
+- Logs are under `~/.viewcode/userdata/logs/`: OpenTelemetry spans in
+  `server.trace.ndjson` and `desktop.trace.ndjson`, the server's console output
+  (including warnings logged outside a span) in `server-child.log`, and child
+  process launches in `spawn-trace.log`.
 - Don't detach processes with `setsid`, `perl` `POSIX::setsid` or other fork
   tricks. On EDR-managed machines that pattern triggers Behavioral Threat
   Protection alerts under the user's name and contaminates the experiment.

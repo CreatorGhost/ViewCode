@@ -1,6 +1,5 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
 
-
 import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import {
@@ -17,8 +16,11 @@ import {
 } from "@t3tools/client-runtime/state/thread-tree";
 import { formatSubagentModelLabel } from "@t3tools/client-runtime/viewcodeThread";
 import {
+  childAgentRecordsFromShells,
+  resolveEffectiveAgentStatus,
   summarizeAgentTreeControl,
   type AgentTreeControlSummary,
+  type ChildAgentRecord,
 } from "@t3tools/client-runtime/state/child-agents";
 import {
   DEFAULT_FOLDER_SORT_ORDER,
@@ -64,7 +66,7 @@ export type { HomeAgentStatus };
 
 type AgentControlByThreadKey = ReadonlyMap<string, Pick<AgentControlState, "paused" | "queued">>;
 
-/** Home's status chips. `needs-you` is a decision or a failure waiting on the user. */
+/** Home's status chips. `needs-you` is an approval or a question waiting on the user. */
 export type HomeStatusFilter = "all" | "working" | "needs-you";
 
 export function matchesHomeStatusFilter(
@@ -73,12 +75,10 @@ export function matchesHomeStatusFilter(
     "hasPendingApprovals" | "hasPendingUserInput" | "session" | "latestTurn"
   >,
   filter: HomeStatusFilter,
+  record?: ChildAgentRecord | undefined,
 ): boolean {
   if (filter === "all") return true;
-  const status = resolveHomeAgentStatus(thread);
-  return filter === "working"
-    ? status === "working"
-    : status === "needs-you" || status === "failed";
+  return resolveHomeAgentStatus(thread, record) === filter;
 }
 
 /** Lead trees each chip would keep, for the chip badges. */
@@ -86,6 +86,7 @@ export function countHomeStatusFilters(
   threads: ReadonlyArray<EnvironmentThreadShell>,
 ): Record<HomeStatusFilter, number> {
   const counts = { all: 0, working: 0, "needs-you": 0 };
+  const recordOf = childAgentRecordsFromShells(threads);
   const rootOf = new Map<string, string>();
   const byKey = new Map(threads.map((thread) => [threadKey(thread), thread]));
   const resolveRoot = (thread: EnvironmentThreadShell): string => {
@@ -108,7 +109,9 @@ export function countHomeStatusFilters(
   for (const filter of ["working", "needs-you"] as const) {
     const roots = new Set<string>();
     for (const thread of threads) {
-      if (matchesHomeStatusFilter(thread, filter)) roots.add(resolveRoot(thread));
+      if (matchesHomeStatusFilter(thread, filter, recordOf(thread))) {
+        roots.add(resolveRoot(thread));
+      }
     }
     counts[filter] = roots.size;
   }
@@ -116,20 +119,44 @@ export function countHomeStatusFilters(
   return counts;
 }
 
+/**
+ * `record` is what the agent's lead says of it (`childAgentRecordsFromShells`): a provider-native
+ * subagent never gets a run of its own, so its own shell reads stopped while its lead runs it.
+ * The status is the one every surface shows (`resolveEffectiveAgentStatus`), so an agent that
+ * finished its work reads Done here as on web, not Stopped.
+ */
 export function resolveHomeAgentStatus(
   thread: Pick<
     EnvironmentThreadShell,
     "hasPendingApprovals" | "hasPendingUserInput" | "session" | "latestTurn"
-  >,
+  > & { readonly source?: { readonly itemCount: number } | undefined },
+  record?: ChildAgentRecord | undefined,
 ): HomeAgentStatus {
-  if (thread.hasPendingApprovals || thread.hasPendingUserInput) return "needs-you";
-  const status = thread.session?.status;
-  if (status === "running" || status === "starting" || thread.latestTurn?.state === "running") {
-    return "working";
+  const status = resolveEffectiveAgentStatus(
+    { ...thread, itemCount: thread.source?.itemCount },
+    { record },
+  );
+  switch (status) {
+    case "approval":
+    case "input":
+      return "needs-you";
+    case "running":
+    case "queued":
+      return "working";
+    case "failed":
+      return "failed";
+    case "done":
+      return "done";
+    case "stopped":
+      return "stopped";
+    case "idle":
+    case null: {
+      const session = thread.session?.status;
+      return session === undefined || session === "stopped" || session === "interrupted"
+        ? "stopped"
+        : "idle";
+    }
   }
-  if (status === "error") return "failed";
-  if (status === undefined || status === "stopped" || status === "interrupted") return "stopped";
-  return "idle";
 }
 
 /**
@@ -339,6 +366,8 @@ export function buildHomeFolderList(input: {
   readonly agentControl?: AgentControlByThreadKey;
 }): HomeFolderList {
   const { now } = input;
+  // Leads' shells say which of their agents their provider sessions run now.
+  const recordOf = childAgentRecordsFromShells(input.threads);
   const folderKeyByProjectKey = new Map<string, string>();
   for (const scope of input.scopes) {
     for (const ref of scope.projectRefs) {
@@ -381,7 +410,7 @@ export function buildHomeFolderList(input: {
       threads,
       threadKeyOf: threadKey,
       parentKeyOf: parentKey,
-      matches: (thread) => matchesHomeStatusFilter(thread, statusFilter),
+      matches: (thread) => matchesHomeStatusFilter(thread, statusFilter, recordOf(thread)),
     });
     threads = threads.filter((thread) => selection.keys.has(threadKey(thread)));
     searchExpandKeys = new Set([...searchExpandKeys, ...selection.expandKeys]);
@@ -422,7 +451,7 @@ export function buildHomeFolderList(input: {
   const agentGroupOf = (thread: EnvironmentThreadShell): AgentStatusGroup =>
     input.agentControl?.get(threadKey(thread))?.paused === true
       ? "needs-you"
-      : resolveAgentStatusGroup(thread);
+      : resolveAgentStatusGroup(thread, recordOf(thread));
 
   const pending =
     input.pendingOrder == null
@@ -492,7 +521,7 @@ export function buildHomeFolderList(input: {
     sortRoots,
     // Status: Working, Needs you, Failed, Done, newest first in each.
     sortChildren: (children) => sortChatAgents(children, folderSortOf(children[0]), agentGroupOf),
-    isWorking: (thread) => resolveHomeAgentStatus(thread) === "working",
+    isWorking: (thread) => resolveHomeAgentStatus(thread, recordOf(thread)) === "working",
   });
 
   // Lead rows are decorated by the flat list's builder so they carry the same
@@ -569,7 +598,7 @@ export function buildHomeFolderList(input: {
       key: row.node.key,
       thread: row.node.thread,
       depth: row.depth,
-      running: resolveHomeAgentStatus(row.node.thread) === "working",
+      running: resolveHomeAgentStatus(row.node.thread, recordOf(row.node.thread)) === "working",
     }));
     const agentTree = summarizeAgentTreeControl(tree, agentControl);
     const agents = tree.slice(1);
@@ -577,8 +606,11 @@ export function buildHomeFolderList(input: {
     // the thread screen still lists them. A working, waiting, failed or paused
     // agent keeps the disclosure, and so does a search that matched one.
     const quiet = agents.every((row) => {
-      const status = resolveHomeAgentStatus(row.thread);
-      return (status === "idle" || status === "stopped") && !agentControl.get(row.key)?.paused;
+      const status = resolveHomeAgentStatus(row.thread, recordOf(row.thread));
+      return (
+        (status === "idle" || status === "stopped" || status === "done") &&
+        !agentControl.get(row.key)?.paused
+      );
     });
     if (settled && quiet && !searchExpandKeys.has(node.key)) {
       items.push({
@@ -647,8 +679,8 @@ export function buildHomeFolderList(input: {
         key: `folder-child:${row.key}`,
         thread,
         depth: row.row.depth,
-        status: control?.paused ? "paused" : resolveHomeAgentStatus(thread),
-        running: resolveHomeAgentStatus(thread) === "working",
+        status: control?.paused ? "paused" : resolveHomeAgentStatus(thread, recordOf(thread)),
+        running: resolveHomeAgentStatus(thread, recordOf(thread)) === "working",
         queued: control?.queued ?? 0,
         muted,
       });
@@ -690,7 +722,8 @@ export function buildHomeFolderList(input: {
     let workingCount = 0;
     for (const node of active) {
       workingCount +=
-        node.workingDescendantCount + (resolveHomeAgentStatus(node.thread) === "working" ? 1 : 0);
+        node.workingDescendantCount +
+        (resolveHomeAgentStatus(node.thread, recordOf(node.thread)) === "working" ? 1 : 0);
     }
     items.push({
       type: "folder-header",

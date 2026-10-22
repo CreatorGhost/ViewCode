@@ -21,6 +21,7 @@ import {
   type ThreadKind,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
+import { runtimeRequestNeed } from "@t3tools/shared/threadNeedsYou";
 import * as DateTime from "effect/DateTime";
 
 export interface OrchestrationMessage {
@@ -33,6 +34,8 @@ export interface OrchestrationMessage {
   readonly streaming: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /** Copied from the thread this one was forked from: shown as history, never written here. */
+  readonly inherited?: true;
 }
 
 export interface OrchestrationLatestTurn {
@@ -118,6 +121,8 @@ export interface ViewCodeThreadShell {
     readonly needsRefinement: boolean;
   } | null;
   readonly backgroundLiveness?: "working" | "monitoring" | null;
+  /** Child threads this thread's provider session runs as subagents now (see the contract). */
+  readonly runningSubagentThreadIds?: ReadonlyArray<ThreadId>;
   readonly planProgress?: {
     readonly step: string;
     readonly completedSteps: number;
@@ -231,11 +236,8 @@ export function viewCodeThreadShell(thread: OrchestrationV2ThreadShell): ViewCod
       ? { latestMessagePreview: thread.latestVisibleMessage.text }
       : {}),
     latestUserMessageAt: nullableIso(thread.latestUserMessageAt),
-    hasPendingApprovals:
-      thread.pendingRuntimeRequest !== null &&
-      thread.pendingRuntimeRequest.kind !== "user_input" &&
-      thread.pendingRuntimeRequest.kind !== "auth_refresh",
-    hasPendingUserInput: thread.pendingRuntimeRequest?.kind === "user_input",
+    hasPendingApprovals: runtimeRequestNeed(thread.pendingRuntimeRequest?.kind) === "approval",
+    hasPendingUserInput: runtimeRequestNeed(thread.pendingRuntimeRequest?.kind) === "question",
     hasActionableProposedPlan: thread.hasActionableProposedPlan,
     parentThreadId: thread.parentThreadId ?? thread.lineage.parentThreadId,
     kind: thread.kind ?? null,
@@ -267,6 +269,7 @@ export function viewCodeThreadShell(thread: OrchestrationV2ThreadShell): ViewCod
       : (thread.pendingBackgroundTasks ?? []).length > 0
         ? "monitoring"
         : null,
+    runningSubagentThreadIds: thread.runningSubagentThreadIds ?? [],
   };
 }
 
@@ -357,7 +360,10 @@ function activityFor(
       return {
         ...base,
         tone: "tool",
-        kind: pending ? "tool.started" : "tool.completed",
+        // A call in flight is an update of a running call, not a start notice: mobile's work log
+        // drops start notices (v1 sent one before every call's updates), which hid every running
+        // call, and every working agent, until it finished.
+        kind: pending ? "tool.updated" : "tool.completed",
         summary: item.title || item.type.replaceAll("_", " "),
         payload: {
           ...item,
@@ -414,6 +420,8 @@ function latestTurnFor(
 export function viewCodeThread(projection: OrchestrationV2ThreadProjection): ViewCodeThread {
   const thread = projection.thread;
   const items = projection.visibleTurnItems.map(({ item }) => item);
+  const inherited = (row: OrchestrationV2ThreadProjection["visibleTurnItems"][number]) =>
+    row.visibility === "local" ? {} : { inherited: true as const };
   const latestRun = [...projection.runs].sort((left, right) => left.ordinal - right.ordinal).at(-1);
   const pendingRequests = projection.runtimeRequests.filter(
     (request) => request.status === "pending",
@@ -421,7 +429,8 @@ export function viewCodeThread(projection: OrchestrationV2ThreadProjection): Vie
   const latestTurn = latestTurnFor(latestRun, projection);
   const pendingRequestIds = new Set(pendingRequests.map((request) => request.id));
   const nativeMessageIds = new Set(projection.messages.map((message) => message.id));
-  const inheritedMessages = items.flatMap((item): OrchestrationMessage[] => {
+  const inheritedMessages = projection.visibleTurnItems.flatMap((row): OrchestrationMessage[] => {
+    const { item } = row;
     if (
       (item.type !== "user_message" && item.type !== "assistant_message") ||
       nativeMessageIds.has(item.messageId)
@@ -429,6 +438,7 @@ export function viewCodeThread(projection: OrchestrationV2ThreadProjection): Vie
       return [];
     return [
       {
+        ...inherited(row),
         id: item.messageId,
         role: item.type === "user_message" ? "user" : "assistant",
         text: item.text,
@@ -455,11 +465,13 @@ export function viewCodeThread(projection: OrchestrationV2ThreadProjection): Vie
   const messages = [
     ...projection.messages.map(messageFor),
     ...inheritedMessages,
-    ...items.flatMap((item): OrchestrationMessage[] =>
-      item.type !== "reasoning"
+    ...projection.visibleTurnItems.flatMap((row): OrchestrationMessage[] => {
+      const { item } = row;
+      return item.type !== "reasoning"
         ? []
         : [
             {
+              ...inherited(row),
               id: MessageId.make(`viewcode:reasoning:${item.id}`),
               role: "reasoning",
               text: item.text,
@@ -468,8 +480,8 @@ export function viewCodeThread(projection: OrchestrationV2ThreadProjection): Vie
               createdAt: iso(item.startedAt ?? item.updatedAt),
               updatedAt: iso(item.updatedAt),
             },
-          ],
-    ),
+          ];
+    }),
   ].sort(
     (left, right) =>
       left.createdAt.localeCompare(right.createdAt) ||
@@ -504,9 +516,11 @@ export function viewCodeThread(projection: OrchestrationV2ThreadProjection): Vie
           },
     latestUserMessageAt: messages.findLast((message) => message.role === "user")?.createdAt ?? null,
     hasPendingApprovals: pendingRequests.some(
-      (request) => request.kind !== "user_input" && request.kind !== "auth_refresh",
+      (request) => runtimeRequestNeed(request.kind) === "approval",
     ),
-    hasPendingUserInput: pendingRequests.some((request) => request.kind === "user_input"),
+    hasPendingUserInput: pendingRequests.some(
+      (request) => runtimeRequestNeed(request.kind) === "question",
+    ),
     hasActionableProposedPlan: projection.plans.some(
       (plan) =>
         plan.kind === "proposed_plan" && (plan.status === "active" || plan.status === "draft"),

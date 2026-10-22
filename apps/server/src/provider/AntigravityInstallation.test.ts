@@ -8,6 +8,7 @@ import * as Hex from "effect/encoding/Hex";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
@@ -20,6 +21,7 @@ import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
+import * as ServerConfig from "../config.ts";
 import * as AntigravityInstallation from "./AntigravityInstallation.ts";
 import { ANTIGRAVITY_AUTH_BROWSER_MARKER } from "./antigravityAuthSupport.ts";
 import {
@@ -121,6 +123,8 @@ const writeRelease = Effect.fn("test.writeAntigravityRelease")(function* (
 
 interface HarnessOptions {
   readonly baseDir?: string;
+  readonly legacyBaseDir?: string;
+  readonly home?: string;
   readonly asset?: AntigravityReleaseAsset | null;
   readonly archive?: Buffer;
   readonly body?: Stream.Stream<Uint8Array> | undefined;
@@ -175,6 +179,7 @@ const makeHarness = Effect.fn("test.makeAntigravityInstallation")(function* (
   });
   const installation = yield* AntigravityInstallation.makeAntigravityInstallation({
     baseDir,
+    ...(options.legacyBaseDir === undefined ? {} : { legacyBaseDir: options.legacyBaseDir }),
     releaseAsset: asset,
     ...(options.useDefaultValidation
       ? {}
@@ -189,6 +194,7 @@ const makeHarness = Effect.fn("test.makeAntigravityInstallation")(function* (
     Effect.provideService(HostProcess.Platform, platform),
     Effect.provideService(HostProcess.Architecture, arch),
     Effect.provideService(HostProcess.Environment, { PATH: options.path ?? "" }),
+    Effect.provideService(HostProcess.HomeDirectory, options.home ?? baseDir),
     Effect.provideService(
       HttpClient.HttpClient,
       HttpClient.make((request) =>
@@ -221,6 +227,29 @@ const makeHarness = Effect.fn("test.makeAntigravityInstallation")(function* (
     ),
   );
   return { installation, fs, path, baseDir, requests, validations, stagingReleased };
+});
+
+// Messages abbreviate the home directory everywhere but Windows.
+const shownPath = (home: string, filePath: string) =>
+  hostPlatform === "win32" ? filePath : `~${filePath.slice(home.length)}`;
+
+const snapshotTree = Effect.fn("test.snapshotTree")(function* (root: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const entries: Array<string> = [];
+  const walk = (directory: string): Effect.Effect<void, PlatformError.PlatformError> =>
+    Effect.gen(function* () {
+      for (const name of (yield* fs.readDirectory(directory)).toSorted()) {
+        const entry = path.join(directory, name);
+        const info = yield* fs.stat(entry);
+        const mtime = Option.getOrUndefined(info.mtime)?.getTime();
+        entries.push(`${entry}:${info.type}:${info.mode}:${info.size}:${mtime}`);
+        if (info.type === "Directory") yield* walk(entry);
+        else entries.push(yield* fs.readFileString(entry));
+      }
+    });
+  yield* walk(root);
+  return entries;
 });
 
 const terminalState = (installation: AntigravityInstallation.AntigravityInstallation["Service"]) =>
@@ -1038,6 +1067,105 @@ it.layer(NodeServices.layer)("Antigravity installation", (it) => {
           path.join(installation.managedDirectory, "active.json"),
         ]);
       }),
+  );
+
+  it.effect("names T3 Code's runtime without using or changing it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-agy-home-" });
+      const legacyBaseDir = path.join(home, ".t3");
+      const legacyManaged = path.join(
+        legacyBaseDir,
+        "tools",
+        "antigravity-acp",
+        `${hostPlatform}-x64`,
+      );
+      yield* writeRelease(legacyManaged, {
+        ...(yield* releaseAsset()),
+        version: "1.1.1",
+      });
+      const before = yield* snapshotTree(legacyBaseDir);
+      const { installation } = yield* makeHarness({
+        baseDir: path.join(home, ".viewcode"),
+        legacyBaseDir,
+        home,
+      });
+
+      const failure = yield* installation.resolve().pipe(Effect.flip);
+      expect(failure.detail).toBe(
+        `Antigravity is not installed in ViewCode. T3 Code's runtime (1.1.1) at ${shownPath(home, legacyManaged)} isn't used: ViewCode needs its own copy (fixture-new). Install Antigravity to download it.`,
+      );
+      expect(yield* installation.acquire().pipe(Effect.scoped, Effect.flip)).toMatchObject({
+        detail: failure.detail,
+      });
+      expect(yield* snapshotTree(legacyBaseDir)).toEqual(before);
+
+      yield* writeRelease(installation.managedDirectory, yield* releaseAsset());
+      expect(yield* installation.resolve()).toMatchObject({
+        source: "managed",
+        version: "fixture-new",
+        managedVersionDirectory: expect.stringContaining(installation.managedDirectory),
+      });
+      expect(yield* snapshotTree(legacyBaseDir)).toEqual(before);
+    }),
+  );
+
+  it.effect.each([
+    { name: "the default home", homeName: ".viewcode", namesT3Code: true },
+    { name: "an isolated home", homeName: "isolated", namesT3Code: false },
+  ])("looks for T3 Code's runtime only from $name", ({ homeName, namesT3Code }) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-agy-home-" });
+      yield* writeRelease(
+        path.join(home, ".t3", "tools", "antigravity-acp", `${hostPlatform}-x64`),
+        {
+          ...(yield* releaseAsset()),
+          version: "1.1.1",
+        },
+      );
+      const failure = yield* AntigravityInstallation.AntigravityInstallation.pipe(
+        Effect.flatMap((installation) => installation.resolve().pipe(Effect.flip)),
+        Effect.provide(
+          AntigravityInstallation.AntigravityInstallation.layer.pipe(
+            Layer.provide(ServerConfig.layerTest(home, path.join(home, homeName))),
+          ),
+        ),
+        Effect.provideService(HostProcess.HomeDirectory, home),
+        Effect.provideService(HostProcess.Platform, hostPlatform),
+        Effect.provideService(HostProcess.Architecture, "x64"),
+        Effect.provideService(HostProcess.Environment, { PATH: "" }),
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make(() => Effect.die("Resolving must not download.")),
+        ),
+      );
+      expect(failure.detail.includes("T3 Code's runtime (1.1.1)")).toBe(namesT3Code);
+    }),
+  );
+
+  it.effect("says where it looked when no runtime resolves", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-agy-home-" });
+      const { installation } = yield* makeHarness({
+        baseDir: path.join(home, ".viewcode"),
+        legacyBaseDir: path.join(home, ".t3"),
+        home,
+        path: path.join(home, "bin"),
+      });
+      expect((yield* installation.resolve().pipe(Effect.flip)).detail).toBe(
+        `Antigravity is not installed. Checked ${shownPath(home, installation.managedDirectory)} and PATH for ${executableName}. Install it in this environment or set a custom executable path.`,
+      );
+      const custom = path.join(home, "agy", executableName);
+      expect((yield* installation.resolve(custom).pipe(Effect.flip)).detail).toBe(
+        `The custom Antigravity executable at ${shownPath(home, custom)} or its ${harnessName} sibling is missing or not executable.`,
+      );
+      expect(yield* fs.exists(path.join(home, ".t3"))).toBe(false);
+    }),
   );
 
   it.effect("reports unsupported hosts without downloading or changing state", () =>

@@ -30,6 +30,7 @@ import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
 import { HomeScopeFilters } from "./HomeScopeFilters";
 import type { HomeHeaderProps } from "./HomeHeader.types";
+import { useRockBotMenu } from "../rockbot/useRockBotMenu";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
@@ -142,6 +143,11 @@ export function HomeRouteScreen() {
     }
   }, [projectFilterOptions, selectedProjectKey]);
 
+  const rockBot = useRockBotMenu(
+    selectedEnvironmentId ?? environments[0]?.environmentId ?? null,
+    threads,
+  );
+
   const openTerminal = (target: HomeTerminalTarget) =>
     navigation.navigate("ThreadTerminal", {
       environmentId: String(target.environmentId),
@@ -171,6 +177,7 @@ export function HomeRouteScreen() {
         screen: "SettingsContent",
         params: { screen: "SettingsUsage" },
       }),
+    ...(rockBot === undefined ? {} : { rockBot }),
     onSearchQueryChange: setSearchQuery,
     onStartNewTask: () => navigation.navigate("NewTaskSheet", { screen: "NewTask" }),
     onOpenPullRequests: () => navigation.navigate("PullRequests"),

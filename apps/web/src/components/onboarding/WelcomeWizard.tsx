@@ -1,6 +1,6 @@
 import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import { ProviderPicker } from "./ProviderPicker";
-import { resolveProviderSetup } from "./providerSetup.logic";
+import { resolveProviderSetup } from "@t3tools/client-runtime/provider-picker";
 import { useAuth } from "@clerk/react";
 import { useAtomValue } from "@effect/atom-react";
 import type {
@@ -1389,7 +1389,7 @@ function ImportStep({
     return (
       <StepShell
         title="Bring in past conversations?"
-        description="Your projects start empty. Pick specific T3 Code, Claude Code, Codex or Cursor conversations to continue, or skip this. You can do it later from a project's menu in the sidebar."
+        description="Your projects start empty. Pick specific Claude Code, Codex, Cursor or T3 Code conversations to continue, or skip this. You can do it later from a project's menu in the sidebar."
       >
         <ScrollArea scrollFade className="mt-5 h-auto max-h-80">
           <div className="space-y-0.5 pr-3">
@@ -1452,7 +1452,7 @@ function ImportStep({
         <div className="flex flex-1 flex-col items-center justify-center gap-3 py-6">
           <Spinner size="lg" tone="muted" />
           <p className="text-center text-sm text-muted-foreground">
-            Looking for projects from Claude Code and Codex…
+            Looking for projects from Claude Code, Codex, Cursor and T3 Code…
           </p>
         </div>
         <div className="flex justify-end">
@@ -1467,7 +1467,7 @@ function ImportStep({
   return (
     <StepShell
       title="Start fresh, or add projects"
-      description="ViewCode starts with a clean sidebar. Add folders you have used with Claude Code or Codex as projects if you like. Adding a project does not bring in its conversations; you choose those next."
+      description="ViewCode starts with a clean sidebar. Add folders you have used with Claude Code, Codex, Cursor or T3 Code as projects if you like. Adding a project does not bring in its conversations; you choose those next."
     >
       {candidates.length > 0 ? (
         <div className="mt-5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -1529,7 +1529,7 @@ function ImportStep({
                   </div>
                 ) : scanCandidates.length === 0 ? (
                   <p className="py-2 text-sm text-muted-foreground">
-                    No existing Claude Code or Codex projects found.
+                    No Claude Code, Codex, Cursor or T3 Code projects found.
                   </p>
                 ) : null}
                 {scan.data?.truncated ? (

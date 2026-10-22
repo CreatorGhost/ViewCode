@@ -49,11 +49,19 @@ describe("ProviderSettingsForm helpers", () => {
     ]);
   });
 
-  it("uses a dedicated environment field instead of legacy Cursor CLI settings", () => {
+  it("offers Cursor's runtime choice, its CLI path and an API key field", () => {
     const cursor = providerClients.get(ProviderDriverKind.make("cursor"));
 
     expect(cursor).toBeDefined();
-    expect(deriveProviderSettingsFields(cursor!)).toEqual([]);
+    expect(deriveProviderSettingsFields(cursor!)).toMatchObject([
+      {
+        key: "runtime",
+        control: "select",
+        clearWhenEmpty: "omit",
+        options: [{ value: "auto" }, { value: "cursor-agent" }, { value: "sdk" }],
+      },
+      { key: "binaryPath", control: "text", placeholder: "cursor-agent" },
+    ]);
     expect(cursor?.environmentFields).toEqual([
       {
         name: "CURSOR_API_KEY",

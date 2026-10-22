@@ -35,7 +35,8 @@ export interface DesktopSettings {
   readonly tailscaleServePort: number;
   /**
    * ViewCode: turn Tailscale Serve on at launch when the Tailscale CLI is
-   * installed. On by default; turning Serve off turns this off too.
+   * installed. Off until the user turns it on, because checking runs
+   * `tailscale status` at launch; turning Serve off turns this off too.
    */
   readonly tailscaleAutoServe: boolean;
   readonly updateChannel: DesktopUpdateChannel;
@@ -77,7 +78,7 @@ export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   serverExposureMode: "local-only",
   tailscaleServeEnabled: false,
   tailscaleServePort: DEFAULT_TAILSCALE_SERVE_PORT,
-  tailscaleAutoServe: true,
+  tailscaleAutoServe: false,
   updateChannel: "latest",
   updateChannelConfiguredByUser: false,
   wslBackendEnabled: false,
@@ -233,7 +234,7 @@ function normalizeDesktopSettingsDocument(
       parsed.serverExposureMode === "network-accessible" ? "network-accessible" : "local-only",
     tailscaleServeEnabled: parsed.tailscaleServeEnabled === true,
     tailscaleServePort: normalizeTailscaleServePort(parsed.tailscaleServePort),
-    tailscaleAutoServe: parsed.tailscaleAutoServe !== false,
+    tailscaleAutoServe: parsed.tailscaleAutoServe === true,
     updateChannel: updateChannelConfiguredByUser
       ? Option.getOrElse(parsedUpdateChannel, () => defaultSettings.updateChannel)
       : defaultSettings.updateChannel,

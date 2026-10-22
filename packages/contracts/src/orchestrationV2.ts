@@ -1014,6 +1014,8 @@ export function latestProviderTurnForAttempt<
 
 export const OrchestrationV2RuntimeRequest = Schema.Struct({
   viewcodeComputerUse: Schema.optional(Schema.Boolean),
+  /** RockBot asks its user before a send; the server answers it, never a provider. */
+  viewcodeRockBotConfirm: Schema.optional(Schema.Boolean),
   id: RuntimeRequestId,
   nodeId: NodeId,
   providerTurnId: Schema.NullOr(ProviderTurnId),
@@ -1848,6 +1850,14 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   latestUserAuthoredMessageAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   hasActionableProposedPlan: Schema.Boolean,
   pendingBackgroundTasks: Schema.optional(Schema.Array(OrchestrationV2PendingBackgroundTask)).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  /**
+   * Child threads this thread's provider session is running as subagents right now, during its
+   * own run or after. A provider-native subagent's own thread never gets a run, so this is where
+   * clients read that it is working.
+   */
+  runningSubagentThreadIds: Schema.optional(Schema.Array(ThreadId)).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   providerInstanceHistory: Schema.optional(Schema.Array(ProviderInstanceId)).pipe(

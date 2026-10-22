@@ -13,6 +13,8 @@ import {
   stepRecentSelection,
   threadTabTitle,
   touchRecentView,
+  threadTabsThatFit,
+  visibleThreadTabs,
 } from "./threadTabs.logic";
 
 describe("open and close", () => {
@@ -132,5 +134,34 @@ describe("threadTabTitle", () => {
         full: "sol-tuning-api",
       });
     }
+  });
+});
+
+describe("visibleThreadTabs", () => {
+  const tabs = ["a", "b", "c", "d", "e", "f", "g", "h"];
+  it("shows every tab under the cap", () => {
+    expect(visibleThreadTabs(["a", "b"], "b", 6)).toEqual({ visible: ["a", "b"], overflow: [] });
+  });
+  it("overflows the tabs past the cap in strip order", () => {
+    expect(visibleThreadTabs(tabs, "b", 6)).toEqual({
+      visible: ["a", "b", "c", "d", "e", "f"],
+      overflow: ["g", "h"],
+    });
+  });
+  it("gives the active tab the last visible slot when it sits past the cap", () => {
+    expect(visibleThreadTabs(tabs, "h", 6)).toEqual({
+      visible: ["a", "b", "c", "d", "e", "h"],
+      overflow: ["f", "g"],
+    });
+  });
+});
+
+describe("threadTabsThatFit", () => {
+  it("folds tabs into the menu as the strip narrows, down to the active tab alone", () => {
+    expect(threadTabsThatFit(1000)).toBe(6);
+    expect(threadTabsThatFit(344)).toBe(3);
+    expect(threadTabsThatFit(144)).toBe(1);
+    expect(threadTabsThatFit(123)).toBe(0);
+    expect(threadTabsThatFit(0)).toBe(6);
   });
 });

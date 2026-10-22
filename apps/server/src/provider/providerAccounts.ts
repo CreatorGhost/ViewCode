@@ -38,7 +38,7 @@ import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { materializeCodexShadowHome, resolveCodexHomeLayout } from "./Drivers/CodexHomeLayout.ts";
 import { resolveClaudeHomePath } from "./Drivers/ClaudeHome.ts";
 import { deriveProviderInstanceConfigMap } from "./ProviderInstanceRegistryHydration.ts";
-import { AdminProviderPolicyRef } from "./AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 
 const decodeCodexSettings = Schema.decodeUnknownOption(CodexSettings);
 const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
@@ -120,7 +120,7 @@ export const addProviderAccount = Effect.fn("providerAccounts.add")(function* (i
     patch: Pick<ServerSettings, "providerInstances">,
   ) => Effect.Effect<unknown, ServerSettingsError>;
 }) {
-  if ((yield* AdminProviderPolicyRef).blockedDrivers.includes(input.account.driver)) {
+  if ((yield* AdminPolicyRef).blockedDrivers.includes(input.account.driver)) {
     return yield* fail("add", "Blocked by your organization.");
   }
   const platform = yield* HostProcess.Platform;
@@ -164,7 +164,7 @@ export const prepareProviderAccountSignIn = Effect.fn("providerAccounts.prepareS
       return yield* fail("prepareSignIn", `No provider instance '${input.instanceId}'.`);
     }
     const driver = String(instance.driver);
-    if ((yield* AdminProviderPolicyRef).blockedDrivers.includes(driver)) {
+    if ((yield* AdminPolicyRef).blockedDrivers.includes(driver)) {
       return yield* fail("prepareSignIn", "Blocked by your organization.");
     }
     if (!isAccountDriver(driver)) {

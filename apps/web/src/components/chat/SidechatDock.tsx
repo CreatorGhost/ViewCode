@@ -35,6 +35,7 @@ import { ProviderModelPicker } from "./ProviderModelPicker";
 import {
   FRESH_SIDECHAT,
   resolveActiveSidechat,
+  sidechatMessages,
   sidechatsOf,
 } from "@t3tools/client-runtime/state/sidechat";
 import { isPinnedToBottom } from "./sidechat.logic";
@@ -115,7 +116,7 @@ export const SidechatDock = memo(function SidechatDock(props: {
   }, [parentRef]);
 
   const running = isRunning(thread?.session?.status);
-  const messages = thread?.messages ?? [];
+  const messages = sidechatMessages(thread?.messages ?? []);
   const lastMessage = messages.at(-1);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   // Follow new output only while the reader is at the bottom; scrolling up to
@@ -181,7 +182,7 @@ export const SidechatDock = memo(function SidechatDock(props: {
         className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize"
         onPointerDown={startResize}
       />
-      <header className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-3">
+      <header className="flex h-11 shrink-0 items-center gap-1 px-3">
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
           {active?.title ?? "Side chat"}
         </span>
@@ -279,10 +280,16 @@ export const SidechatDock = memo(function SidechatDock(props: {
         ) : null}
       </div>
 
-      <footer className="shrink-0 border-t border-border p-3">
+      {/* The side chat's composer is a smaller sibling of the main one: one raised card holding the
+          text and its controls, so the dock reads as a chat and not as a form. */}
+      <footer
+        data-sidechat-composer
+        className="m-3 mt-0 shrink-0 rounded-2xl border border-border bg-surface-raised p-2 shadow-xs/5 has-focus-visible:border-ring/60"
+      >
         <Textarea
           ref={textareaRef}
           size="sm"
+          unstyled
           value={draft}
           placeholder={EMPTY_PROMPT_HINT}
           aria-label="Side chat message"
@@ -293,7 +300,7 @@ export const SidechatDock = memo(function SidechatDock(props: {
             void submit();
           }}
         />
-        <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="mt-1 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1">
             {activeEntry ? (
               <>

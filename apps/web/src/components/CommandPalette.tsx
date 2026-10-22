@@ -1,16 +1,22 @@
 "use client";
 
-import { Volume2Icon, SquareIcon } from "lucide-react";
+import { BotIcon, MicIcon, Volume2Icon, SquareIcon } from "lucide-react";
+import { useOpenRockBot } from "./rockbot/useOpenRockBot";
+import { rockBotEnvironment } from "../state/rockbot";
 import { scopeThread } from "@t3tools/client-runtime/viewcodeThread";
 import { readLatestReplyAloud } from "../lib/readAloudActions";
 import { latestReadableReply } from "../lib/readAloud.logic";
 import { isReadAloudSupported, stopReadAloud, useReadAloudStore } from "../lib/readAloudPlayer";
+import { isDictationSupported } from "../lib/dictationCapture";
+import { useDictationStore } from "../lib/dictationSession";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentThreadDetails } from "../state/threads";
 import { useThreadProjection } from "../state/entities";
 import { useThreadGoalControls } from "./chat/useThreadGoalControls";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { TargetIcon, BugIcon } from "lucide-react";
+import { TargetIcon, BugIcon, PlayIcon } from "lucide-react";
+import { threadGoalRunState } from "@t3tools/client-runtime/threadGoal";
+import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -784,6 +790,9 @@ function OpenCommandPaletteDialog(props: {
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
+  const rockBotEnvironmentId = activeThread?.environmentId ?? primaryEnvironmentId;
+  const openRockBot = useOpenRockBot(rockBotEnvironmentId);
+  const canOpenRockBot = useAtomValue(rockBotEnvironment.open.permissionAtom(rockBotEnvironmentId));
   const paletteRouteTarget = useThreadRouteTarget();
   const goalThreadRef =
     activeThread !== null
@@ -797,6 +806,12 @@ function OpenCommandPaletteDialog(props: {
       ? null
       : scopeThread(speechProjection.environmentId, speechProjection.projection);
   const readingAloud = useReadAloudStore((store) => store.playingKey !== null);
+  const composerHandleRef = useComposerHandleContext();
+  const dictationEnabled = useClientSettings((settings) => settings.dictationEnabled);
+  const dictationListening = useDictationStore((store) => store.state.phase === "listening");
+  const toggleComposerDictation = useStableCallback(() => {
+    composerHandleRef?.current?.toggleDictation();
+  });
   const viewcodeGoalControls = useThreadGoalControls({
     threadKey: goalThreadRef === null ? "" : scopedThreadKey(goalThreadRef),
     environmentId: goalThreadRef?.environmentId ?? null,
@@ -1649,6 +1664,25 @@ function OpenCommandPaletteDialog(props: {
   };
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
+  if (canOpenRockBot) {
+    actionItems.push({
+      kind: "action",
+      value: "action:open-rockbot",
+      title: "Open RockBot",
+      description: "Ask about any project, thread or agent",
+      searchTerms: ["rockbot", "orchestrator", "needs me", "agents", "status", "find thread"],
+      icon: <BotIcon className={ITEM_ICON_CLASS} />,
+      run: () => openRockBot(),
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:new-rockbot-chat",
+      title: "New RockBot chat",
+      searchTerms: ["rockbot", "new chat", "orchestrator"],
+      icon: <BotIcon className={ITEM_ICON_CLASS} />,
+      run: () => openRockBot({ newChat: true }),
+    });
+  }
   if (
     isReadAloudSupported() &&
     speechThread !== null &&
@@ -1664,6 +1698,23 @@ function OpenCommandPaletteDialog(props: {
       shortcutCommand: "readAloud.latest",
       run: async () => {
         readLatestReplyAloud(thread);
+      },
+    });
+  }
+  if (
+    dictationEnabled &&
+    isDictationSupported() &&
+    (activeThread !== null || activeDraftThread !== null)
+  ) {
+    actionItems.push({
+      kind: "action",
+      value: "action:dictate",
+      title: dictationListening ? "Insert dictation" : "Dictate into the composer",
+      searchTerms: ["dictate", "dictation", "voice", "speech to text", "microphone", "transcribe"],
+      icon: <MicIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "composer.dictate",
+      run: async () => {
+        toggleComposerDictation();
       },
     });
   }
@@ -1696,6 +1747,25 @@ function OpenCommandPaletteDialog(props: {
           viewcodeGoalControls.openEditor();
         },
       },
+      ...(threadGoalRunState({
+        goal: viewcodeGoalControls.goal,
+        working: threadRuntimeIsActive(activeThread?.runtime),
+        canSend: true,
+      }) === "ready"
+        ? [
+            {
+              kind: "action" as const,
+              value: "action:viewcode:goal-run",
+              title: "Run thread goal",
+              searchTerms: ["goal", "run", "start", "continue", "objective"],
+              icon: <PlayIcon className={ITEM_ICON_CLASS} />,
+              disabled,
+              run: async () => {
+                viewcodeGoalControls.requestRun();
+              },
+            },
+          ]
+        : []),
       {
         kind: "action",
         value: "action:viewcode:debug",

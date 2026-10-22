@@ -24,6 +24,17 @@ import {
   contextCompactionTokenCounts,
   type ToolGroupSummaryKind,
 } from "@t3tools/client-runtime/work-log/presentation";
+import {
+  EMPTY_WORK_LOG_CHIPS,
+  workLogChipSetsEqual,
+  workLogChips,
+  workLogHeaderLabel,
+  workLogLiveLabel,
+  workLogLiveStepStart,
+  workLogStepRuns,
+  workLogTurnFoldOpen,
+  type WorkLogChipSet,
+} from "@t3tools/client-runtime/work-log/thinking-log";
 export {
   normalizeCompactToolLabel,
   toolGroupAction,
@@ -35,7 +46,6 @@ import {
   isStreamingTurnItemTextUpdate,
   timelineEntryIsPersistentResourceCard,
   workEntryDisplayIndicatesToolFailure,
-  workEntryIndicatesToolSuccess,
   workEntryIndicatesToolNeutralStatus,
   workLogEntryIsToolLike,
   type TimelineEntry,
@@ -251,6 +261,8 @@ export function liveWorkEntryLabel(
     toolLifecycleStatus: status,
   });
   if (toolPresentation) return toolPresentation.displayName;
+  const friendly = status === "inProgress" ? workLogLiveLabel(entry) : null;
+  if (friendly) return friendly;
   const command = entry.command?.trim();
   if (command) {
     const verb =
@@ -323,12 +335,21 @@ export interface TimelineEndState {
 
 /**
  * strict isAtEnd flickers false for a frame while streaming content grows under
- * the viewport, so follow re-arms within this distance of the real content
- * bottom instead.
+ * the viewport, so a gesture only counts as leaving the end beyond this band.
  */
-const TIMELINE_FOLLOW_REARM_THRESHOLD_PX = 40;
+const TIMELINE_NEAR_END_PX = 40;
+/**
+ * Follow resumes only when the reader is back at the very end. The near-end
+ * band is too loose for this: content settling below a reader who scrolled up
+ * a little (a finished step merging, a row measuring shorter) would carry them
+ * into it and re-pin them without any gesture.
+ */
+export const TIMELINE_FOLLOW_REARM_PX = 4;
 
-export function resolveTimelineIsAtEnd(state: TimelineEndState | undefined): boolean | undefined {
+export function resolveTimelineIsAtEnd(
+  state: TimelineEndState | undefined,
+  tolerancePx = TIMELINE_NEAR_END_PX,
+): boolean | undefined {
   if (!state) {
     return undefined;
   }
@@ -342,7 +363,7 @@ export function resolveTimelineIsAtEnd(state: TimelineEndState | undefined): boo
   // and the visible edge above the composer. LegendList's own isAtEnd subtracts
   // the inset and is true anywhere in the bottom composer-height band, so it is
   // only a fallback here, never a short-circuit.
-  return contentLength - scroll - scrollLength <= TIMELINE_FOLLOW_REARM_THRESHOLD_PX;
+  return contentLength - scroll - scrollLength <= tolerancePx;
 }
 
 export function resolveTimelineMinimapHeightStyle(itemCount: number): string {
@@ -481,7 +502,10 @@ export type TimelineLatestRun = Pick<
 const LIVE_ACTIVITY_ROW_ID = "live-activity-row";
 
 export type MessagesTimelineRow = MessagesTimelineRowContent & {
+  /** The next row is also work log, so this row's rail runs on below it. */
   readonly continuesWorkLog?: boolean;
+  /** The previous row is also work log, so this row's rail comes in from above. */
+  readonly followsWorkLog?: boolean;
 };
 
 type MessagesTimelineRowContent =
@@ -533,6 +557,7 @@ type MessagesTimelineRowContent =
       expanded: boolean;
       summary: string;
       summaryKind: ToolGroupSummaryKind;
+      chips: WorkLogChipSet;
       toolSurface?: WorkLogEntry["toolSurface"];
       toolIcon?: WorkLogEntry["toolIcon"];
       summaryToolIcon?: "browser" | "device" | "t3-code" | "pull-request";
@@ -544,6 +569,8 @@ type MessagesTimelineRowContent =
       createdAt: string;
       runId: RunId;
       label: string;
+      /** The user stopped the turn, so it ends on a dead end instead of the finish check. */
+      stopped: boolean;
       expanded: boolean;
     }
   | {
@@ -606,6 +633,13 @@ type MessagesTimelineRowContent =
       id: string;
       createdAt: string;
       htmlRender: HtmlRenderReference;
+    }
+  | {
+      /** The thread's pull request card, where the thread got the pull request. */
+      kind: "pull-request";
+      id: string;
+      createdAt: string;
+      pullRequestKey: string;
     }
   | {
       kind: "mcp-app";
@@ -711,6 +745,7 @@ interface TurnFold {
   createdAt: string;
   hiddenEntryIds: ReadonlySet<string>;
   label: string;
+  stopped: boolean;
 }
 
 interface SupersededAttemptFold {
@@ -1130,13 +1165,10 @@ function deriveTurnFolds(input: {
               lastEntryEnd,
           );
     const duration = elapsedMs !== null ? formatDuration(elapsedMs) : null;
-    const label = isLatestInterruptedTurn
-      ? duration
-        ? `You stopped after ${duration}`
-        : "You stopped this response"
-      : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+    const label = workLogHeaderLabel({
+      state: isLatestInterruptedTurn ? "stopped" : "worked",
+      duration,
+    });
 
     foldsByAnchorEntryId.set(group.anchorEntryId, {
       runId,
@@ -1144,6 +1176,7 @@ function deriveTurnFolds(input: {
       createdAt: group.startBoundary ?? firstEntry.createdAt,
       hiddenEntryIds,
       label,
+      stopped: isLatestInterruptedTurn,
     });
   }
   return foldsByAnchorEntryId;
@@ -1329,6 +1362,10 @@ export function deriveMessagesTimelineRows(input: {
   latestRun?: TimelineLatestRun | null;
   runningRunId?: RunId | null;
   expandedRunIds?: ReadonlySet<RunId>;
+  /** Leave the turn that just finished open under its "Worked for" header. */
+  keepLatestTurnOpen?: boolean;
+  /** With `keepLatestTurnOpen`, the latest turn starts open, so closing it is recorded here. */
+  collapsedRunIds?: ReadonlySet<RunId>;
   collapseFinishedTurns?: boolean;
   expandedAttemptIds?: ReadonlySet<RunAttemptId>;
   expandedWorkGroupIds?: ReadonlySet<string>;
@@ -1392,9 +1429,17 @@ export function deriveMessagesTimelineRows(input: {
           liveSubagentEntryIds,
           completeSupersededReplyEntryIds: completeSupersededReplyIds,
         });
+  // The turn that just finished stays open, so its steps read on under the "Worked for" header
+  // until the user closes it or the next turn starts.
+  const turnFoldExpanded = (runId: RunId) =>
+    workLogTurnFoldOpen(runId, {
+      expanded: input.expandedRunIds,
+      collapsed: input.collapsedRunIds,
+      latest: input.keepLatestTurnOpen === true ? input.latestRun?.runId : null,
+    });
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorEntryId.values()) {
-    if (!input.expandedRunIds?.has(fold.runId)) {
+    if (!turnFoldExpanded(fold.runId)) {
       for (const entryId of fold.hiddenEntryIds) {
         collapsedEntryIds.add(entryId);
       }
@@ -1449,50 +1494,47 @@ export function deriveMessagesTimelineRows(input: {
     }
   }
   activeToolEntries.reverse();
-  const visibleActiveToolEntries = activeToolEntries.filter((entry) =>
-    workEntryIsVisibleInGroup(entry.entry, true),
-  );
-  const activeWorkAnchor = activeToolEntries[0];
-  const latestVisibleToolEntry = visibleActiveToolEntries.at(-1);
-  const latestRunningToolEntry = visibleActiveToolEntries.findLast((entry) =>
-    workEntryIsActiveTurnActivity(entry.entry),
-  );
-  const latestToolKeepsActivityLive =
-    latestRunningToolEntry !== undefined ||
-    (latestVisibleToolEntry !== undefined &&
-      workEntryIndicatesToolSuccess(latestVisibleToolEntry.entry));
-  const latestToolFailed =
-    latestRunningToolEntry === undefined &&
-    latestVisibleToolEntry !== undefined &&
-    latestVisibleToolEntry.entry.toolLifecycleStatus !== "declined" &&
-    workEntryDisplayIndicatesToolFailure(latestVisibleToolEntry.entry);
-
-  const latestThoughtEntry = visibleActiveToolEntries.findLast(
+  // Only the step running now is the live row; the active turn's finished steps stay rows of
+  // their own above it, so the log reads step by step while the agent works.
+  const isVisibleActiveEntry = (entry: (typeof activeToolEntries)[number]) =>
+    workEntryIsVisibleInGroup(entry.entry, true);
+  const lastActiveRun =
+    workLogStepRuns(activeToolEntries, {
+      entry: (entry) => entry.entry,
+      visible: isVisibleActiveEntry,
+    }).at(-1) ?? [];
+  // Finished calls of the same kind ("Ran 2 commands") keep their own row; the live row starts at
+  // the first call still running, with the thought that led into it.
+  const liveStart = workLogLiveStepStart(lastActiveRun, {
+    running: (entry) => isVisibleActiveEntry(entry) && workEntryIsActiveTurnActivity(entry.entry),
+    thought: (entry) => !isVisibleActiveEntry(entry) || entry.entry.itemType === "reasoning",
+  });
+  const liveRun = liveStart < 0 ? [] : lastActiveRun.slice(liveStart);
+  const visibleLiveRun = liveRun.filter(isVisibleActiveEntry);
+  const liveEntry = visibleLiveRun.findLast((entry) => workEntryIsActiveTurnActivity(entry.entry));
+  const liveThought = visibleLiveRun.findLast(
     (entry) => entry.entry.itemType === "reasoning" && (entry.entry.detail?.trim() ?? "") !== "",
   );
-  const activeWorkPlacementEntryId = latestVisibleToolEntry?.id;
+  const activeWorkAnchor = liveRun[0];
   const activeWorkRow =
-    activeWorkAnchor && latestVisibleToolEntry && !latestToolFailed
+    activeWorkAnchor && liveEntry
       ? (() => {
           const groupId = workGroupId(activeWorkAnchor.id);
           return {
             kind: "work-live" as const,
-            id: latestToolKeepsActivityLive
-              ? LIVE_ACTIVITY_ROW_ID
-              : `work-live:${activeWorkAnchor.id}`,
+            id: LIVE_ACTIVITY_ROW_ID,
             createdAt: activeWorkAnchor.createdAt,
-            entry: (latestRunningToolEntry ?? latestVisibleToolEntry).entry,
-            groupedEntries: visibleActiveToolEntries.map((entry) => entry.entry),
+            entry: liveEntry.entry,
+            groupedEntries: visibleLiveRun.map((entry) => entry.entry),
             groupId,
             expanded: input.expandedWorkGroupIds?.has(groupId) ?? false,
-            active: latestToolKeepsActivityLive,
-            ...(latestThoughtEntry ? { thought: latestThoughtEntry.entry } : {}),
+            active: true,
+            ...(liveThought ? { thought: liveThought.entry } : {}),
           };
         })()
       : null;
-  const activeWorkEntryIds = new Set(
-    activeWorkRow !== null || latestToolFailed ? activeToolEntries.map((entry) => entry.id) : [],
-  );
+  const activeWorkPlacementEntryId = activeWorkRow ? activeWorkAnchor?.id : undefined;
+  const activeWorkEntryIds = new Set(activeWorkRow ? liveRun.map((entry) => entry.id) : []);
   const appendWorkingRow = () => {
     nextRows.push({
       kind: "working",
@@ -1545,7 +1587,8 @@ export function deriveMessagesTimelineRows(input: {
         createdAt: turnFold.createdAt,
         runId: turnFold.runId,
         label: turnFold.label,
-        expanded: input.expandedRunIds?.has(turnFold.runId) ?? false,
+        stopped: turnFold.stopped,
+        expanded: turnFoldExpanded(turnFold.runId),
       });
     }
 
@@ -1613,7 +1656,7 @@ export function deriveMessagesTimelineRows(input: {
         });
         continue;
       }
-      const groupedEntries = [timelineEntry.entry];
+      const groupedTimelineEntries = [timelineEntry];
       let cursor = index + 1;
       while (cursor < timelineEntries.length) {
         const nextEntry = timelineEntries[cursor];
@@ -1636,13 +1679,18 @@ export function deriveMessagesTimelineRows(input: {
         ) {
           break;
         }
-        groupedEntries.push(nextEntry.entry);
+        groupedTimelineEntries.push(nextEntry);
         cursor += 1;
       }
-      const visibleGroupedEntries = groupedEntries.filter((entry) =>
-        workEntryIsVisibleInGroup(entry, workEntryIsInActiveRun(entry)),
-      );
-      if (visibleGroupedEntries.length > 0) {
+      const isVisibleEntry = (entry: WorkLogEntry) =>
+        workEntryIsVisibleInGroup(entry, workEntryIsInActiveRun(entry));
+      for (const run of workLogStepRuns(groupedTimelineEntries, {
+        entry: (entry) => entry.entry,
+        visible: (entry) => isVisibleEntry(entry.entry),
+      })) {
+        const timelineEntry = run[0]!;
+        const visibleGroupedEntries = run.map((entry) => entry.entry).filter(isVisibleEntry);
+        if (visibleGroupedEntries.length === 0) continue;
         const activeInProgressToolEntries = visibleGroupedEntries.filter(workEntryIsInActiveRun);
         if (activeInProgressToolEntries.length > 0) {
           const groupId = workGroupId(timelineEntry.id);
@@ -1675,8 +1723,10 @@ export function deriveMessagesTimelineRows(input: {
             createdAt: timelineEntry.createdAt,
             groupedEntries: visibleGroupedEntries,
             isExpandedToolGroup: false,
+            // An edit or code search reads better as what it did than as its tool's name.
             displayLabel:
-              toolGroupAction(singleEntry) === "edit"
+              toolGroupAction(singleEntry) === "edit" ||
+              toolGroupAction(singleEntry) === "code-search"
                 ? summarizeToolGroup(visibleGroupedEntries).summary
                 : singleToolCallLabel(singleEntry),
           });
@@ -1724,6 +1774,12 @@ export function deriveMessagesTimelineRows(input: {
                 ? singleEntry.label
                 : summarizeToolGroup(visibleGroupedEntries).summary,
             summaryKind,
+            // A lone read or edit already names its file in the label.
+            chips:
+              singleEntry !== null &&
+              (toolGroupAction(singleEntry) === "read" || toolGroupAction(singleEntry) === "edit")
+                ? EMPTY_WORK_LOG_CHIPS
+                : workLogChips(visibleGroupedEntries),
             ...(groupToolSurface ? { toolSurface: groupToolSurface } : {}),
             ...(groupToolIcon ? { toolIcon: groupToolIcon } : {}),
             ...(summaryToolIcon ? { summaryToolIcon } : {}),
@@ -1889,49 +1945,52 @@ export function deriveMessagesTimelineRows(input: {
   if (input.isWorking && !hasWorkingRow && activeTurnHeaderIndex === timelineEntries.length) {
     appendWorkingRow();
   }
+  // Nothing is running between steps, so the model is thinking about the next one. Agents it
+  // spawned last and still waits on are the live step themselves.
   if (
     input.isWorking &&
     !setupOwnsWorkingSlot &&
     !hasActiveCompaction &&
-    (!hasActivityRow || latestToolFailed)
+    !hasActivityRow &&
+    !rowHasLiveSubagents(nextRows.at(-1))
   ) {
-    const failedGroupAnchor = latestToolFailed ? activeWorkAnchor : undefined;
-    if (failedGroupAnchor) {
-      const groupId = workGroupId(failedGroupAnchor.id);
-      const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
-      nextRows.push({
-        kind: "thinking",
-        id: LIVE_ACTIVITY_ROW_ID,
-        createdAt: input.activeTurnStartedAt ?? null,
-        groupId,
-        expanded,
-      });
-      if (expanded) {
-        nextRows.push(
-          expandedWorkGroupRow(
-            groupId,
-            failedGroupAnchor.createdAt,
-            visibleActiveToolEntries.map((entry) => entry.entry),
-          ),
-        );
-      }
-    } else {
-      nextRows.push({
-        kind: "thinking",
-        id: LIVE_ACTIVITY_ROW_ID,
-        createdAt: input.activeTurnStartedAt ?? null,
-      });
-    }
+    nextRows.push({
+      kind: "thinking",
+      id: LIVE_ACTIVITY_ROW_ID,
+      createdAt: input.activeTurnStartedAt ?? null,
+    });
   }
 
   const result = attachTrailingToolGroupsToAssistant(
     attachCreatedThreadSummaries(nextRows, timelineEntries),
   );
-  return result.map((row, index) =>
-    timelineRowIsWorkLog(row) && timelineRowIsWorkLog(result[index + 1])
-      ? { ...row, continuesWorkLog: true }
-      : row,
+  return result.map((row, index) => {
+    const isLog = timelineRowIsWorkLog(row);
+    if (!isLog && !timelineRowHeadsWorkLog(row)) return row;
+    const continuesWorkLog = timelineRowIsWorkLog(result[index + 1]);
+    const previous = result[index - 1];
+    const followsWorkLog =
+      isLog && (timelineRowIsWorkLog(previous) || timelineRowHeadsWorkLog(previous));
+    return continuesWorkLog || followsWorkLog
+      ? {
+          ...row,
+          ...(continuesWorkLog ? { continuesWorkLog } : {}),
+          ...(followsWorkLog ? { followsWorkLog } : {}),
+        }
+      : row;
+  });
+}
+
+function rowHasLiveSubagents(row: MessagesTimelineRow | undefined): boolean {
+  if (row?.kind !== "event" || row.projectedItem.item.type !== "subagent") return false;
+  return (row.subagents ?? [row.projectedItem]).some(({ item }) =>
+    ["pending", "running", "waiting"].includes(item.status),
   );
+}
+
+/** The turn's header ("Working for", an open "Worked for") starts the rail of the steps below. */
+function timelineRowHeadsWorkLog(row: MessagesTimelineRow | undefined): boolean {
+  return row?.kind === "working" || (row?.kind === "turn-fold" && row.expanded);
 }
 
 function timelineRowIsWorkLog(row: MessagesTimelineRow | undefined): boolean {
@@ -1940,7 +1999,9 @@ function timelineRowIsWorkLog(row: MessagesTimelineRow | undefined): boolean {
     (row.kind === "work" ||
       row.kind === "work-toggle" ||
       row.kind === "work-live" ||
-      row.kind === "thinking")
+      row.kind === "thinking" ||
+      // Spawned agents are steps of the turn and sit on its rail.
+      (row.kind === "event" && row.projectedItem.item.type === "subagent"))
   );
 }
 
@@ -2155,6 +2216,10 @@ export function computeStableMessagesTimelineRows(
 
 function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean {
   if (a.kind !== b.kind || a.id !== b.id) return false;
+  // The rail's ends follow the neighbours, so a row whose neighbours changed must re-render.
+  if (a.continuesWorkLog !== b.continuesWorkLog || a.followsWorkLog !== b.followsWorkLog) {
+    return false;
+  }
 
   switch (a.kind) {
     case "working":
@@ -2179,7 +2244,12 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "turn-fold": {
       const bf = b as typeof a;
-      return a.createdAt === bf.createdAt && a.label === bf.label && a.expanded === bf.expanded;
+      return (
+        a.createdAt === bf.createdAt &&
+        a.label === bf.label &&
+        a.stopped === bf.stopped &&
+        a.expanded === bf.expanded
+      );
     }
 
     case "attempt-fold": {
@@ -2194,6 +2264,11 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;
+
+    case "pull-request": {
+      const bp = b as typeof a;
+      return a.createdAt === bp.createdAt && a.pullRequestKey === bp.pullRequestKey;
+    }
 
     case "html-render": {
       // Entries rebuild on any tool update; an equal page must keep its mounted frame.
@@ -2249,6 +2324,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.expanded === bw.expanded &&
         a.summary === bw.summary &&
         a.summaryKind === bw.summaryKind &&
+        workLogChipSetsEqual(a.chips, bw.chips) &&
         a.toolSurface === bw.toolSurface &&
         Equal.equals(a.toolIcon, bw.toolIcon) &&
         a.hasFailure === bw.hasFailure
@@ -2297,4 +2373,41 @@ export function shouldCollapseUserMessage(text: string): boolean {
     visible.length > MAX_COLLAPSED_USER_MESSAGE_LENGTH ||
     visible.split("\n").length > MAX_COLLAPSED_USER_MESSAGE_LINES
   );
+}
+
+/**
+ * Places each pull request card at the point the thread got it: before the first row that came
+ * later, but never inside a run of work log (its rail would break), so a card linked mid-turn
+ * lands after that turn's steps so far. One linked after everything sits at the end until the
+ * conversation moves on past it.
+ */
+export function insertPullRequestRows(
+  rows: ReadonlyArray<MessagesTimelineRow>,
+  pullRequests: ReadonlyArray<{ readonly key: string; readonly anchorAt: string }>,
+): MessagesTimelineRow[] {
+  if (pullRequests.length === 0) return [...rows];
+  const result = [...rows];
+  const ordered = pullRequests.toSorted(
+    (left, right) => Date.parse(left.anchorAt) - Date.parse(right.anchorAt),
+  );
+  // Oldest first: a later card always lands after an earlier one in the same gap.
+  for (const pullRequest of ordered) {
+    const anchor = Date.parse(pullRequest.anchorAt);
+    let index = result.findIndex(
+      (row) =>
+        row.kind !== "pull-request" &&
+        row.createdAt !== null &&
+        Number.isFinite(anchor) &&
+        Date.parse(row.createdAt) > anchor,
+    );
+    if (index === -1) index = result.length;
+    while (index < result.length && result[index]?.followsWorkLog === true) index += 1;
+    result.splice(index, 0, {
+      kind: "pull-request",
+      id: `pull-request:${pullRequest.key}`,
+      createdAt: pullRequest.anchorAt,
+      pullRequestKey: pullRequest.key,
+    });
+  }
+  return result;
 }

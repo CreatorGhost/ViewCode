@@ -14,6 +14,7 @@ export function HomeHeader(props: HomeHeaderProps) {
         {...scope}
         onOpenSettings={props.onOpenSettings}
         onOpenUsage={props.onOpenUsage}
+        rockBot={props.rockBot}
         onOpenPullRequests={props.onOpenPullRequests}
       />
     </>

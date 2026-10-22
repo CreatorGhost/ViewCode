@@ -1,3 +1,4 @@
+import { FoldFrame } from "./ui/fold-frame";
 import { SidebarThreadRowControls } from "./sidebar/SidebarThreadRowControls";
 import { readEnvironmentScope } from "../state/session";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
@@ -45,6 +46,10 @@ import {
   type FolderSortOrder,
   type SidebarAttentionFilter,
 } from "@t3tools/client-runtime/state/thread-arrangement";
+import {
+  childAgentRecordsFromShells,
+  type ChildAgentRecord,
+} from "@t3tools/client-runtime/state/child-agents";
 import type { ViewCodeSidebarThread as EnvironmentThreadShell } from "../state/viewcodeThreadShells";
 import {
   parseScopedThreadKey,
@@ -61,6 +66,7 @@ import {
 } from "@t3tools/contracts";
 import {
   ArchiveIcon,
+  BotIcon,
   CheckIcon,
   ChevronRightIcon,
   CircleAlertIcon,
@@ -81,6 +87,7 @@ import {
   TerminalIcon,
   XIcon,
 } from "lucide-react";
+import { autoAnimate } from "@formkit/auto-animate";
 import {
   lazy,
   memo,
@@ -95,6 +102,8 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+
+const SIDEBAR_LIST_ANIMATION_OPTIONS = { duration: 180, easing: "ease-out" } as const;
 import { useParams, useRouter } from "@tanstack/react-router";
 
 import { useRightPanelStore } from "../rightPanelStore";
@@ -171,9 +180,11 @@ import {
   openRemoveImportedSessionsDialog,
 } from "./agentSessions/AgentSessionDialogsHost";
 import {
+  agentTimeLabel,
   archiveSelectedThreadEntries,
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
+  compactSidebarTimeLabel,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
   firstValidTimestampMs,
@@ -250,6 +261,8 @@ import { threadStatusLabel } from "./sidebar/sidebarHoverCard.logic";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { SidebarAttentionStrip } from "./sidebar/SidebarAttentionStrip";
+import { rockBotChatsForRoute } from "./rockbot/rockBotChats.logic";
+import { useOpenRockBot } from "./rockbot/useOpenRockBot";
 import { ViewCodeActiveDraftRow } from "./sidebar/ViewCodeActiveDraftRow";
 import { resolveViewCodeActiveDraft } from "./sidebar/viewCodeActiveDraft.logic";
 import { SidebarNewMenu } from "./sidebar/SidebarNewMenu";
@@ -280,11 +293,6 @@ const CONNECTOR_CLASS_NAME =
 
 function connectorLeftPx(level: number): number {
   return ROW_INSET_PX + ICON_SLOT_PX / 2 + (level - 1) * ICON_SLOT_PX;
-}
-
-function compactSidebarTimeLabel(label: string): string {
-  if (label === "just now") return "now";
-  return label.endsWith(" ago") ? label.slice(0, -4) : label;
 }
 
 function threadTimeLabel(thread: SidebarThreadSummary, nowMs: number): string {
@@ -351,22 +359,6 @@ function AgentStatusDot(props: { group: AgentStatusGroup }) {
       className={cn("size-1.5 shrink-0 rounded-full", AGENT_DOT_CLASS_NAME[props.group])}
     />
   );
-}
-
-// What an agent row's trailing text says: how long it has run, what it waits
-// for, or how long ago it finished.
-function agentTimeLabel(
-  thread: SidebarThreadSummary,
-  group: AgentStatusGroup,
-  nowMs: number,
-): string {
-  if (group === "needs-you") return thread.hasPendingApprovals ? "approval" : "question";
-  const turn = thread.latestTurn;
-  if (group === "working") {
-    const started = turn?.startedAt ?? turn?.requestedAt ?? null;
-    return started ? compactSidebarTimeLabel(formatRelativeTimeLabel(started, nowMs)) : "starting";
-  }
-  return formatRelativeTimeLabel(turn?.completedAt ?? thread.updatedAt, nowMs);
 }
 
 function agentSummaryLabel(counts: AgentGroupCounts): string {
@@ -849,6 +841,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   descendantCount: number;
   /** Child agents below this thread that are still working. */
   workingDescendantCount: number;
+  /** Its lead's record of this agent: a provider-native subagent's own thread never runs. */
+  agentRecord: ChildAgentRecord | undefined;
   /** Agents below this thread by status group, for the folded summary. */
   agentsWorking: number;
   agentsNeedYou: number;
@@ -969,7 +963,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   const status = resolveSidebarThreadStatus(thread);
   const isRunning = thread.session?.status === "running" && thread.session.activeTurnId != null;
   // Child agents read by their group in the chat: a static dot and the time that matters.
-  const agentGroup = isChild ? resolveAgentStatusGroup(thread) : null;
+  const agentGroup = isChild ? resolveAgentStatusGroup(thread, props.agentRecord) : null;
   const agentCounts = (
     (() => ({
       working: props.agentsWorking,
@@ -1758,6 +1752,25 @@ const SidebarSettledGroupRow = memo(function SidebarSettledGroupRow(props: {
   );
 });
 
+/** Heads RockBot's chats in the sidebar while one is open; New chat stays visible. */
+const SidebarRockBotHeader = memo(function SidebarRockBotHeader(props: {
+  chatCount: number;
+  onNewChat: () => void;
+}) {
+  return (
+    <div className={cn(rowSurfaceBaseClassName, "h-7 cursor-default pl-2 font-medium")}>
+      <BotIcon aria-hidden className="size-3.5 shrink-0 text-sidebar-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate text-sidebar-foreground/70">RockBot</span>
+      <span className="shrink-0 text-2xs font-normal text-sidebar-muted-foreground tabular-nums">
+        {props.chatCount} {props.chatCount === 1 ? "chat" : "chats"}
+      </span>
+      <SidebarRowAction label="New RockBot chat" tooltip="New chat" onClick={props.onNewChat}>
+        <SquarePenIcon className="size-3.5" />
+      </SidebarRowAction>
+    </div>
+  );
+});
+
 const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   thread: SidebarThreadSummary;
   nowMinute: string;
@@ -1932,6 +1945,12 @@ type ProjectMenuAction =
 export default function Sidebar() {
   const projects = useProjects();
   const threads = useThreadShells();
+  // Agents their lead runs inside its own provider session read as working from the lead's shell.
+  const agentRecordOf = childAgentRecordsFromShells(threads);
+  const agentGroupOf = (thread: EnvironmentThreadShell) =>
+    resolveAgentStatusGroup(thread, agentRecordOf(thread));
+  const isThreadWorking = (thread: EnvironmentThreadShell) =>
+    isSidebarThreadWorking(thread) || agentRecordOf(thread) !== undefined;
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -2046,6 +2065,14 @@ export default function Sidebar() {
       ),
     ))();
   const projectGroups = useSidebarProjectGroups();
+  // Rows that move between a folder's groups, arrive or leave glide into place (auto-animate
+  // FLIPs the list's children on DOM changes and respects reduced motion on its own).
+  const animatedListsRef = useRef(new WeakSet<HTMLElement>());
+  const attachListAnimation = (node: HTMLElement | null) => {
+    if (!node || animatedListsRef.current.has(node)) return;
+    autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS);
+    animatedListsRef.current.add(node);
+  };
   const projectGroupsRef = useRef(projectGroups);
   useLayoutEffect(() => {
     projectGroupsRef.current = projectGroups;
@@ -2212,8 +2239,8 @@ export default function Sidebar() {
     threads.filter(
       (thread) =>
         thread.archivedAt === null &&
-        // Side chats live in their parent's dock, not the thread list.
-        thread.kind !== "sidechat" &&
+        // Side chats live in their parent's dock and RockBot behind its rail button.
+        thread.kind == null &&
         (scopedProjectKeys === null || scopedProjectKeys.has(physicalProjectKeyOf(thread))),
     ))();
   // The smart strip: one pass over the listed threads, re-run only when a shell or a
@@ -2223,7 +2250,11 @@ export default function Sidebar() {
       latestTurn: thread.latestTurn,
       lastVisitedAt: threadLastVisitedAtById[threadKeyOf(thread)],
     });
-  const attentionCounts = (() => countSidebarAttention(visibleThreads, isThreadUnseen))();
+  const attentionCounts = (() =>
+    countSidebarAttention(visibleThreads, isThreadUnseen, agentRecordOf))();
+  // RockBot's chats stand in for the project tree while one of them is open.
+  const rockBotChats = (() => rockBotChatsForRoute(threads, routeThreadRef))();
+  const openRockBot = useOpenRockBot(rockBotChats?.[0]?.environmentId ?? null);
   const [attentionFilter, setAttentionFilter] = useState<SidebarAttentionFilter | null>(null);
   // A strip filter keeps the matching chats and agents and the chats they sit in, not
   // their other agents, and opens every fold on the way.
@@ -2234,7 +2265,9 @@ export default function Sidebar() {
           threads: visibleThreads,
           threadKeyOf,
           parentKeyOf: parentThreadKeyOf,
-          matches: (thread) => resolveSidebarAttention(thread, isThreadUnseen) === attentionFilter,
+          matches: (thread) =>
+            resolveSidebarAttention(thread, isThreadUnseen, agentRecordOf(thread)) ===
+            attentionFilter,
           includeDescendants: false,
         }))();
   const listedThreads = (() =>
@@ -2321,8 +2354,9 @@ export default function Sidebar() {
         sortChatAgents(
           children,
           children[0] ? folderSortOfThread(children[0]) : DEFAULT_FOLDER_SORT_ORDER,
+          agentGroupOf,
         ),
-      isWorking: isSidebarThreadWorking,
+      isWorking: isThreadWorking,
     }))();
   const treeRef = useRef(tree);
   useLayoutEffect(() => {
@@ -2477,7 +2511,8 @@ export default function Sidebar() {
     new Map(threadSearch.matches.map((match) => [threadSearchMatchKey(match), match] as const)))();
   const threadSearchResults = (() =>
     searchSidebarThreads(
-      visibleThreads,
+      // Inside RockBot, search finds RockBot chats.
+      rockBotChats ?? visibleThreads,
       threadSearchQuery,
       new Set(threadSearchMatchByKey.keys()),
     ))();
@@ -2530,7 +2565,7 @@ export default function Sidebar() {
       folderKey: folderSearch.folderKey,
       ...filterSidebarFolderSections(sections, {
         matches: (key) => matchedKeys.has(key),
-        isWorking: isSidebarThreadWorking,
+        isWorking: isThreadWorking,
       }),
     };
   })();
@@ -2584,7 +2619,7 @@ export default function Sidebar() {
     const ancestors = sidebarThreadAncestorKeys(tree, routeThreadKey);
     if (ancestors.length === 0) return null;
     const agent = threadByKey.get(ancestors.length === 1 ? routeThreadKey : ancestors.at(-2)!);
-    return agent && resolveAgentStatusGroup(agent) === "done" ? ancestors.at(-1)! : null;
+    return agent && agentGroupOf(agent) === "done" ? ancestors.at(-1)! : null;
   })();
   const isDoneExpanded = (leadKey: string) =>
     attentionFilter !== null ||
@@ -2597,7 +2632,7 @@ export default function Sidebar() {
   const chatRowsOf = (node: SidebarThreadTreeNode<EnvironmentThreadShell>) =>
     flattenChatRows(node, {
       isExpanded: isThreadExpanded,
-      groupOf: folderSortOfThread(node.thread) === "status" ? resolveAgentStatusGroup : null,
+      groupOf: folderSortOfThread(node.thread) === "status" ? agentGroupOf : null,
       isDoneExpanded,
     });
   // Per chat (and agent with agents of its own), its agents by group. Rows get the four
@@ -2606,7 +2641,7 @@ export default function Sidebar() {
     const counts = new Map<string, AgentGroupCounts>();
     const visit = (node: SidebarThreadTreeNode<EnvironmentThreadShell>) => {
       if (node.children.length === 0) return;
-      counts.set(node.key, countAgentGroups(node, resolveAgentStatusGroup));
+      counts.set(node.key, countAgentGroups(node, agentGroupOf));
       node.children.forEach(visit);
     };
     tree.pinned.forEach(visit);
@@ -3648,6 +3683,7 @@ export default function Sidebar() {
         guides={entry.guides.map((continues) => (continues ? "1" : "0")).join("")}
         descendantCount={node.descendantCount}
         workingDescendantCount={node.workingDescendantCount}
+        agentRecord={agentRecordOf(thread)}
         agentsWorking={agentCounts?.working ?? 0}
         agentsNeedYou={agentCounts?.["needs-you"] ?? 0}
         agentsFailed={agentCounts?.failed ?? 0}
@@ -3914,7 +3950,7 @@ export default function Sidebar() {
                 activeSearchResultIndex={activeSearchResultIndex}
                 onClearSearch={clearThreadSearch}
               />
-              {isSearchingThreads ? null : (
+              {isSearchingThreads || rockBotChats !== null ? null : (
                 <SidebarAttentionStrip
                   needsYou={attentionCounts["needs-you"]}
                   working={attentionCounts.working}
@@ -3989,6 +4025,43 @@ export default function Sidebar() {
                 {threadSearch.isPending ? "Searching thread messages…" : "No threads found"}
               </p>
             )
+          ) : rockBotChats !== null ? (
+            <TooltipProvider
+              key="sidebar-rockbot-tooltips-150"
+              delay={150}
+              closeDelay={0}
+              timeout={400}
+            >
+              <SidebarRockBotHeader
+                chatCount={rockBotChats.length}
+                onNewChat={() => {
+                  if (isMobile) setOpenMobile(false);
+                  void openRockBot({ newChat: true });
+                }}
+              />
+              <ul role="presentation" className="flex flex-col gap-px">
+                {rockBotChats.map((chat) => (
+                  <li key={threadKeyOf(chat)} className="list-none">
+                    {renderThreadRow(
+                      {
+                        node: {
+                          key: threadKeyOf(chat),
+                          thread: chat,
+                          children: [],
+                          descendantCount: 0,
+                          workingDescendantCount: 0,
+                        },
+                        depth: 0,
+                        isLastSibling: true,
+                        guides: [],
+                      },
+                      undefined,
+                      false,
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </TooltipProvider>
           ) : (
             <TooltipProvider
               key="sidebar-thread-tooltips-150"
@@ -4001,7 +4074,7 @@ export default function Sidebar() {
                   presentational list also makes its implicit listitems
                   presentational while preserving every descendant control.
                   The sidebar's navigation landmark carries the "Threads" name. */}
-              <ul role="presentation" className="flex flex-col gap-px">
+              <ul role="presentation" className="flex flex-col gap-px" ref={attachListAnimation}>
                 {attentionFilter === null ? (
                   <SidebarDraftBlock
                     key="draft-sessions"
@@ -4102,53 +4175,63 @@ export default function Sidebar() {
                           onClose={closeFolderSearch}
                         />
                       ) : null}
-                      {expanded &&
-                      view &&
+                      {view &&
                       (activeDraft !== null ||
                         view.needsYou.length > 0 ||
                         view.active.length > 0 ||
                         view.settledCount > 0) ? (
-                        // Indented past the folder's chevron, so its chats sit under its icon.
-                        <ul role="group" className="ms-4.5 flex flex-col gap-px pb-1">
-                          {activeDraft ? (
-                            <ViewCodeActiveDraftRow
-                              key={activeDraft.draftId}
-                              draftId={activeDraft.draftId}
-                              session={activeDraft.session}
-                              project={projectByKey.get(
-                                `${activeDraft.session.environmentId}:${activeDraft.session.projectId}`,
-                              )}
-                              settings={
-                                serverConfigs.get(activeDraft.session.environmentId)?.settings
-                              }
-                              providerEntries={
-                                providerEntriesByEnvironment.get(
-                                  activeDraft.session.environmentId,
-                                ) ?? EMPTY_PROVIDER_ENTRIES
-                              }
-                              onNavigate={navigateToDraft}
-                            />
-                          ) : null}
-                          {view.needsYou.length > 0 ? (
-                            <li className="list-none">
-                              <SidebarNeedsYouGroupLabel count={view.needsYou.length} />
-                            </li>
-                          ) : null}
-                          {view.needsYou.map((node) => renderThreadNode(node))}
-                          {view.active.map((node) => renderThreadNode(node))}
-                          {view.settledCount > 0 ? (
-                            <li className="list-none">
-                              <SidebarSettledGroupRow
-                                folderKey={folder.key}
-                                count={view.settledCount}
-                                expanded={view.settledOpen}
-                                disabled={view.filtering}
-                                onToggle={toggleSettledGroup}
-                              />
-                            </li>
-                          ) : null}
-                          {view.settled.map((node) => renderThreadNode(node, undefined, true))}
-                        </ul>
+                        // The folder folds on grid rows and unmounts its rows once closed; a
+                        // folder that starts closed never mounts them.
+                        <FoldFrame
+                          folded={!expanded}
+                          full={
+                            // Indented past the folder's chevron, so its chats sit under its icon.
+                            <ul
+                              role="group"
+                              className="ms-4.5 flex flex-col gap-px pb-1"
+                              ref={attachListAnimation}
+                            >
+                              {activeDraft ? (
+                                <ViewCodeActiveDraftRow
+                                  key={activeDraft.draftId}
+                                  draftId={activeDraft.draftId}
+                                  session={activeDraft.session}
+                                  project={projectByKey.get(
+                                    `${activeDraft.session.environmentId}:${activeDraft.session.projectId}`,
+                                  )}
+                                  settings={
+                                    serverConfigs.get(activeDraft.session.environmentId)?.settings
+                                  }
+                                  providerEntries={
+                                    providerEntriesByEnvironment.get(
+                                      activeDraft.session.environmentId,
+                                    ) ?? EMPTY_PROVIDER_ENTRIES
+                                  }
+                                  onNavigate={navigateToDraft}
+                                />
+                              ) : null}
+                              {view.needsYou.length > 0 ? (
+                                <li className="list-none">
+                                  <SidebarNeedsYouGroupLabel count={view.needsYou.length} />
+                                </li>
+                              ) : null}
+                              {view.needsYou.map((node) => renderThreadNode(node))}
+                              {view.active.map((node) => renderThreadNode(node))}
+                              {view.settledCount > 0 ? (
+                                <li className="list-none">
+                                  <SidebarSettledGroupRow
+                                    folderKey={folder.key}
+                                    count={view.settledCount}
+                                    expanded={view.settledOpen}
+                                    disabled={view.filtering}
+                                    onToggle={toggleSettledGroup}
+                                  />
+                                </li>
+                              ) : null}
+                              {view.settled.map((node) => renderThreadNode(node, undefined, true))}
+                            </ul>
+                          }
+                        />
                       ) : expanded && view?.filtering ? (
                         <p
                           role="status"
@@ -4165,7 +4248,10 @@ export default function Sidebar() {
               </ul>
             </TooltipProvider>
           )}
-          {!isSearchingThreads && attentionFilter !== null && orderedThreadKeys.length === 0 ? (
+          {!isSearchingThreads &&
+          rockBotChats === null &&
+          attentionFilter !== null &&
+          orderedThreadKeys.length === 0 ? (
             <p
               role="status"
               className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground"
@@ -4173,7 +4259,7 @@ export default function Sidebar() {
               Nothing here right now
             </p>
           ) : null}
-          {!isSearchingThreads && !hasAnyRows ? (
+          {!isSearchingThreads && rockBotChats === null && !hasAnyRows ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
               {projects.length === 0 ? (
                 <>

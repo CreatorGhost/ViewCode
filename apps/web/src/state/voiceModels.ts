@@ -6,7 +6,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { createVoiceModelEnvironmentAtoms } from "@t3tools/client-runtime/state/voice-models";
-import type { EnvironmentId, VoiceModelTier, VoiceModelsState } from "@t3tools/contracts";
+import type { EnvironmentId, VoiceModelKey, VoiceModelsState } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 
@@ -20,8 +20,9 @@ import { readPreparedConnection } from "./session";
 export const voiceModelEnvironment = createVoiceModelEnvironmentAtoms(connectionAtomRuntime);
 
 /**
- * The environment that downloads and serves the natural read-aloud voice: the
- * one this app runs against, else the first saved environment.
+ * The environment that downloads and serves the natural read-aloud voice and
+ * the dictation model: the one this app runs against, else the first saved
+ * environment.
  */
 const readAloudEnvironmentIdAtom = Atom.make((get): EnvironmentId | null => {
   const primary = get(primaryEnvironmentIdAtom);
@@ -95,7 +96,25 @@ export function readVoiceModels(
   });
 }
 
-export function startVoiceModelDownload(environmentId: EnvironmentId, tier: VoiceModelTier) {
+/**
+ * Calls `listener` with the environment's model state now and on every change,
+ * and with null when the environment has no voice models. Returns the unsubscribe.
+ */
+export function subscribeVoiceModels(
+  environmentId: EnvironmentId,
+  listener: (state: VoiceModelsState | null) => void,
+): () => void {
+  return appAtomRegistry.subscribe(
+    voiceModelsAtom(environmentId),
+    (result) => {
+      if (result._tag === "Success") listener(result.value);
+      else if (result._tag === "Failure") listener(null);
+    },
+    { immediate: true },
+  );
+}
+
+export function startVoiceModelDownload(environmentId: EnvironmentId, tier: VoiceModelKey) {
   return runAtomCommand(
     appAtomRegistry,
     voiceModelEnvironment.download,
@@ -105,12 +124,12 @@ export function startVoiceModelDownload(environmentId: EnvironmentId, tier: Voic
 }
 
 /**
- * A signed URL for the tier's directory on the environment; the speech worker
+ * A signed URL for the model's directory on the environment; the speech worker
  * fetches `<url>/<path inside the model>`. Valid for an hour.
  */
 export async function createVoiceModelBaseUrl(
   environmentId: EnvironmentId,
-  tier: VoiceModelTier,
+  tier: VoiceModelKey,
 ): Promise<string> {
   const connection = readPreparedConnection(environmentId);
   if (!connection) throw new Error("Not connected to the environment that has the voice.");

@@ -3,8 +3,9 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { ArrowLeftToLineIcon, ArrowRightToLineIcon, XIcon } from "lucide-react";
 
 import { useThreadTabsStore } from "../../threadTabsStore";
+import { readViewCodeThreadShell } from "../../state/viewcodeThreadShells";
 import { ITEM_ICON_CLASS, type CommandPaletteActionItem } from "../CommandPalette.logic";
-import { adjacentThreadTab } from "./threadTabs.logic";
+import { adjacentThreadTab, closeThreadTab, projectThreadTabs } from "./threadTabs.logic";
 
 /**
  * Command-palette entries for the open-thread tabs. Same behaviour as the shortcuts in
@@ -17,8 +18,17 @@ export function buildThreadTabActions(
 ): Array<CommandPaletteActionItem> {
   if (!active) return [];
   const store = useThreadTabsStore.getState();
-  const tabs = store.tabsByEnvironmentId[active.environmentId] ?? [];
   const activeKey = scopedThreadKey(active);
+  // The same project scope as the strip and its shortcuts.
+  const allTabs = store.tabsByEnvironmentId[active.environmentId] ?? [];
+  const byKey = new Map(
+    allTabs.flatMap((key) => {
+      const ref = parseScopedThreadKey(key);
+      const shell = ref ? readViewCodeThreadShell(ref) : null;
+      return shell ? [[key, shell] as const] : [];
+    }),
+  );
+  const tabs = projectThreadTabs(allTabs, activeKey, byKey);
   const move = (direction: "next" | "previous") => async () => {
     const ref = parseScopedThreadKey(adjacentThreadTab(tabs, activeKey, direction) ?? "");
     if (ref) navigateToThread(ref);
@@ -55,8 +65,9 @@ export function buildThreadTabActions(
     shortcutCommand: "tab.close",
     run: async () => {
       const next = parseScopedThreadKey(
-        store.close(active.environmentId, activeKey, activeKey) ?? "",
+        closeThreadTab(tabs, activeKey, activeKey).nextActiveKey ?? "",
       );
+      store.close(active.environmentId, activeKey, activeKey);
       if (next) navigateToThread(next);
       else goHome();
     },

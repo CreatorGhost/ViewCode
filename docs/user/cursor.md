@@ -1,34 +1,72 @@
 # Cursor
 
-Cursor V2 runs through the official [`@cursor/sdk`](https://cursor.com/docs/api/sdk/typescript)
-TypeScript package. It does not use Cursor's ACP transport for V2 execution.
+Cursor runs in one of two ways, chosen per Cursor instance under **Settings > Providers > Cursor >
+Runtime**:
+
+- **Cursor CLI (`cursor-agent`)**: ViewCode starts Cursor's own command-line agent and talks to it
+  over ACP. The CLI keeps its own sign-in, and Cursor's tools run under the CLI, not under ViewCode.
+  Install it from [cursor.com/docs/cli/installation](https://cursor.com/docs/cli/installation).
+- **Cursor SDK**: Cursor runs inside the ViewCode server through the official
+  [`@cursor/sdk`](https://cursor.com/docs/api/sdk/typescript) package, with its own sign-in.
+  Nothing else needs installing.
+
+**Automatic**, the default, uses the CLI on macOS when `cursor-agent` is installed and the SDK
+otherwise. On Linux and Windows it uses the SDK, and the CLI only where the SDK is not available
+(for example Windows on Arm). Choose the CLI on a company-managed Mac whose security software stops
+ViewCode when it runs Cursor's tools itself; see
+[managed Macs](../operations/managed-macos.md#cursor-runs-as-cursor-agent-again-october-2026).
+**Binary path** points ViewCode at a `cursor-agent` that is not on `PATH`.
+
+Switching the runtime of an instance starts a fresh Cursor conversation for existing threads; their
+history carries over as context.
 
 ## Prerequisites
 
 - Node.js 22.13 or newer. The repository's supported Node version satisfies this requirement.
-- Sign in with Cursor in **Settings > Providers > Cursor**, or provide a Cursor API key in
+- For the CLI runtime, `cursor-agent` signed in on the machine that runs ViewCode.
+- For the SDK runtime, a Cursor sign-in in **Settings > Providers > Cursor**, or a Cursor API key in
   `CURSOR_API_KEY`.
-- A model accepted by the Cursor SDK. `auto` is sent to the SDK as its `default` model selection.
+- A model the runtime accepts. `auto` is Cursor's `default` model.
 
-The adapter currently uses the SDK's local-agent runtime so runs operate in the selected ViewCode
+The SDK runtime uses the SDK's local-agent runtime so runs operate in the selected ViewCode
 workspace. Cursor cloud agents need repository and cloud-environment configuration that ViewCode does
 not expose yet.
 
 ## Sign in
 
-Choose **Sign in**, then open the sign-in page and complete it in your browser. ViewCode
-updates automatically when sign-in finishes. This works when connected to a remote environment too.
-On mobile, use **Settings > Provider accounts** for an already configured Cursor instance.
+With the **CLI runtime**, ViewCode uses the login `cursor-agent` already has. If it is signed out,
+choose **Sign in** to run `cursor-agent login` in a terminal inside Settings, or run
+`cursor-agent login` yourself in a terminal on the machine that runs ViewCode. **Sign out** runs
+`cursor-agent logout`, which signs the CLI out everywhere on that machine. The settings card shows
+the account the CLI is signed in with.
 
-Each provider instance keeps its own login on the environment that runs it. Your Cursor editor and
-CLI login are separate. A configured `CURSOR_API_KEY` overrides browser sign-in; remove that override
+After the computer sleeps or changes network, a Cursor message can fail because the CLI could not
+read its saved sign-in (for example while the Mac's Keychain is locked) or reach Cursor. Send the
+message again: ViewCode starts a fresh `cursor-agent` for it. Sign in again only if
+`cursor-agent status` in a terminal says you are signed out.
+
+With the **SDK runtime**, choose **Sign in**, then open the sign-in page and complete it in your
+browser. ViewCode updates automatically when sign-in finishes. This works when connected to a remote
+environment too. On mobile, use **Settings > Provider accounts** for an already configured Cursor
+instance.
+
+Each SDK instance keeps its own login on the environment that runs it, separate from your Cursor
+editor and CLI login. A configured `CURSOR_API_KEY` overrides browser sign-in; remove that override
 to use the browser flow.
 
 Use **Change account** or **Sign out** in the same settings section. Both stop that
 instance's running threads and keep their history. Sign-out forgets the saved credential; to revoke
 the generated key before it expires, remove it from your Cursor dashboard's API keys.
 
-## V2 Capability Mapping
+## CLI runtime capabilities
+
+The CLI runtime supports models and their options from `cursor-agent`'s model list, resuming
+conversations, approvals (Full access starts the CLI with `--force`), interruption, plan mode with
+Cursor's proposed plans and questions, ViewCode's MCP tools where your Cursor team policy allows
+them, and Cursor account usage. Cursor's todo-list updates and `task` subagents are not shown as
+they are on the SDK runtime.
+
+## SDK runtime capabilities
 
 The adapter supports:
 
@@ -63,8 +101,8 @@ restricted modes and explicit non-full-access sandbox policies enable it. Explic
 overrides also control Cursor Auto-review. Auto-review is not represented as an interactive ViewCode
 approval flow.
 
-The existing Cursor binary path and API endpoint settings belong to the CLI/ACP integration. Cursor
-V2 execution does not launch that binary, and the SDK does not expose an API endpoint override.
+The binary path setting applies only to the CLI runtime; the SDK runtime never launches
+`cursor-agent`.
 
 ## Replay And Live Testing
 

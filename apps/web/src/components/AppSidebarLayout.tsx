@@ -8,7 +8,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import {
   useCanGoBack,
   useLocation,
@@ -69,6 +69,7 @@ import {
   THREAD_SIDEBAR_MIN_WIDTH,
   THREAD_SIDEBAR_OVERLAY_BREAKPOINT,
   THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+  threadLayoutWidth,
 } from "./threadSidebarWidth";
 import {
   Sidebar,
@@ -87,18 +88,18 @@ function subscribeToViewportWidth(onChange: () => void): () => void {
 }
 
 function readViewportWidth(): number {
-  return window.innerWidth;
+  return threadLayoutWidth(window.innerWidth);
 }
 
 function readInitialThreadSidebarWidth(): number {
   try {
     return resolveInitialThreadSidebarWidth(
       getLocalStorageItem(THREAD_SIDEBAR_WIDTH_STORAGE_KEY, Schema.Finite),
-      window.innerWidth,
+      readViewportWidth(),
     );
   } catch (error) {
     console.error("Could not read persisted thread sidebar width.", error);
-    return resolveInitialThreadSidebarWidth(null, window.innerWidth);
+    return resolveInitialThreadSidebarWidth(null, readViewportWidth());
   }
 }
 
@@ -154,7 +155,7 @@ function SidebarControl() {
     // the panel), so the trigger mirrors it: both clusters sit one extra pixel
     // off their edge and the titlebar reads symmetric.
     <div
-      className="pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center gap-1"
+      className="pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center gap-0.5"
       data-sidebar-control=""
     >
       <Tooltip>
@@ -216,14 +217,14 @@ function HistoryArrows() {
     {
       command: "navigation.back",
       label: "Go back",
-      Icon: ArrowLeftIcon,
+      Icon: ChevronLeftIcon,
       enabled: canGoBack || onUtilityPage,
       go: () => (canGoBack ? router.history.back() : void navigateToMainApp()),
     },
     {
       command: "navigation.forward",
       label: "Go forward",
-      Icon: ArrowRightIcon,
+      Icon: ChevronRightIcon,
       enabled: canGoForward,
       go: () => router.history.forward(),
     },
@@ -339,7 +340,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const projectTint = useActiveProjectTint();
-  const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
+  const { active: panelAnimationsActive, durationMs: panelAnimationMs } =
     usePanelAnimationSettings();
   // Settings routes show the settings nav in place of whichever thread
   // sidebar is active.
@@ -374,7 +375,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const sidebarProviderStyle = {
     // Clamped at render so a narrowed window never squeezes main; the saved width is kept.
     "--sidebar-width": `${Math.min(sidebarWidth, sidebarMaximumWidth)}px`,
-    "--panel-animation-duration": `${panelAnimationDurationMs}ms`,
+    "--panel-animation-duration": `${panelAnimationMs}ms`,
   } as CSSProperties;
 
   useEffect(() => {

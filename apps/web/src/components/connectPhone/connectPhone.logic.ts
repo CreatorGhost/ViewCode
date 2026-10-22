@@ -295,11 +295,12 @@ export const CLOUDFLARE_SIGN_UP_URL = "https://dash.cloudflare.com/sign-up";
 export const CLOUDFLARE_WORKERS_URL = "https://dash.cloudflare.com/?to=/:account/workers-and-pages";
 export const NODE_DOWNLOAD_URL = "https://nodejs.org";
 
-export const QUICK_CONNECT_STABLE_NOTE = "Stable address: pair once, reconnects automatically.";
+export const QUICK_CONNECT_STABLE_NOTE = "Pair once; it reconnects on its own.";
 
-/** Shown wherever a Quick connect code is: the relay is not end-to-end encrypted. */
+/** Shown wherever a Quick connect code is: the relay is not end-to-end encrypted. One line
+ * (user decision): the dialog read as a wall of caveats. */
 export const QUICK_CONNECT_TRAFFIC_NOTE =
-  "Traffic passes through your own Cloudflare Worker, which can read it, and your company's network may inspect it. It is not end-to-end encrypted. Check your company's policy on remote-access tools before using this on a work computer.";
+  "Not end-to-end encrypted: your Cloudflare Worker and your network can read the traffic.";
 
 export function resolveConnectPhoneState(input: {
   /** Null outside the desktop app. */

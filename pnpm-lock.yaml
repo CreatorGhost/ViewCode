@@ -88,6 +88,7 @@ catalogs:
 overrides:
   expo@58.0.2>expo-modules-core: 58.0.11
   expo-modules-core@58.0.11>expo-modules-jsi: 58.0.7
+  expo-application: 58.0.3
   '@types/hast': 3.0.5
   '@exodus/bytes>@noble/hashes': 1.8.0
   '@react-navigation/core': 7.24.0
@@ -8984,8 +8985,8 @@ packages:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
 
-  expo-application@58.0.4:
-    resolution: {integrity: sha512-YWHEUZqu06Ki79mAPMR/KqtRMqroNPRwN3lkBLdFtitvckAb3mf0OPwKiJKOYxWZzhK7loml32xvOPwnFxiDtA==}
+  expo-application@58.0.3:
+    resolution: {integrity: sha512-SvRu9TcLIL1mqzJhRecHSF6N+s/CEExhPo0MiF5aikx9P4QmxCYYqdK4qO72wTYI5rqjmIwFhYx5dajF7FTzcw==}
     peerDependencies:
       expo: '*'
 
@@ -20358,7 +20359,7 @@ snapshots:
 
   expect-type@1.4.0: {}
 
-  expo-application@58.0.4(expo@58.0.2):
+  expo-application@58.0.3(expo@58.0.2):
     dependencies:
       expo: 58.0.2(bd4444e61fed72e958d45f73733b7f54)
 
@@ -20405,7 +20406,7 @@ snapshots:
 
   expo-auth-session@58.0.7(expo@58.0.2)(react-native@0.88.0-rc.3(@babel/core@7.29.7)(@react-native/metro-config@0.88.0-rc.3(@babel/core@7.29.7)(bufferutil@4.1.0)(utf-8-validate@6.0.6))(@types/react@19.3.0)(bufferutil@4.1.0)(react@19.3.0)(utf-8-validate@6.0.6))(react@19.3.0)(typescript@7.0.2):
     dependencies:
-      expo-application: 58.0.4(expo@58.0.2)
+      expo-application: 58.0.3(expo@58.0.2)
       expo-constants: 58.0.12(expo@58.0.2)(react-native@0.88.0-rc.3(@babel/core@7.29.7)(@react-native/metro-config@0.88.0-rc.3(@babel/core@7.29.7)(bufferutil@4.1.0)(utf-8-validate@6.0.6))(@types/react@19.3.0)(bufferutil@4.1.0)(react@19.3.0)(utf-8-validate@6.0.6))(typescript@7.0.2)
       expo-crypto: 58.0.7(expo@58.0.2)
       expo-linking: 58.0.13(expo@58.0.2)(react-native@0.88.0-rc.3(@babel/core@7.29.7)(@react-native/metro-config@0.88.0-rc.3(@babel/core@7.29.7)(bufferutil@4.1.0)(utf-8-validate@6.0.6))(@types/react@19.3.0)(bufferutil@4.1.0)(react@19.3.0)(utf-8-validate@6.0.6))(react@19.3.0)(typescript@7.0.2)
@@ -20683,7 +20684,7 @@ snapshots:
       abort-controller: 3.0.0
       badgin: 1.2.3
       expo: 58.0.2(bd4444e61fed72e958d45f73733b7f54)
-      expo-application: 58.0.4(expo@58.0.2)
+      expo-application: 58.0.3(expo@58.0.2)
       expo-constants: 58.0.12(expo@58.0.2)(react-native@0.88.0-rc.3(@babel/core@7.29.7)(@react-native/metro-config@0.88.0-rc.3(@babel/core@7.29.7)(bufferutil@4.1.0)(utf-8-validate@6.0.6))(@types/react@19.3.0)(bufferutil@4.1.0)(react@19.3.0)(utf-8-validate@6.0.6))(typescript@7.0.2)
       react: 19.3.0
       react-native: 0.88.0-rc.3(@babel/core@7.29.7)(@react-native/metro-config@0.88.0-rc.3(@babel/core@7.29.7)(bufferutil@4.1.0)(utf-8-validate@6.0.6))(@types/react@19.3.0)(bufferutil@4.1.0)(react@19.3.0)(utf-8-validate@6.0.6)

@@ -15,6 +15,12 @@ the whole objective in view instead of only the latest request.
 - Send `/goal pause`, `/goal resume` or `/goal clear`. A paused goal stays on the thread
   but is not sent until you resume it; the header shows it as paused. To set a goal
   that is literally one of those words, send `/goal -- pause`.
+- Saving a goal does not start the agent. To start it, click **Save & run** in the goal
+  editor or the play button beside the goal in the chat header, use **Run thread goal**
+  in the command palette, or send `/goal run`; on mobile, tap **Goal**, then **Run**. This
+  sends a visible "Start working on the goal." message ("Continue working on the goal."
+  once the thread has messages). Run is offered while the goal is active and the thread
+  is idle.
 
 On web and desktop, a goal or debug mode set on a new chat before its first message
 applies from that message; on mobile, set them once the thread has started. Agents
@@ -24,7 +30,8 @@ the goal is met; clearing it is up to you.
 
 ViewCode's `/goal` replaces the provider's own `/goal` command (Codex and Claude Code
 have one): the goal belongs to the thread, so it survives switching provider or model.
-It does not make the agent keep working on its own between your messages.
+Running a goal starts one turn; the agent still does not keep working on its own
+between turns.
 
 ## Debug mode
 

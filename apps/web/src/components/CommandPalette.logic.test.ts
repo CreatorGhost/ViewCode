@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  type ThreadKind,
+} from "@t3tools/contracts";
 import type { Project, Thread } from "../types";
 import { makeThreadFixture } from "../test-fixtures";
 import {
@@ -319,29 +325,34 @@ function makeProject(overrides: Partial<Project> = {}): Project {
   };
 }
 
-function makeThread(overrides: Partial<Thread> & { kind?: "sidechat" | null } = {}): Thread & { kind?: "sidechat" | null } {
-  return { ...makeThreadFixture({
-    id: ThreadId.make("thread-1"),
-    environmentId: LOCAL_ENVIRONMENT_ID,
-    projectId: PROJECT_ID,
-    title: "Thread",
-    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
-    runtimeMode: "full-access",
-    interactionMode: "default",
-    runtime: null,
-    messages: [],
-    proposedPlans: [],
-    createdAt: "2026-03-01T00:00:00.000Z",
-    archivedAt: null,
-    settledOverride: null,
-    settledAt: null,
-    deletedAt: null,
-    updatedAt: "2026-03-01T00:00:00.000Z",
-    latestRun: null,
-    branch: null,
-    worktreePath: null,
-    ...overrides,
-  }), ...(overrides.kind === undefined ? {} : { kind: overrides.kind }) };
+function makeThread(
+  overrides: Partial<Thread> & { kind?: ThreadKind | null } = {},
+): Thread & { kind?: ThreadKind | null } {
+  return {
+    ...makeThreadFixture({
+      id: ThreadId.make("thread-1"),
+      environmentId: LOCAL_ENVIRONMENT_ID,
+      projectId: PROJECT_ID,
+      title: "Thread",
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      runtime: null,
+      messages: [],
+      proposedPlans: [],
+      createdAt: "2026-03-01T00:00:00.000Z",
+      archivedAt: null,
+      settledOverride: null,
+      settledAt: null,
+      deletedAt: null,
+      updatedAt: "2026-03-01T00:00:00.000Z",
+      latestRun: null,
+      branch: null,
+      worktreePath: null,
+      ...overrides,
+    }),
+    ...(overrides.kind === undefined ? {} : { kind: overrides.kind }),
+  };
 }
 
 describe("buildProjectActionItems", () => {
@@ -403,19 +414,27 @@ describe("buildThreadActionItems", () => {
     }
   });
 
-  it("leaves side chats out of thread lists and split targets", () => {
+  it("leaves side chats out of thread lists and labels RockBot chats as RockBot", () => {
     const items = buildThreadActionItems({
       threads: [
         makeThread({ id: ThreadId.make("thread-main"), title: "Main" }),
         makeThread({ id: ThreadId.make("thread-side"), title: "Side", kind: "sidechat" }),
+        makeThread({
+          id: ThreadId.make("rockbot"),
+          title: "Check PR merge progress",
+          kind: "orchestrator",
+          updatedAt: "2026-03-01T00:00:00.000Z",
+        }),
       ],
-      projectTitleById: new Map([[PROJECT_ID, "Project"]]),
+      projectTitleById: new Map([[PROJECT_ID, "No project"]]),
       sortOrder: "updated_at",
       icon: null,
       runThread: async (_thread) => undefined,
     });
 
-    expect(items.map((item) => item.value)).toEqual(["thread:thread-main"]);
+    expect(items.map((item) => item.value)).toEqual(["thread:thread-main", "thread:rockbot"]);
+    expect(items[1]?.searchTerms).toContain("RockBot");
+    expect(items[1]?.searchTerms).not.toContain("No project");
   });
 
   it("ranks thread title matches ahead of contextual project-name matches", () => {

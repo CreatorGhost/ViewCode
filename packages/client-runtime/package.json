@@ -355,6 +355,10 @@
       "types": "./src/work-log/scrollAnchor.ts",
       "default": "./src/work-log/scrollAnchor.ts"
     },
+    "./work-log/thinking-log": {
+      "types": "./src/work-log/thinkingLog.ts",
+      "default": "./src/work-log/thinkingLog.ts"
+    },
     "./pull-request-link-input": {
       "types": "./src/pullRequestLinkInput.ts",
       "default": "./src/pullRequestLinkInput.ts"
@@ -427,9 +431,25 @@
       "types": "./src/pullRequestMarkdown.ts",
       "default": "./src/pullRequestMarkdown.ts"
     },
+    "./pull-request-list-groups": {
+      "types": "./src/pullRequestListGroups.ts",
+      "default": "./src/pullRequestListGroups.ts"
+    },
     "./pull-request-query": {
       "types": "./src/pullRequestQuery.ts",
       "default": "./src/pullRequestQuery.ts"
+    },
+    "./pr-flow": {
+      "types": "./src/prFlow.ts",
+      "default": "./src/prFlow.ts"
+    },
+    "./pull-request-merge-method": {
+      "types": "./src/pullRequestMergeMethod.ts",
+      "default": "./src/pullRequestMergeMethod.ts"
+    },
+    "./provider-picker": {
+      "types": "./src/providerPicker.ts",
+      "default": "./src/providerPicker.ts"
     },
     "./threadGoal": {
       "types": "./src/threadGoal.ts",
@@ -450,6 +470,10 @@
     "./state/child-agents": {
       "types": "./src/state/childAgents.ts",
       "default": "./src/state/childAgents.ts"
+    },
+    "./state/rockbot": {
+      "types": "./src/state/rockbot.ts",
+      "default": "./src/state/rockbot.ts"
     },
     "./state/agent-control": {
       "types": "./src/state/agentControl.ts",

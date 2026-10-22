@@ -35,6 +35,63 @@ export function closeThreadTab(
   return { tabs: next, nextActiveKey: next[index] ?? next[index - 1] ?? null };
 }
 
+/**
+ * The strip is per project, like the rail and the sidebar: the environment's tab list keeps
+ * every open thread, and the active thread's project decides which of them show. Tabs whose
+ * shell has not loaded are left out, and until the active thread's own shell is in there is no
+ * project to scope to, so only the active tab shows.
+ */
+export function projectThreadTabs(
+  tabs: ReadonlyArray<string>,
+  activeKey: string | null,
+  byKey: ReadonlyMap<string, { readonly projectId: string }>,
+): ReadonlyArray<string> {
+  const projectId = activeKey ? byKey.get(activeKey)?.projectId : undefined;
+  if (projectId === undefined) return activeKey ? [activeKey] : [];
+  return tabs.filter((key) => byKey.get(key)?.projectId === projectId);
+}
+
+/** The strip shows this many tabs; the rest wait in its overflow menu. */
+export const MAX_VISIBLE_THREAD_TABS = 6;
+
+/** A tab's minimum width (`min-w-24`) plus the strip's gap, and the "+N" button's room. */
+const THREAD_TAB_SLOT_PX = 96 + 4;
+const THREAD_TAB_OVERFLOW_PX = 44;
+
+/**
+ * How many tabs the strip can show in `width` pixels before the rest fold into the "+N" menu,
+ * at most the cap; 0 when not even one tab and the menu fit, so the strip draws the active
+ * tab alone. Tabs that did not fit used to be cut at the strip's edge when a panel narrowed the
+ * chat column. An unknown width (0) folds nothing.
+ */
+export function threadTabsThatFit(width: number): number {
+  if (!Number.isFinite(width) || width <= 0) return MAX_VISIBLE_THREAD_TABS;
+  return Math.max(
+    0,
+    Math.min(
+      MAX_VISIBLE_THREAD_TABS,
+      Math.floor((width - THREAD_TAB_OVERFLOW_PX) / THREAD_TAB_SLOT_PX),
+    ),
+  );
+}
+
+/**
+ * Splits a project's tabs into the ones the strip shows and the ones its overflow menu holds.
+ * The active tab is always shown: past the cap it takes the last visible slot.
+ */
+export function visibleThreadTabs(
+  tabs: ReadonlyArray<string>,
+  activeKey: string | null,
+  max = MAX_VISIBLE_THREAD_TABS,
+): { readonly visible: ReadonlyArray<string>; readonly overflow: ReadonlyArray<string> } {
+  if (tabs.length <= max) return { visible: tabs, overflow: [] };
+  const visible = tabs.slice(0, max);
+  const activeIndex = activeKey === null ? -1 : tabs.indexOf(activeKey);
+  if (activeIndex >= max) visible[max - 1] = tabs[activeIndex]!;
+  const shown = new Set(visible);
+  return { visible, overflow: tabs.filter((key) => !shown.has(key)) };
+}
+
 /** Next/previous tab with wrap-around; null when there is nowhere else to go. */
 export function adjacentThreadTab(
   tabs: ReadonlyArray<string>,

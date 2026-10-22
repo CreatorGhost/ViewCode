@@ -12,7 +12,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { Check, Copy } from "lucide";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { resolveServerBackedAppDisplayName } from "../branding.logic";
@@ -52,6 +52,7 @@ import { useEnvironmentThemeSync } from "../hooks/useEnvironmentTheme";
 import { Button } from "../components/ui/button";
 import { MorphIcon } from "~/components/MorphIcon";
 import { StandalonePage, StandalonePageHeader } from "../components/ui/standalone-page";
+import { TooltipProvider } from "../components/ui/tooltip";
 import {
   AnchoredToastProvider,
   stackedThreadToast,
@@ -184,19 +185,21 @@ function RootRouteView() {
     return (
       <ToastProvider>
         <AnchoredToastProvider>
-          <DocumentTitleSync />
-          <BrowserChromeThemeSync key={pathname} />
-          <ContrastAppearanceSync />
-          <EnvironmentThemeSync />
-          <GlassAppearanceSync />
-          <FontAppearanceSync />
-          <ProviderAuthCallbackCoordinator />
-          <CustomSnoozeDialogHost />
-          <CommandPalette>
-            <AppSidebarLayout>
-              <Outlet />
-            </AppSidebarLayout>
-          </CommandPalette>
+          <AppTooltipProvider>
+            <DocumentTitleSync />
+            <BrowserChromeThemeSync key={pathname} />
+            <ContrastAppearanceSync />
+            <EnvironmentThemeSync />
+            <GlassAppearanceSync />
+            <FontAppearanceSync />
+            <ProviderAuthCallbackCoordinator />
+            <CustomSnoozeDialogHost />
+            <CommandPalette>
+              <AppSidebarLayout>
+                <Outlet />
+              </AppSidebarLayout>
+            </CommandPalette>
+          </AppTooltipProvider>
         </AnchoredToastProvider>
       </ToastProvider>
     );
@@ -223,55 +226,63 @@ function RootRouteView() {
   return (
     <ToastProvider>
       <AnchoredToastProvider>
-        <DocumentTitleSync />
-        <BrowserChromeThemeSync key={pathname} />
-        <ContrastAppearanceSync />
-        <ChatAppearanceSync />
-        <EnvironmentThemeSync />
-        <GlassAppearanceSync />
-        <FontAppearanceSync />
-        <ProviderAuthCallbackCoordinator />
-        <ChatGptWelcomeCoordinator />
-        <FirstRunGate
-          enabled={primaryEnvironmentAuthenticated}
-          hostedStatic={authGateState.status === "hosted-static"}
-        >
-          {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
-          {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
-          {primaryEnvironmentAuthenticated ? <DesktopWebLinkCoordinator /> : null}
-          {isElectron ? <RunningThreadKeepAlive /> : null}
-          <RelayClientInstallDialog />
-          <ConnectOnboardingDialog />
-          <SshPasswordPromptDialog />
-          <SnapShotCoordinator />
-          <ThreadNotificationCoordinator />
-          <ReopenClosedViewShortcut />
-          <ConfirmDialogHost />
-          <CustomSnoozeDialogHost />
-          <SlowRpcRequestToastCoordinator />
-          <AgentSessionDialogsHost />
-          <ConnectPhoneDialogHost />
-          <ShortcutsSheet />
-          <CreateChildAgentDialogHost />
-          <ProjectColorDialogHost />
-          <PermissionUpdateNotice />
-          {primaryEnvironmentAuthenticated ? <LegacyThreadMigrationToast /> : null}
-          <ProjectCloneToastCoordinator />
-          <PullRequestGuideRunCoordinator />
-          <HostedStaticEnvironmentBootstrap />
-          {primaryEnvironmentAuthenticated ? (
-            <EventRouter skipInitialBootstrapNavigation={returningFromWelcome} />
-          ) : null}
-          {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
-          {isElectron ? <DesktopUpdateLaunchNotice /> : null}
-          {appShell}
-          {/* Above the router: a theme draft is judged by walking the app, so the
+        <AppTooltipProvider>
+          <DocumentTitleSync />
+          <BrowserChromeThemeSync key={pathname} />
+          <ContrastAppearanceSync />
+          <ChatAppearanceSync />
+          <EnvironmentThemeSync />
+          <GlassAppearanceSync />
+          <FontAppearanceSync />
+          <ProviderAuthCallbackCoordinator />
+          <ChatGptWelcomeCoordinator />
+          <FirstRunGate
+            enabled={primaryEnvironmentAuthenticated}
+            hostedStatic={authGateState.status === "hosted-static"}
+          >
+            {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
+            {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
+            {primaryEnvironmentAuthenticated ? <DesktopWebLinkCoordinator /> : null}
+            {isElectron ? <RunningThreadKeepAlive /> : null}
+            <RelayClientInstallDialog />
+            <ConnectOnboardingDialog />
+            <SshPasswordPromptDialog />
+            <SnapShotCoordinator />
+            <ThreadNotificationCoordinator />
+            <ReopenClosedViewShortcut />
+            <ConfirmDialogHost />
+            <CustomSnoozeDialogHost />
+            <SlowRpcRequestToastCoordinator />
+            <AgentSessionDialogsHost />
+            <ConnectPhoneDialogHost />
+            <ShortcutsSheet />
+            <CreateChildAgentDialogHost />
+            <ProjectColorDialogHost />
+            <PermissionUpdateNotice />
+            {primaryEnvironmentAuthenticated ? <LegacyThreadMigrationToast /> : null}
+            <ProjectCloneToastCoordinator />
+            <PullRequestGuideRunCoordinator />
+            <HostedStaticEnvironmentBootstrap />
+            {primaryEnvironmentAuthenticated ? (
+              <EventRouter skipInitialBootstrapNavigation={returningFromWelcome} />
+            ) : null}
+            {primaryEnvironmentAuthenticated ? <ProviderUpdateLaunchNotification /> : null}
+            {isElectron ? <DesktopUpdateLaunchNotice /> : null}
+            {appShell}
+            {/* Above the router: a theme draft is judged by walking the app, so the
               editor has to survive navigation away from settings. */}
-          <ThemeEditorHost />
-        </FirstRunGate>
+            <ThemeEditorHost />
+          </FirstRunGate>
+        </AppTooltipProvider>
       </AnchoredToastProvider>
     </ToastProvider>
   );
+}
+
+// One delay group for the app: once a tooltip is showing, its neighbours open at once. Each
+// trigger keeps its own open delay otherwise, and tooltips still close without one.
+function AppTooltipProvider({ children }: { children: ReactNode }) {
+  return <TooltipProvider closeDelay={0}>{children}</TooltipProvider>;
 }
 
 function EnvironmentThemeSync() {

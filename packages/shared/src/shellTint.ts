@@ -26,14 +26,20 @@ export interface ShellTintAlphas {
   readonly glowFar: number;
 }
 
-/** The design's values, drawn for a near-black sidebar. */
+/**
+ * Drawn for a near-black sidebar. The wash is a whisper on purpose (user
+ * decision): at the design's 10 % the whole left side read as a grey-tinted
+ * plane, so the colour now lives on the rail tile, the badge, the edge bar
+ * and the open row, and the surface only hints at it; 7.5 % was asked for
+ * after 5 % read as barely there.
+ */
 const DARK_SURFACE: ShellTintAlphas = {
-  surfaceTop: 0.1,
-  surfaceBottom: 0.04,
-  border: 0.35,
-  selectedRow: 0.14,
+  surfaceTop: 0.075,
+  surfaceBottom: 0.025,
+  border: 0.25,
+  selectedRow: 0.1,
   guide: 0.3,
-  railFill: 0.16,
+  railFill: 0.12,
   badgeFill: 0.18,
   glowBorder: 0.45,
   glowNear: 0.28,
@@ -45,12 +51,12 @@ const DARK_SURFACE: ShellTintAlphas = {
  * keep two thirds, or a pale project colour would vanish from the edge and the tree.
  */
 const LIGHT_SURFACE: ShellTintAlphas = {
-  surfaceTop: 0.06,
-  surfaceBottom: 0.02,
-  border: 0.25,
-  selectedRow: 0.09,
+  surfaceTop: 0.05,
+  surfaceBottom: 0.015,
+  border: 0.2,
+  selectedRow: 0.07,
   guide: 0.2,
-  railFill: 0.1,
+  railFill: 0.08,
   badgeFill: 0.12,
   glowBorder: 0.35,
   glowNear: 0.16,

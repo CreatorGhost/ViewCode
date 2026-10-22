@@ -151,11 +151,29 @@ make your first commit before pushing.
 Use a thread's Git actions to commit, push, and create a pull request. ViewCode can generate commit
 messages, review titles, and descriptions from your changes.
 
-The thread's pull request then shows as a card at the end of the chat and at the top of the Review
-panel: whether it conflicts with its base, whether checks are still running, and whether it is
-ready to merge. **Resolve conflicts** asks the thread's agent to merge the base in, fix the
-conflicts, and push. **Merge** merges it on the host. Drafts and pull requests with failing checks
-do not offer Merge.
+The thread's pull request then shows as a card in the chat, at the point where the thread got it,
+with its state beside the composer and a short version at the top of the Review panel. The card
+follows the pull request as it changes: your branch's commits against the base's commits since you
+branched, which base commits conflict with yours (hover the conflict count to see the clashing
+lines), each check as it finishes, and what the agent is doing while it works on the pull request.
+
+Once a pull request is merged or closed, its card folds to one line and the composer chip goes
+away. A thread that opens several pull requests shows a card for each, and only the newest open
+one stays expanded. Use the chevron on a card to fold or unfold it; ViewCode remembers your choice
+for that pull request.
+
+**Resolve conflicts** asks the thread's agent to merge the base in, fix the conflicts, and push;
+the card counts the conflicts down as it fixes them. **Merge** merges it on the host. Drafts and
+pull requests with failing checks do not offer Merge.
+
+The card reads commits and conflicts from the thread's checkout, against the base as the checkout
+last fetched it. Conflict details need Git 2.38 or later; with an older Git the card only says that
+the pull request conflicts.
+
+The mobile app shows the same cards in the chat, without the commit map: the pull request's state,
+its checks, conflicts, **Resolve conflicts** and **Merge** (after a confirmation). Merge uses the
+project's default merge method, else the one you last chose on the phone, else squash, whichever
+the repository allows. Folding on the phone lasts until the app restarts.
 
 An existing fork PR can appear beside the branch even if you pushed without setting an upstream.
 If its badge is missing because several remotes hold that branch, set the branch's upstream to
@@ -169,6 +187,11 @@ uses the project's instructions and recent commit subjects.
 Open **Pull requests** to review changes and comments, request reviewers, check out a branch,
 or merge. You can edit review titles and descriptions and your own comments where the host allows it.
 GitLab calls these merge requests.
+
+For a fork, a checkout whose `upstream` remote is on the same host as `origin`, the list shows the
+fork's own pull requests and, under a separate heading marked upstream, the upstream repository's.
+A repository the list cannot read is named above the list with the reason, such as no signed-in
+account being able to see it or an SSH host alias that could not be resolved.
 
 On mobile, **Pull requests** lists reviews across your connected environments. Open a review
 to read its description, activity, commits, and changed files. Line comments stay as drafts

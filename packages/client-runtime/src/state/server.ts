@@ -1165,10 +1165,18 @@ export function createServerEnvironmentAtoms<R, E>(
       },
     }),
     getComputerUseStatus: createEnvironmentRpcCommand(runtime, {
-      label: "viewcode:computer-use:status", tag: WS_METHODS.serverGetComputerUseStatus,
+      label: "viewcode:computer-use:status",
+      tag: WS_METHODS.serverGetComputerUseStatus,
     }),
     getComputerUseActivity: createEnvironmentRpcCommand(runtime, {
-      label: "viewcode:computer-use:activity", tag: WS_METHODS.serverGetComputerUseActivity,
+      label: "viewcode:computer-use:activity",
+      tag: WS_METHODS.serverGetComputerUseActivity,
+    }),
+    // ViewCode: "open in editor" asks for SSH routes when used, so loading never runs tailscale.
+    resolveRemoteOpenTargets: createEnvironmentRpcCommand(runtime, {
+      label: "viewcode:remote-open:resolve-targets",
+      tag: WS_METHODS.serverResolveRemoteOpenTargets,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
     }),
     detectProviders: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:detect-providers",

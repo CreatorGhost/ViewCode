@@ -89,6 +89,7 @@ const T3_MCP_TOOL_LABELS: Record<
   create_threads: ["Create", "Creating", "Created", "T3 threads"],
   t3_thread_start: ["Start", "Starting", "Started", "a T3 thread"],
   t3_thread_list: ["List", "Listing", "Listed", "T3 threads"],
+  t3_attention_list: ["Check", "Checking", "Checked", "what needs you"],
   t3_thread_read: ["Read", "Reading", "Read", "a T3 thread"],
   t3_thread_send: ["Send", "Sending", "Sent", "to a T3 thread"],
   t3_thread_wait: ["Wait", "Waiting", "Waited", "for a T3 thread"],

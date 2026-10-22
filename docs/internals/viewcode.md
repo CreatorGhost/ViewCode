@@ -10,8 +10,8 @@ remain the authority for the native runtime.
 ViewCode follows upstream by ordinary `git merge` again. The v2 port merges
 `13aa882c22d584de5388dfce3b3ca413387ba059` (0.1.0), replacing the cherry-pick-only
 policy used after common base `024d49520`. The latest merge includes upstream
-`8f026485df097cca71f80218a514f4d2e13bbf43`. Future updates start with
-`git fetch upstream main` and merge on a review branch. See
+`8f026485df097cca71f80218a514f4d2e13bbf43`. Every update follows
+[Merging upstream T3 Code](../operations/upstream-merge.md); conflict policy is in
 [NEXT_AGENT.md](../NEXT_AGENT.md#staying-mergeable-with-upstream-t3-code).
 
 Keep upstream names, directories, commands, events and provider contracts.
@@ -27,6 +27,7 @@ excluded from ViewCode are gated, not deleted.
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Provider/model handoff and account switching      | Native `ContextHandoffService`/`ProviderSwitchService`; account-scoped continuation keys in the provider drivers (covered by `provider/viewcode/accountSwitchHandoff.test.ts`) |
 | Child agents, messaging and controls              | Native delegated tasks and lineage; `agents/AgentMessagingV2.ts`, `server/viewcodeAgentsLayers.ts`, MCP `toolkits/agents/`                                                     |
+| RockBot (`kind: "orchestrator"`)                  | `rockbot/RockBotService.ts`, `rockbot/RockBotConfirmation.ts`, MCP `McpToolAccess` gate, `ViewCodeTurnGuidance.ts`; shared `state/rockbot.ts`                                  |
 | Side chats and expiry                             | Native `thread.fork` with optional kind; `ViewCodeSidechatBootstrap.ts`, `ViewCodeSidechatExpiry.ts`, shared `state/sidechat.ts`                                               |
 | Exact user-message forks                          | Native `thread.fork` with optional `sourceMessageId`; `orchestration-v2/ViewCodeMessageFork.ts` snapshots a target-local conversation prefix                                   |
 | Goals and debug mode                              | `orchestration-v2/ViewCodeGoals.ts`, `ViewCodeTurnGuidance.ts`, MCP `toolkits/goal/`                                                                                           |
@@ -34,8 +35,9 @@ excluded from ViewCode are gated, not deleted.
 | GitHub automatic account routing                  | Upstream GitHub API providers wrapped by `packages/source-control-github/src/server/GitHubAccountRouting.ts` and routed providers; SSH alias resolver                          |
 | Review CLI and browser CLI                        | `reviewCli/`, `browserCli/`, sibling executable entries and scoped MCP-session credentials                                                                                     |
 | Command Code, Droid and Devin                     | Native provider drivers in `provider/viewcode/`; Droid/Devin use upstream ACP capabilities                                                                                     |
+| Cursor `cursor-agent` runtime                     | `provider/viewcode/cursorDriver.ts` wraps upstream's SDK `CursorDriver`; the CLI runtime is an ACP flavor (`cursorAgent*.ts`), chosen in `cursorRuntime.ts`                    |
 | Pi and Muse                                       | Upstream native provider packages, with ViewCode policy and environment hooks                                                                                                  |
-| First-run choice and admin policy                 | `provider/viewcode/firstRunProviders.ts`, launch gates and policy drivers; project toggles remain subordinate                                                                  |
+| First-run choice and admin policy                 | `provider/viewcode/firstRunProviders.ts`, launch gates and policy drivers; policy read by `@t3tools/shared/viewcodeAdminPolicy`; project toggles remain subordinate            |
 | Provider/account usage and automatic resume       | `resourceTelemetry/`, provider usage readers, `agents/UsageResume.ts` and native lifecycle bridge                                                                              |
 | Cursor/T3 session import and history tools        | Native `project/AgentSessionScanner.ts`/`AgentSessionImporter.ts`; `ViewCodeSessionSources.ts`, `CursorHistory.ts`, `T3CodeHistoryV2.ts`, `ViewCodeImportedLineage.ts`         |
 | Computer use and phone notifications              | `computerUse/ComputerUseV2Bridge.ts`, server route/layer hooks; `notifications/PushNotifications.ts`                                                                           |
@@ -144,7 +146,9 @@ of the old database only after a verified upgrade and separate backup.
   that happens to report running. A failed child yields a useful failure reply,
   and a stopped/interrupted run does not produce a spurious completion reply.
 - Agents can reach only their own tree (root thread and all descendants). A hop
-  limit (24) stops ping-pong loops; spawning counts as a hop too. V2 uses native
+  limit (24) stops ping-pong loops; spawning counts as a hop too. `t3_thread_send`
+  reaches any thread, so it enforces the same 24 from durable messages instead:
+  sends from other threads since the user last wrote in the caller. V2 uses native
   `lineage.rootThreadId` and rejects missing, ambiguous or archived destinations.
   Do not infer tree authority from an optional legacy parent alias alone.
 - Child creation and its own worktree use upstream delegated tasks. Their native
@@ -229,11 +233,38 @@ source's current history during later handoffs.
 
 Side chats use native fork history with `kind: sidechat`. While a parent has no
 stable provider run, a bounded transcript bootstrap supplies context without
-changing ordinary fork stability rules. They remain outside delegated-child
-usage-resume walks. Idle side chats archive after 24 hours; the 10-minute sweep
+changing ordinary fork stability rules. A native side chat's projection lists
+the parent's history as inherited rows, so the dock and mobile sheet render only
+`sidechatMessages` (client-runtime `state/sidechat.ts`); the provider context
+and the full-thread view keep the inherited history. They remain outside
+delegated-child usage-resume walks. Idle side chats archive after 24 hours; the 10-minute sweep
 rechecks timestamps, active runs and pending requests under the native command
 lock before archiving. A stale sweep must not archive a newly active chat.
 Unarchive stays available through the normal native path.
+
+## RockBot
+
+Each RockBot chat is an ordinary thread with `kind: "orchestrator"`; an environment
+keeps as many as the user starts. `RockBotService.open` returns the latest live chat,
+or with `newChat` one the user has not written in yet before creating another, so
+repeated clicks leave no empty trail. The first chat takes the fixed id `rockbot`, so
+racing clients converge. Chats live in the Scratch project so the agent never runs
+inside a repository, borrowing the latest project only where Scratch is unavailable,
+and start on the latest thread's model. Project lists hide them: the web sidebar
+swaps its project tree for the chat list while one is open, the rail lights RockBot
+instead of a folder, and a folder pick leaves RockBot. Settlement candidates exclude
+them.
+
+Its safety is the server's, not its prompt's. `McpToolAccess` refuses every writing
+tool to an orchestrator caller except the `sendsForUser` ones (`t3_thread_send`,
+`t3_pending_request_respond`), and those call `confirmIfRockBot` first. The
+confirmation copies the computer-use bridge: an `approval_request` with
+`viewcodeRockBotConfirm` in RockBot's own run, answered by the user through the
+normal approval UI, intercepted in `RuntimeRequestService` so no provider sees it,
+and polled by the waiting tool call. Do not route RockBot sends around this gate,
+and do not let a client or agent change a thread's `kind`; nothing an agent says can
+stand in for the click. A pending question dies with the tool call, and startup
+closes any left from a restart.
 
 ## Browser CLI
 
@@ -279,8 +310,9 @@ Unarchive stays available through the normal native path.
   `viewcode-computer` and have it approved. The instructions and `viewcode-computer help`
   (`VIEWCODE_COMPUTER_CLI`) give the agent that path, quoted the way the lexer accepts
   (`shellCommandWord`); the bare name still runs but the provider asks. Native Codex, Claude and supported ACP shell approvals use this recognizer.
-  Cursor's local SDK has no shell-environment injection hook; do not claim the CLI
-  shortcut works there merely because its native MCP tools do. OpenCode does
+  Cursor's SDK runtime has no shell-environment injection hook; do not claim the CLI
+  shortcut works there merely because its native MCP tools do (the `cursor-agent`
+  runtime gets the env like other ACP agents). OpenCode does
   not automatically approve ambiguous patterns: its request carries only per-command patterns with redirections dropped, so it cannot be
   proven plain. Claude under a managed policy that narrows Full access is the exception: the
   thread (and so the gate) is still full access, which would wave the action through unasked,
@@ -479,6 +511,26 @@ Unarchive stays available through the normal native path.
   MCP attachment and runtime instructions. They refuse unsupported steering;
   ACP agents differ on what a second prompt means. Providers with their own
   extensions keep their native upstream adapters.
+- Cursor has two runtimes per instance (`runtime` in its settings). The SDK runs
+  `@cursor/sdk` in the server, which then spawns `rg`/`cursorsandbox` itself; Cortex
+  XDR kills the server for that on managed Macs ([managed-macos.md](../operations/managed-macos.md#cursor-runs-as-cursor-agent-again-october-2026)).
+  The `cursor-agent` runtime is v1's CLI on native ACP, so the server's only Cursor
+  child is the signed CLI. Unset means macOS → `cursor-agent` when a PATH lookup finds
+  it, else the SDK (upstream's default, and what existing v2 installs ran), with
+  `cursor-agent` as the fallback where the SDK ships no native package. Detection and
+  the launch gate use the same resolver and never run the binary. Both runtimes share
+  one continuation key; a thread whose saved session belongs to the other runtime
+  fails resume and gets native resume fallback with a full handoff. A `cursor-agent acp`
+  process lives as long as its thread's session (the idle timer does not run while the Mac
+  sleeps), and the CLI can keep a lost sign-in or dead connection in memory after a wake
+  while a new process signs in fine. So a prompt that fails with a sign-in, Keychain or
+  network error replaces the process before the next turn (`restartRuntimeAfterPromptFailure`)
+  and re-checks status. `about` says "Not logged in" when it cannot read its Keychain token
+  too; with `authInfo` still in `~/.cursor/cli-config.json` that is reported as unconfirmed,
+  not signed out. Running the SDK in
+  a child `node` process was rejected: the tools' parent would still be a generic
+  `node`, which is what the EDR objects to, and it needs a new packaged entry and an
+  IPC protocol for the SDK runner's callbacks.
 - Droid keeps its own login, so `authMethodId` is optional in `AcpSessionRuntime`: Droid sends `factory-api-key` only when `FACTORY_API_KEY` is set (as Grok does with its key) and otherwise relies on the login `droid` stored. Device pairing needs a terminal, so ViewCode never starts it. Reacting to an auth-required answer instead does not work: a real agent's JSON-RPC error response reaches the runtime as a defect with only its message (effect-acp decodes plain error responses as dies, and the mock agent, which effect-acp also serves, hides that), so the code -32000 is gone. In ACP mode Droid ignores `-m`/`--auto`; model and autonomy are its `model` and `autonomy_level` config options, set per turn and capped at the org's maximum.
 - Devin needs no `authenticate` at all: its ACP server uses the login `devin auth login` stored or `WINDSURF_API_KEY`, and only offers a browser method. Without either, `session/new` still succeeds and prompts fail, so the health check (`devin models list`, which needs a login) is where a missing sign-in shows. `--model` takes fuzzy family names at launch; mid-session changes pick the matching `model` config value (`matchDevinModelValue`). Devin can replay loaded history after `session/load`; the upstream ACP runtime owns
   replay/turn correlation. Do not restore the v1 `loadReplayQuiet` timer as an
@@ -490,6 +542,16 @@ Unarchive stays available through the normal native path.
   Native provider-instance configuration and `provider/viewcode/firstRunProviders.ts`
   preserve existing choices. Project toggles remain subordinate to admin policy;
   CLI presence alone must not override an explicit off choice or launch a disabled provider.
+- Every built-in provider is off until the user turns it on, on existing installs too.
+  The contracts defaults (`resolveProviderInstanceEnabled`) still treat Codex and Claude
+  as on, because upstream code and most server tests build settings in memory and rely
+  on that. The ViewCode rule lives at settings load instead: `keepUnchosenProvidersOff`
+  records an unchosen built-in as off, in memory, without rewriting `settings.json`.
+- The wizard's done flag (`onboardingCompletedAt`) is per browser, so it cannot tell
+  whether a server has a provider on. The chat asks the server instead
+  (`components/onboarding/NoProviderPrompt.tsx`): per environment, it reopens the
+  picker when that server's settings and provider snapshot both show nothing on.
+  Keep the flag client-side; one browser meets many servers.
 - MCP transport capabilities are native protocol capabilities, not a guarantee that tools loaded.
   Droid advertises no HTTP transport and Devin advertises `http: false`; prefer their
   stdio bridge. A session that lacks usable ViewCode tools must report that limitation,
@@ -533,10 +595,17 @@ call `gh auth switch`. SSH aliases such as `github.com-work` must resolve to the
 actual API host while preserving repository/account selection. Test both
 accounts with a repository inaccessible to the default account.
 
+A fork's repository identity is its upstream (upstream's rule, `docs/internals/remote.md`), so the
+Pull requests list reads the fork's `origin` beside it and flags the upstream rows (`upstream` on
+the entry); clients give them their own group. One project can therefore hold two listed
+repositories: resolve a ref by its repository, never by project id alone. An identity built while
+`ssh -G` went unanswered still carries the alias as its host, and the cross-host rule then makes
+origin win over upstream, so the resolver keeps it only for the negative TTL.
+
 Posting findings requires the active user-authorized path; scheduled runs,
 agent-origin messages and review agents cannot silently post external comments.
 CLI and MCP use the same service validation. Review/browser/computer shims get
-scoped per-session credentials and must not log them. Cursor's local SDK does
+scoped per-session credentials and must not log them. Cursor's SDK runtime does
 not expose a process-environment hook: use its MCP review tools where a CLI
 shim cannot be injected safely.
 
@@ -548,14 +617,59 @@ unsafe scope with Undo disabled and preserves authoritative native refusal detai
 Do not reroute PR Fix to a different branch or fake conversation-only Undo to make
 this restriction disappear.
 
+## Pull request card
+
+The chat's PR card (`apps/web/src/components/chat/prFlow/`, model in client-runtime `prFlow.ts`
+so the phone feed's `ThreadPullRequestFeedCard` reads the same phases and actions) combines the thread's PR link
+snapshot (the host's state), the host's checks, the agent's running command, and
+`GitWorkflowService.pullRequestGraph`, which reads commits and conflicts from the thread's
+checkout. That read must never write to the worktree, so conflicts come from
+`git merge-tree --write-tree`. It needs Git 2.38 or later. Older Git exits with a usage error, the
+graph returns `conflicts: null`, and the card only says "Conflicts with <base>", from the host.
+The read never fetches. `<remote>/<base>` is only as fresh as the git status poll's background
+fetch (`refreshStatusUpstreamIfStale`). Do not add a fetch per read; the card refetches after
+every git command the agent runs.
+
+The branch's fork point is the parent of its oldest first-parent commit, not `git merge-base`.
+After the agent merges the base in, `merge-base` would move to the base tip and the base commits
+that conflicted would disappear from the card.
+
+Each PR card is a `pull-request` timeline row placed by `insertPullRequestRows` at the link's
+`linkedAt`, which is when the thread got the link, not when the host created the pull request. A
+pull request linked by hand later sits where it was linked. Folded cards render from the link
+snapshot only and never mount the full card, so the graph and checks reads stay with the one
+current card per thread.
+
+A card the conversation just received (its link younger than `PR_APPEAR_WINDOW_MS`) mounts
+with `appear`: it rises in and every row arrives staggered. Without it the card, which replaces
+the creating card at the end of the chat, mounted as a hard cut and its rows counted as initial.
+
+The Review panel's review card (`ReviewCard` in `chat/ReviewProgress.tsx`) is drawn with the PR
+card's exported row frame, lanes and shimmer label: the reviewer on the head lane with its live
+step, its agents on the side lane. Keep the two cards one language; a change to the row frame or
+the lane tones is a change to both.
+
+"Resolving" survives reloads and other devices without stored state. The thread's latest user
+message being the Resolve prompt, while its run is active, means the agent is resolving.
+`prFlowResolvePrompt` and `prFlowResolvePromptNumber` must keep matching each other.
+
 ## Goals and debug mode
 
 ViewCode goals/debug guidance are provider-neutral thread metadata, available
 through clients and MCP. Hide upstream's native `/goal` UI to avoid competing
 goal state. Debug guidance must not alter the provider's own permission policy.
+Run goal is a client action, not a server command: it sends the visible
+`threadGoalRunMessage` (client-runtime `threadGoal.ts`) through the normal send
+path, so history shows what started the turn and a draft is created by its first
+send as usual. There is no loop or queue behind it.
 
 ## Desktop local mode and phone access
 
+- The desktop writes its backend's stdout/stderr to `server-child.log` as it
+  arrives (`DesktopObservability.ts`). Upstream keeps the last 1 MiB in memory and
+  writes it only after a crash, which lost every warning logged outside a span,
+  since only in-span messages reach `server.trace.ndjson`. A merge that restores
+  upstream's version fails `DesktopObservability.viewcode.test.ts`.
 - By default the desktop backend listens on a Unix socket (named pipe on
   Windows), reached by the window through the main process as
   `t3code-backend://<id>/`; providers reach MCP through a stdio bridge. No TCP
@@ -576,10 +690,21 @@ goal state. Debug guidance must not alter the provider's own permission policy.
   (PATH, then fixed install paths such as the Mac app's bundled CLI, which never
   joins PATH; never a spawn; `knownTailscaleExecutablePaths` in `packages/tailscale`
   is shared with the spawns, which fall back the same way), whose "Turn on"
-  reuses `setTailscaleServeEnabled`. Launch turns Serve on when the CLI is found and
-  `tailscale status` shows a tailnet name (`tailscaleAutoServe`, default on, persisted
-  only as `false`); turning Serve off also sets it false, so ViewCode never turns Serve
-  back on after the user turned it off. Pairing still gates every phone. The dialog
+  reuses `setTailscaleServeEnabled`. Launch turns Serve on only when the user opted in
+  (`tailscaleAutoServe`, default off) and `tailscale status` shows a tailnet name;
+  turning Serve off also sets it false. Pairing still gates every phone.
+- Nothing runs `tailscale` on startup, a config read or a page load: endpoint
+  security on managed Macs kills the process that spawns it
+  ([managed-macos.md](../operations/managed-macos.md)). Only a Tailscale feature the
+  user is using may: Serve, the Connect phone Tailscale tab, or "open in editor"
+  from a remote client, which asks `server.resolveRemoteOpenTargets` when its menu
+  opens (the config only carries the last answer). Server spawns go through
+  `environment/TailscaleAccess.ts` (60s cache), desktop ones through
+  `DesktopTailscaleGate`; both answer "allowed?" with `resolveTailscaleBlock`, where
+  IT's admin policy outranks `VIEWCODE_DISABLE_TAILSCALE`, which outranks the
+  `tailscaleEnabled` setting. `packages/tailscale` also checks the policy and the
+  environment switch where it spawns, so a caller that skips the gate still runs
+  nothing. Add a new reason there, not at a call site. The dialog
   does not offer upstream's hosted T3 Connect tunnel:
   Quick connect does that job on the user's own account, and a third choice only
   confused people. Native managed relay infrastructure remains upstream code, but ViewCode hides
@@ -605,11 +730,20 @@ goal state. Debug guidance must not alter the provider's own permission policy.
   stream as `viewcodeRelay`, like `managedTunnel`; the switch is the `viewcodeRelay.enabled`
   server setting and the host secret lives only in the secret store. The desktop backend is
   spawned with `--use-system-ca` so corporate TLS inspection does not break the socket.
-- Cloudflare's Durable Object caps each WebSocket message at 1 MiB. Provider
-  `workspaceSnapshots` stay in the server registry; config snapshots, provider
-  status updates and refresh replies omit them. Composers fetch one cwd's
-  snapshot through `server.getProviderWorkspaceSnapshot`. Splitting host relay
-  frames cannot help because the phone expects one WebSocket message.
+- Cloudflare's Durable Object caps each WebSocket message at 1 MiB. The forwarder
+  will not send a larger one: it closes the client's whole socket with 1009 and
+  names the RPC tag (`Message too big: <tag>`), so one oversized reply breaks every
+  request on that phone, sends included. Every server-to-client RPC message must
+  stay under it: bounded thread snapshots stop at `THREAD_SNAPSHOT_MAX_WIRE_BYTES`
+  even inside one long agent turn (Load earlier pages the rest over HTTP, which
+  the relay already chunks); replay and live batches split at
+  `RPC_STREAM_CHUNK_MAX_BYTES` (`rpcChunkBudget.ts`); config and provider status
+  messages carry only the newest workspace catalogs that fit
+  (`provider/providerWire.ts`). Clients hold back a subscription whose opening
+  data drew a 1009 rather than reconnect into the same close
+  (`isMessageTooBigFailure`). Splitting host frames alone cannot help, because the
+  phone expects one WebSocket message: it would need Durable Object reassembly,
+  a protocol capability check and a Worker redeploy.
 - Quick connect is set up from the app by the server (`relay/ViewCodeRelaySetup.ts`), which
   runs `npx --yes wrangler@4` from PATH. A desktop without Node 22+ still works where the server
   is Electron-as-node (not Apple Silicon, whose backend is standalone ViewCode
@@ -643,6 +777,11 @@ goal state. Debug guidance must not alter the provider's own permission policy.
   isolating only the server database still lets concurrent desktop runs share
   IndexedDB and authentication state. The default home uses its installed v2 profile; native first-run local-storage
   migration reads the v1 profile without sharing its locked Chromium databases.
+- Managed runtimes under `<home>/tools` are never reused from or migrated out of
+  `~/.t3`: T3 Code may still run them, and it pins different releases. When
+  Antigravity does not resolve, `AntigravityInstallation.ts` only reads T3's
+  install record to name it in the error, and only for the default home, so
+  dev and test homes never look outside themselves.
 - The same holds for the mobile app (`apps/mobile/app.config.ts`): package
   `com.viewcode.app[.dev|.preview]`, schemes `viewcode[-dev|-preview]`, so it
   installs beside the store T3 Code app without Android asking which app opens
@@ -716,7 +855,10 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   classes; nothing re-renders when it changes. Layer strengths come from
   `shellTint.ts` per theme, written beside the palette by `themePalette.ts`; its
   test holds every built-in theme to readable contrast under the tint, so a new
-  theme must pass it. The composer change is limited to the glow's colour and
+  theme must pass it. The wash is a whisper (7.5 % to 2.5 % on dark): at the
+  design's 10 % the whole left side read as a grey-tinted plane (user decision).
+  The project colour stays strong on the rail tile, the folder badge, the edge
+  bar and the open row. The composer change is limited to the glow's colour and
   alphas; the halo can be turned off, the running light cannot.
 - Mobile's thread composer wears the same glow (`features/threads/composerChrome.ts`):
   the thread's project colour, else the theme accent (`--color-focus`), with the
@@ -729,7 +871,18 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   keyboard is up.
 - Project colour lives on the folder badges and the composer glow. The top bar and the
   tabs carry none (user decision: a coloured header read as a second layer).
-  The ViewCode default is pure-black neutrals.
+- The tab strip is per project, like the rail and the sidebar. `threadTabsStore` still keeps
+  one list per environment (a tab on another machine never shows here), and
+  `OpenThreadTabs` shows the tabs that share the active thread's project; the strip shows
+  as many as fit its measured width, at most six, and folds the rest into a "+N" menu, the
+  active tab always shown; with no room for a tab and the menu it draws the active tab alone.
+  Tabs were cut at the strip's edge when a panel narrowed the chat column. Every open thread
+  across projects in one strip was unreadable past a handful (user decision).
+  The ViewCode default ("Obsidian", id `viewcode-teal`) is one neutral black family with no
+  cast: window `#080808`, sheet `#0e0e0e`, raised `#161616`. Separation comes from hairlines and
+  the composer, which is the one raised card; teal sits only on actions. Its light half is warm
+  paper, not the earlier blue-grey, so both halves read as one theme (user decision, after a
+  side-by-side against Synara).
 - The shell is one calm surface (user decision, after a tinted panel, a darker
   rail and a glowing Chrome-style tab read as forced, and full-length hairlines
   read as unfinished): title bar, rail and sidebar share the sidebar colour, and
@@ -739,6 +892,23 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   colour stays on its folder badge and the composer glow.
 - Provider usage rings, Settings, Pull Requests and Connect phone stay at the
   bottom of the rail (user decision); the sidebar has no footer of its own.
+- Panel motion tweens layout. Upstream slides only the panel's content and
+  steps the layout once (the sidebar gap, the right panel's width, the terminal
+  drawer's rows), so the page is still for 200ms and then jumps its full width in
+  one frame; a frame capture showed exactly that, and the user called it fake.
+  The sidebar gap (`viewcode-theme.css`), the right panel host and the drawer
+  (`index.css`) now tween on `--ease-drawer` with their content, which re-lays
+  the sheet out per frame; the chat column keeps its width inside the sheet, so
+  that reflow only re-centres it. Opening holds the panel at zero for two frames
+  after mount (`PreviewPanelShell`, `PersistentThreadTerminals`) because the
+  content's mount stalls the main thread for 100ms+ and otherwise ate the
+  animation's first frames. Keep the three on one curve when touching any of
+  them. The collapsed sidebar parks with its right edge under the rail's, not
+  fully off screen: the sheet moves the sidebar's width, so a park 3rem further
+  out made the two edges travel different distances on the same curve and
+  opened a strip between them for the whole motion (the "trail"). On window
+  glass the rail has no fill, so the part under it is clipped from the same
+  transitioned length instead.
 
 ## Account usage
 
@@ -799,6 +969,13 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   Cursor (`cursor`, `project/CursorHistory.ts`). Nothing is imported by
   default: sessions are picked one by one. Agents reach the same flow through
   the `history` MCP toolkit.
+- **A bare `AgentSessionScanner.layer` lists only Claude Code and Codex.** The
+  Cursor and T3 Code readers are optional services, so a scanner built without
+  them skips both sources and only logs a warning when it is built. server.ts
+  provides one `project/ViewCodeAgentSessionScanner.ts` layer to the v2
+  importer, the MCP tools and the WebSocket handlers, which also keeps one
+  import read lock; `runtimeLayer.ts` must not build its own
+  (`runtimeLayer.viewcode.test.ts`).
 - **Never open T3's source database read-write.** T3 Code may be running.
   The legacy reader attaches the file with `mode=ro` to a private temp database,
   copies the needed rows in one read transaction, detaches the source, and reads
@@ -926,6 +1103,89 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   or stalls long ones, and drops events for utterances it garbage-collects, so
   the queue stays referenced until it ends.
 
+## Dictation (web and desktop)
+
+- Mobile keeps its native recognizers. Web and desktop run Moonshine base
+  (q8, MIT) in `lib/dictationModel.worker.ts` on the same Transformers.js and
+  WASM-only ONNX Runtime as read aloud. Moonshine was chosen over Whisper
+  base.en because its cost follows the clip's length; Whisper pads every clip
+  to 30 s, which makes re-reading a growing utterance several times a second
+  too slow on a laptop CPU.
+- Delivery is read aloud's: `VoiceModelStore` downloads the `dictation` model
+  key from its own `dictation-models-v1` release (release assets are flat, and
+  both models ship a `config.json`), verifies each SHA-256 and serves it through
+  the `voice-model` asset. A dictation download never replaces a voice download.
+  Its state is the optional `dictation` field of `VoiceModelsState`, so older
+  clients ignore it and a missing field means the server can't serve dictation.
+- Capture is an AudioWorklet that downsamples to 16 kHz itself (Firefox refuses
+  to connect a microphone to a context at another rate) and posts 50 ms frames.
+  The worklet is imported with `?worker&url` so it is bundled and served from
+  the app's origin: the desktop renderer's script policy does not allow `blob:`.
+- `DictationSegmenter` cuts frames into utterances on a noise-floor-relative
+  energy threshold. Finished utterances are transcribed once; the open one is
+  re-read every 600 ms of new audio, so words appear while speaking. Utterances
+  split at 12 s, at their quietest recent frame, and `joinTranscript` rejoins
+  the halves. One transcription is in flight at a time
+  (`lib/dictationSession.ts`).
+- Moonshine's pipeline caps output at 6 tokens per second of audio, rounded
+  down, so a clip under a second would get none; the worker passes its own cap
+  with a floor.
+- One dictation runs app-wide; the composer that started it owns it, and
+  changing draft or unmounting cancels it. Levels reach the waveform through
+  `subscribeDictationLevels`, never React state.
+
+## Thinking log
+
+The web work log draws its steps on one rail with markers and file chips
+(`components/chat/WorkLog.tsx`). Which marker and chips a step gets, how work
+splits into steps, where the live step starts and whether a finished turn's
+fold is open are shared client logic in
+`@t3tools/client-runtime/work-log/thinking-log`. Mobile
+(`apps/mobile/src/lib/threadActivity.ts`) applies the same step rules to its
+activity rows (`workLogStepRunsBy`) but keeps its tool icons instead of the
+rail, markers and chips.
+
+- Work log rows are separate LegendList items, so no element can span the
+  rail. Each row draws its own stretch from the row's `followsWorkLog` and
+  `continuesWorkLog`; rows that share one item (an expanded group, a thought
+  above the live step) set their ends with `WorkLogRail`. `isRowUnchanged`
+  compares both flags, or a cached row keeps a stale rail end when a neighbour
+  arrives.
+- Steps, not tool calls, are rows: `workLogStepRuns` merges consecutive calls
+  of one kind and gives each failure its own row, and only the call running
+  now is the live row. Finished calls never hide inside it.
+- The turn that just finished stays open (`keepLatestTurnOpen`). Closing it is
+  recorded in `collapsedRunIds`, not by removing it from `expandedRunIds`,
+  because find and citations also add to that set and must never close a turn.
+- The rail stops short of each marker rather than hiding behind a filled
+  backdrop: the timeline's background differs per theme and surface.
+- There is no FLIP push for new steps. The timeline already follows the end
+  with `maintainScrollAtEnd` (smooth while working); a transform push on the
+  rows would fight it.
+- Motion keys on liveness, not mounting: rows, chips and the finish mark
+  animate only for work that is live (or a turn that ended in the last 3 s),
+  because virtualization remounts history as it scrolls back into view.
+- Spawned agents are steps on the rail, one row each (`SpawnedAgentLog.tsx`;
+  mobile `thread-subagent-group.tsx`). Their live state comes from the lead's
+  projection and agent control, never a subscription per child.
+- Mobile reads v2 turn items through `viewCodeThread`'s activity adapter. An
+  in-flight item must be a `tool.updated` activity: mobile drops v1's
+  `tool.started` start notices, so that kind hid every running call and agent.
+- A provider-native subagent's thread never gets a run of its own, so status
+  read from the child's shell alone says Idle while the lead runs it. The
+  lead's shell lists the agents it is running (`runningSubagentThreadIds`),
+  and `resolveEffectiveAgentStatus` in `client-runtime/state/childAgents.ts`
+  reads that before the child's own run. Every surface that shows an agent's
+  status (rail, Active agents bar, sidebar, mobile Home and agents strip) reads
+  that record, and the sidebar times such an agent from its thread's creation.
+  Such an agent has nothing of its own to stop: only Stop all, which stops the
+  lead, applies.
+- A Claude subagent that ends with SubagentHandback (`handback: "send"`) leaves
+  only a pointer in its `task_notification` summary and Agent tool result ("This
+  agent's report was delivered to you as a message from …"). The report rides
+  beside it (`handback_report` / `handbackReport`); `ClaudeAdapterV2` takes the
+  result from there, so no client has to recognise the pointer.
+
 ## Multi-surface and product policy
 
 All clients share protocol 2. Web and desktop use the same native client state;
@@ -937,6 +1197,12 @@ upstream coverage/lint ratchet is retained behind that policy until the existing
 ViewCode screens are validated for compiler adoption. Android foldable/rail and
 layout changes stay excluded with the navigation redesign.
 
+"Needs you" has one definition, `packages/shared/src/threadNeedsYou.ts`: a pending
+approval or question, never a failure or a ready plan. Thread shells, sidebar and
+rail counts, mobile Home, phone notifications and MCP `needsYou` all call it.
+Count a thread's own need; a lead shows its blocked agents' need without counting
+them again.
+
 Remote use is a first-class path. Do not bake origins into Vite bundles.
 Pairing links are credentials: never consume the owner's link while testing or
 publish it in logs/reports.
@@ -946,6 +1212,15 @@ notices, T3 Connect promotions and anonymous-usage onboarding copy stay hidden.
 Database cleanup is documented as a deliberate manual task, not an automatic
 upgrade side effect.
 
+IT's machine-wide policy (`packages/shared/src/viewcodeAdminPolicy.ts`, user
+guide: [company policy](../user/install.md#company-policy)) blocks providers and
+Tailscale. Each process reads it once through `AdminPolicyRef`, and nothing a user
+controls (settings, project overrides, environment variables) may relax it. The
+macOS managed-preferences plist is decoded in-process on purpose: a startup spawn
+of `plutil` or `defaults` is the kind of launch endpoint security on managed Macs
+flags. Settings, the instance registry and launch gate, provider installation
+probes and account switching each check it; a new provider path must too.
+
 Anonymous analytics default to disabled with no bundled collection key; explicit
 operator configuration is required to enable collection. Native CLI self-update
 and background-service installation stay behind `nativeCliManagedRuntime` until
@@ -954,6 +1229,15 @@ T3 binaries, so enabling that path would replace the fork. Manual npm guidance
 uses the optional installation package identity and preserves `viewcode-app`.
 
 ## Traps (things that cost hours)
+
+- **Upstream merges drop ViewCode fixes without a conflict** when upstream
+  rewrites or deletes the file a fix lived in, and a ViewCode case inside an
+  upstream test file goes with it: `58e4b0a77` lost the 1 MiB catalog guard in
+  `ws.ts` together with `server.test.ts`. Guard ViewCode behaviour in
+  upstream-owned code with a `*.viewcode.test.ts(x)` beside it, which upstream
+  never has, and merge by [the procedure](../operations/upstream-merge.md). A guard
+  covers a function, not its call sites: wiring in a rewritten upstream file still
+  needs the review the merge check lists.
 
 - **Running as root in a sandbox:** Claude refuses `bypassPermissions` as root;
   start the isolated test server with `IS_SANDBOX=1` when that sandbox requires it.
@@ -979,6 +1263,12 @@ uses the optional installation package identity and preserves `viewcode-app`.
   looks fine. Use longhands (`animation-duration`, …) in `viewcode-theme.css`,
   and check animations against a production build (`vp build`, then run the
   server without `--dev-url` so it serves `apps/web/dist`).
+- **Markdown link schemes are allowed in more than one place.** Web
+  `ChatMarkdown.tsx` keeps its own sanitize schema and URL transform rather than
+  `@t3tools/shared/markdownPipeline`'s, and the mobile feed reads
+  `modules/t3-markdown-text/src/markdownLinks.ts`, not `src/lib/markdownLinks.ts`.
+  An app scheme such as `t3-thread:` must be allowed in each, or its links render
+  dead with no error.
 - **tailwind-merge** drops one of two background images in `cn(...)`; keep
   sparkle/gradient classes out of `cn()`.
 

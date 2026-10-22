@@ -58,6 +58,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.agentsDiscard]: AuthOrchestrationOperateScope,
   [WS_METHODS.usageResumeCancel]: AuthOrchestrationOperateScope,
   [WS_METHODS.usageResumeNow]: AuthOrchestrationOperateScope,
+  [WS_METHODS.rockbotOpen]: AuthOrchestrationOperateScope,
   [WS_METHODS.voiceModelsDownload]: AuthOrchestrationOperateScope,
   [WS_METHODS.voiceModelsCancel]: AuthOrchestrationOperateScope,
   [WS_METHODS.voiceModelsRemove]: AuthOrchestrationOperateScope,

@@ -110,6 +110,18 @@ export function resolveSubagentMetadata(input: {
   return { modelLabel, workspace };
 }
 
+// Reports often open with a markdown heading and bold labels; a one-line preview
+// shows their text, not the syntax.
+function plainMarkdownLine(markdown: string): string {
+  return markdown
+    .replace(/^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+)/gmu, "")
+    .replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/gu, "$1")
+    .replace(/(\*\*|__)(.+?)\1/gu, "$2")
+    .replace(/`([^`\n]+)`/gu, "$1")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
 export function subagentDetailPreview(input: {
   readonly status: OrchestrationV2TurnItemStatus;
   readonly result?: string | null | undefined;
@@ -119,6 +131,104 @@ export function subagentDetailPreview(input: {
   const progress = input.progress?.trim();
   const detail =
     (isTerminalSubagentStatus(input.status) ? result || progress : progress || result) || "";
-  const compact = detail.replace(/\s+/gu, " ");
+  const compact = plainMarkdownLine(detail);
   return compact.length > 280 ? `${compact.slice(0, 280).trimEnd()}…` : compact || null;
+}
+
+/** One spawned agent's state as its row in the thinking log shows it. */
+export type SubagentRowState =
+  | "working"
+  | "waiting"
+  | "queued"
+  | "paused"
+  | "done"
+  | "failed"
+  | "stopped"
+  | "idle";
+
+/** A paused agent (agent control's Stop) reads as paused whatever its last turn did. */
+export function subagentRowState(
+  status: OrchestrationV2TurnItemStatus,
+  control?: { readonly paused: boolean } | undefined,
+): SubagentRowState {
+  if (control?.paused) return "paused";
+  switch (status) {
+    case "pending":
+      return "queued";
+    case "running":
+      return "working";
+    case "waiting":
+      return "waiting";
+    case "completed":
+      return "done";
+    case "failed":
+      return "failed";
+    case "idle":
+      return "idle";
+    case "cancelled":
+    case "interrupted":
+      return "stopped";
+  }
+}
+
+export function subagentRowStateLabel(
+  state: SubagentRowState,
+  control?: { readonly queued: number } | undefined,
+): string {
+  if (state === "paused") {
+    const queued = control?.queued ?? 0;
+    return queued > 0 ? `paused · ${queued} queued` : "paused";
+  }
+  return state;
+}
+
+/** The states that still move: the row reads in the live colour, not the finished one. */
+export function subagentRowIsActive(state: SubagentRowState): boolean {
+  return state === "working" || state === "waiting" || state === "queued" || state === "paused";
+}
+
+const ROW_STATE_ORDER: ReadonlyArray<SubagentRowState> = [
+  "working",
+  "waiting",
+  "queued",
+  "paused",
+  "done",
+  "failed",
+  "stopped",
+  "idle",
+];
+
+/** "4 working · 1 done · 1 failed": how many of a spawn's agents are in each state. */
+export function summarizeSubagentRowStates(states: ReadonlyArray<SubagentRowState>): string {
+  const counts = new Map<SubagentRowState, number>();
+  for (const state of states) counts.set(state, (counts.get(state) ?? 0) + 1);
+  return ROW_STATE_ORDER.flatMap((state) => {
+    const count = counts.get(state);
+    return count ? [`${count} ${state}`] : [];
+  }).join(" · ");
+}
+
+export function spawnedAgentsHeading(count: number): string {
+  return `Spawned ${count} ${count === 1 ? "agent" : "agents"}`;
+}
+
+/** Rows a spawn lists before the rest fold into "+N more"; at this size or less, all show. */
+export const MAX_VISIBLE_AGENT_ROWS = 8;
+
+export function visibleAgentRows<Agent>(
+  agents: ReadonlyArray<Agent>,
+  limit = MAX_VISIBLE_AGENT_ROWS,
+): { readonly visible: ReadonlyArray<Agent>; readonly hidden: number } {
+  if (agents.length <= limit) return { visible: agents, hidden: 0 };
+  const visible = agents.slice(0, limit - 1);
+  return { visible, hidden: agents.length - visible.length };
+}
+
+/** The spawn's rail marker: live while any agent works, a dead end if one failed, else merged. */
+export function spawnedAgentsMarker(
+  states: ReadonlyArray<SubagentRowState>,
+): "live" | "dead-end" | "merged" {
+  if (states.some((state) => state === "working")) return "live";
+  if (states.some((state) => state === "failed")) return "dead-end";
+  return "merged";
 }

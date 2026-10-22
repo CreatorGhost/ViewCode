@@ -1,4 +1,6 @@
 import * as ViewCodeUsageResumeRpc from "./server/viewcodeUsageResumeRpc.ts";
+import * as ViewCodeRockBotRpc from "./server/viewcodeRockBotRpc.ts";
+import * as RockBotService from "./rockbot/RockBotService.ts";
 import * as ViewCodeRelayRpc from "./server/viewcodeRelayRpc.ts";
 import * as ViewCodeRelayLayers from "./server/viewcodeRelayLayers.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
@@ -179,8 +181,9 @@ import * as ViewCodePushRpc from "./server/viewcodePushRpc.ts";
 import { makeViewCodeProviderRpcHandlers } from "./provider/viewcode/viewcodeProviderRpc.ts";
 import { guardAcpRegistryPrepare } from "./provider/viewcode/acpRegistryPolicy.ts";
 import { detectProviders } from "./provider/viewcode/providerDetection.ts";
+import { boundWorkspaceSnapshotsForWire } from "./provider/providerWire.ts";
 import * as ProviderInstanceRegistry from "./provider/ProviderInstanceRegistry.ts";
-import { AdminProviderPolicyRef } from "./provider/AdminProviderPolicy.ts";
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 import { isProviderDriverKind } from "@t3tools/contracts";
 import * as AcpRegistrySupport from "@t3tools/provider-acp-registry/server/AcpRegistrySupport";
 import * as AcpRegistryRuntimeCoordinator from "@t3tools/provider-acp-registry/server/AcpRegistryRuntimeCoordinator";
@@ -233,6 +236,7 @@ import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
+import * as TailscaleAccess from "./environment/TailscaleAccess.ts";
 import * as DefectReporter from "./observability/DefectReporter.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
@@ -269,8 +273,7 @@ import {
   withUsageLimitsCommands,
 } from "@t3tools/shared/usageLimits";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
-import * as CursorHistory from "./project/CursorHistory.ts";
-import * as T3CodeHistory from "./project/T3CodeHistory.ts";
+import * as ViewCodeAgentSessionScanner from "./project/ViewCodeAgentSessionScanner.ts";
 import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 
@@ -1258,6 +1261,7 @@ const layerWsRpc = (
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
+      const tailscaleAccess = yield* TailscaleAccess.TailscaleAccess;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
@@ -1681,14 +1685,17 @@ const layerWsRpc = (
       const loadServerConfig = (options: { readonly usageLimitsCommand: boolean }) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.loadConfigState;
-          const currentProviders = yield* providerRegistry.getProviders;
+          const currentProviders = boundWorkspaceSnapshotsForWire(
+            yield* providerRegistry.getProviders,
+          );
           const providers = options.usageLimitsCommand
             ? withUsageLimitsCommands(currentProviders, yield* usageLimitSources.current)
             : currentProviders;
           const settings = ServerSettings.redactServerSettingsForClient(
             yield* serverSettings.getSettings,
           );
-          const adminPolicy = yield* AdminProviderPolicyRef;
+          const adminPolicy = yield* AdminPolicyRef;
+          const tailscaleBlock = yield* tailscaleAccess.blockReason;
           const environment = yield* serverEnvironment.getDescriptor;
           const auth = yield* serverAuth.getDescriptor();
           const scratchWorkspaceRoot = yield* managedFolders.scratchRoot;
@@ -1707,9 +1714,15 @@ const layerWsRpc = (
             providers,
             adminBlockedProviderDrivers: adminPolicy.blockedDrivers.filter(isProviderDriverKind),
             ...editorConfig,
-            remoteOpenTargets: yield* resolveAvailableEditorsForConfig(
-              remoteOpenTargets.resolveTargets(),
-            ),
+            // Cached only: "open in editor" asks for fresh routes itself, so
+            // loading the app never runs `tailscale`.
+            ...Option.match(yield* remoteOpenTargets.cachedTargets, {
+              onNone: () => ({}),
+              onSome: (targets) => ({ remoteOpenTargets: targets }),
+            }),
+            ...(tailscaleBlock === "policy" || tailscaleBlock === "environment"
+              ? { tailscaleBlockedBy: tailscaleBlock }
+              : {}),
             directEndpoints: yield* resolveAvailableEditorsForConfig(directEndpoints.resolve()),
             observability: {
               logsDirectoryPath: config.logsDir,
@@ -1821,6 +1834,7 @@ const layerWsRpc = (
       const viewcodeComputerHandlers = yield* ViewCodeComputerUseRpc.make;
       const viewcodePushHandlers = yield* ViewCodePushRpc.make(currentSessionId);
       const viewcodeUsageResumeHandlers = yield* ViewCodeUsageResumeRpc.make;
+      const viewcodeRockBotHandlers = yield* ViewCodeRockBotRpc.make;
       const viewcodeRelayHandlers = yield* ViewCodeRelayRpc.make;
       const viewcodeProviderHandlers = yield* makeViewCodeProviderRpcHandlers;
       const handlers = {
@@ -1830,6 +1844,7 @@ const layerWsRpc = (
         ...viewcodeComputerHandlers,
         ...viewcodePushHandlers,
         ...viewcodeUsageResumeHandlers,
+        ...viewcodeRockBotHandlers,
         ...viewcodeRelayHandlers,
         [WS_METHODS.projectsListIconCandidates]: (input) =>
           projectFaviconResolver.listCandidates(input.cwd, input.projectName).pipe(
@@ -1840,10 +1855,12 @@ const layerWsRpc = (
           ),
         [WS_METHODS.voiceModelsDownload]: (input) => voiceModels.download(input.tier),
         [WS_METHODS.voiceModelsCancel]: (input) => voiceModels.cancel(input.tier),
-        [WS_METHODS.voiceModelsRemove]: () => voiceModels.remove,
+        [WS_METHODS.voiceModelsRemove]: (input) => voiceModels.remove(input.kind ?? "read-aloud"),
         [WS_METHODS.subscribeVoiceModels]: () =>
           Stream.concat(Stream.fromEffect(voiceModels.state), voiceModels.changes),
         ...viewcodeProviderHandlers,
+        [WS_METHODS.serverResolveRemoteOpenTargets]: () =>
+          remoteOpenTargets.resolveTargets().pipe(Effect.map((targets) => ({ targets }))),
         [WS_METHODS.serverGetProviderWorkspaceSnapshot]: (input) =>
           providerRegistry
             .refreshWorkspaceSnapshot(input)
@@ -1878,6 +1895,27 @@ const layerWsRpc = (
               ? { "orchestration_v2.source_thread_id": command.sourceThreadId }
               : {}),
           }).pipe(
+            Effect.andThen(
+              command.type === "thread.metadata.update" && command.kind !== undefined
+                ? threadManagement.getThreadShell(command.threadId).pipe(
+                    Effect.map((shell) => shell?.kind),
+                    Effect.orElseSucceed(() => undefined),
+                  )
+                : Effect.succeed(undefined),
+            ),
+            Effect.flatMap((currentKind) => {
+              const refused = RockBotService.refusedRockBotKindChange(command, currentKind);
+              return refused === null
+                ? Effect.void
+                : Effect.fail(
+                    new OrchestrationV2DispatchCommandError({
+                      commandId: command.commandId,
+                      commandType: command.type,
+                      message: refused,
+                      detail: refused,
+                    }),
+                  );
+            }),
             Effect.andThen(
               startup
                 .enqueueCommand(
@@ -2301,7 +2339,7 @@ const layerWsRpc = (
                 providers = yield* providerRegistry.refreshInstance(instance.instanceId);
               }
             }
-            return { providers };
+            return { providers: boundWorkspaceSnapshotsForWire(providers) };
           }),
         [WS_METHODS.mcpAppsCallTool]: (input) => mcpAppRequests.callTool(input),
         [WS_METHODS.mcpAppsToolInfo]: (input) => mcpAppRequests.toolInfo(input),
@@ -2892,6 +2930,7 @@ const layerWsRpc = (
             .preparePullRequestThread(input)
             .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.vcsListRefs]: (input) => gitWorkflow.listRefs(input),
+        [WS_METHODS.gitPullRequestGraph]: (input) => gitWorkflow.pullRequestGraph(input),
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
@@ -3016,7 +3055,7 @@ const layerWsRpc = (
                 Stream.concat(
                   Stream.fromEffect(providerRegistry.getProviders),
                   providerRegistry.streamChanges,
-                ),
+                ).pipe(Stream.map(boundWorkspaceSnapshotsForWire)),
                 usageLimitSources.streamChanges.pipe(
                   Stream.changesWith(
                     usageLimitsCommand ? sameUsageLimitCommandCoverage : () => true,
@@ -3245,11 +3284,7 @@ export const layer = Layer.unwrap(
               // their defects, not the rest of the server's.
               Layer.provide(DefectReporter.layer),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
-              Layer.provide(
-                AgentSessionScanner.layer.pipe(
-                  Layer.provide(Layer.merge(CursorHistory.layer, T3CodeHistory.layer)),
-                ),
-              ),
+              Layer.provide(ViewCodeAgentSessionScanner.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
               // One server-lifetime service means clients share the same PR caches, and a WS

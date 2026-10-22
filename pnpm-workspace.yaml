@@ -277,6 +277,10 @@ overrides:
   # direct AppContext.imageLoader getter required by Camera 58.0.7.
   "expo@58.0.2>expo-modules-core": 58.0.11
   "expo-modules-core@58.0.11>expo-modules-jsi": 58.0.7
+  # 58.0.4 moved to Expo Modules v2 and ships an AAR built against a newer v2
+  # runtime than Core 58.0.11 bundles, so the release app crashes on launch
+  # with "Cannot find native module 'ExpoApplication'".
+  expo-application: 58.0.3
   "@types/hast": 3.0.5
   "@exodus/bytes>@noble/hashes": 1.8.0
   "@react-navigation/core": 7.24.0

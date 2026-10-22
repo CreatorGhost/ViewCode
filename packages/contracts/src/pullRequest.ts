@@ -111,6 +111,9 @@ export const PullRequestCheck = Schema.Struct({
   description: Schema.NullOr(Schema.String),
   url: Schema.NullOr(Schema.String),
   required: Schema.optional(Schema.Boolean),
+  /** When the run started and finished, where the host reports it (GitHub check runs). */
+  startedAt: Schema.optional(IsoDateTime),
+  completedAt: Schema.optional(IsoDateTime),
 });
 export type PullRequestCheck = typeof PullRequestCheck.Type;
 
@@ -322,6 +325,11 @@ export const PullRequestListEntry = Schema.Struct({
   projectId: ProjectId,
   projectTitle: TrimmedNonEmptyString,
   repository: TrimmedNonEmptyString,
+  /**
+   * The project's checkout is a fork and this row is from the repository its `upstream` remote
+   * tracks, not from the fork, whose own rows are listed beside it.
+   */
+  upstream: Schema.optional(Schema.Boolean),
   number: PositiveInt,
   title: TrimmedNonEmptyString,
   url: TrimmedNonEmptyString,

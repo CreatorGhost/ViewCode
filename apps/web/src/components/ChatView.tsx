@@ -7,6 +7,12 @@ import { useViewCodeThreadBanners } from "./chat/useViewCodeThreadBanners";
 import { threadShellHasStarted } from "./ChatView.logic";
 import { useThreadGoalControls } from "./chat/useThreadGoalControls";
 import { ThreadGoalDialog } from "./chat/ThreadGoalDialog";
+import { clearThreadGoalRunRequest, useThreadGoalEditorStore } from "./chat/threadGoal";
+import {
+  threadGoalRunMessage,
+  threadGoalRunState,
+  threadGoalRunTitle,
+} from "@t3tools/client-runtime/threadGoal";
 import { WorkspacePageHeader } from "./WorkspacePageHeader";
 import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
@@ -125,6 +131,7 @@ import {
   parseCodexFeedbackCommand,
   shouldShowLoadEarlierControl,
   submitCodexFeedback,
+  THREAD_TOO_LARGE_FOR_CONNECTION_MESSAGE,
   type CodexFeedbackSubmission,
 } from "@t3tools/client-runtime/state/threads";
 import { resolveThreadLastVisitedAt } from "./Sidebar.logic";
@@ -391,6 +398,7 @@ import {
   useProjects,
   useThreadProjection,
   useThreadStatus,
+  useThreadSyncError,
   useThreadHistory,
   useQuietThreadShell,
   useThreadShell,
@@ -405,6 +413,8 @@ import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
 import { isTimelineScrollTarget } from "./chat/timelineScrollTarget";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
+import { RockBotHeroHeadline } from "./rockbot/RockBotHeroHeadline";
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
 import {
   BranchRestoreConfirmHost,
@@ -451,6 +461,7 @@ import {
   ProviderStatusBanner,
   shouldShowProviderStatusBanner,
 } from "./chat/ProviderStatusBanner";
+import { NoProviderPrompt, useProviderPickerPrompt } from "./onboarding/NoProviderPrompt";
 import {
   dismissThreadErrorBannerForSession,
   getThreadErrorBannerKey,
@@ -539,7 +550,12 @@ import {
 } from "../lib/attachmentUploadQueue";
 import { sanitizeThreadErrorMessage } from "~/rpc/transportError";
 import { RightPanelSheet } from "./RightPanelSheet";
-import { ThreadPrFlowCard } from "./chat/prFlow/ThreadPrFlowCard";
+import {
+  ThreadPrCreatingCard,
+  ThreadPrStatusChips,
+  ThreadPrTimelineCard,
+  useThreadTimelinePullRequests,
+} from "./chat/prFlow/ThreadPrFlowCard";
 import { previewEnvironment } from "../state/preview";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -1047,6 +1063,23 @@ function makeModelDisabledReason(
   };
 }
 
+/**
+ * The banner lane (provider notices, thread errors) floats over the canvas, and the draft hero
+ * centres in the canvas below it (viewcode-chat.css reads `--chat-banner-lane-height`). The lane
+ * wraps as the column narrows, so its height is measured rather than guessed; written straight
+ * to the canvas's style, since a notice changing is no reason to render the view again.
+ */
+function observeBannerLaneHeight(lane: HTMLDivElement | null) {
+  const host = lane?.parentElement;
+  if (!lane || !host) return;
+  return observeResize(lane, ([entry]) => {
+    host.style.setProperty(
+      "--chat-banner-lane-height",
+      `${Math.ceil(entry?.contentRect.height ?? 0)}px`,
+    );
+  });
+}
+
 export default function ChatView(props: ChatViewProps) {
   const {
     environmentId,
@@ -1541,8 +1574,12 @@ export default function ChatView(props: ChatViewProps) {
           threadId: parentSubagentThreadRef.threadId,
           title: parentSubagentThread?.title ?? "Parent thread",
         };
+  const threadSyncError = useThreadSyncError(routeThreadDetailRef);
+  // Only this one: other sync errors retry on their own and would flash.
+  const threadTooLargeError =
+    threadSyncError === THREAD_TOO_LARGE_FOR_CONNECTION_MESSAGE ? threadSyncError : null;
   const threadError = isServerThread
-    ? (localServerError ?? serverRuntime?.lastError ?? null)
+    ? (localServerError ?? serverRuntime?.lastError ?? threadTooLargeError)
     : localDraftError;
   const threadErrorBannerKey = getThreadErrorBannerKey(routeThreadKey, threadError);
   const visibleThreadError = shouldShowThreadErrorBanner(
@@ -1600,6 +1637,15 @@ export default function ChatView(props: ChatViewProps) {
     return labels;
   })();
   const activeThreadRef = useActiveThreadRef(activeThread);
+  // The thread's pull requests, each a card in the conversation where the thread got it.
+  const timelinePullRequests = useThreadTimelinePullRequests(
+    isServerThread ? activeThreadRef : null,
+  );
+  const renderTimelinePullRequest = useStableCallback((pullRequestKey: string) =>
+    activeThreadRef === null ? null : (
+      <ThreadPrTimelineCard threadRef={activeThreadRef} pullRequestKey={pullRequestKey} />
+    ),
+  );
   const terminalActions = useThreadTerminalActions(activeThreadRef);
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const activeEnvironmentServerBrowser = useEnvironmentSupportsServerBrowser(
@@ -1627,8 +1673,9 @@ export default function ChatView(props: ChatViewProps) {
     const thread = await ensurePanelThread();
     if (thread) useRightPanelStore.getState().open(thread, "review");
   });
+  const threadGoalKey = activeThreadKey ?? routeThreadKey;
   const threadGoalControls = useThreadGoalControls({
-    threadKey: activeThreadKey ?? routeThreadKey,
+    threadKey: threadGoalKey,
     environmentId: activeThreadRef?.environmentId ?? null,
     threadId: activeThreadRef?.threadId ?? null,
     isServerThread,
@@ -1710,14 +1757,14 @@ export default function ChatView(props: ChatViewProps) {
   const canReuseTerminal = activeThreadKnownSessionsRaw !== null;
   const previewPanelOpen = activeRightPanelKind === "preview" && browserAvailable;
   const rightPanelOpen = rightPanelState.isOpen;
-  const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
+  const { active: panelAnimationsActive, durationMs: panelAnimationMs } =
     usePanelAnimationSettings();
   const activeTerminalDrawerPresence = usePanelPresence(
     Boolean(activeThreadKey && terminalUiState.terminalOpen),
     true,
     panelAnimationsActive,
     activeThreadKey,
-    panelAnimationDurationMs,
+    panelAnimationMs,
   );
   const rightPanelPresenceValue = {
     activeSurface: activeRightPanelSurface,
@@ -1728,7 +1775,7 @@ export default function ChatView(props: ChatViewProps) {
     rightPanelPresenceValue,
     panelAnimationsActive,
     activeThreadKey,
-    panelAnimationDurationMs,
+    panelAnimationMs,
   );
   const rightPanelPresent = rightPanelPresence.present;
   const rightPanelControlsInPanel =
@@ -2932,11 +2979,7 @@ export default function ChatView(props: ChatViewProps) {
     transitionGroupRef: draftHeroTransitionGroupRef,
     composerAnchorRef: draftHeroComposerAnchorRef,
     captureComposerRect: captureDraftHeroComposerRect,
-  } = useDraftHeroLayoutTransition(
-    isDraftHeroState,
-    panelAnimationsActive,
-    panelAnimationDurationMs,
-  );
+  } = useDraftHeroLayoutTransition(isDraftHeroState, panelAnimationsActive, panelAnimationMs);
   const turnDiffSummaries = useThreadCheckpointSummaries(routeThreadDetailRef);
 
   /**
@@ -3045,7 +3088,12 @@ export default function ChatView(props: ChatViewProps) {
   )
     ? activeProviderStatus
     : null;
-  const hasTimelineTopBanner = Boolean(timelineThreadError) || visibleProviderStatus !== null;
+  const providerPickerPrompt = useProviderPickerPrompt(environmentId);
+  const hasTimelineTopBanner =
+    Boolean(timelineThreadError) ||
+    visibleProviderStatus !== null ||
+    providerPickerPrompt === "inline" ||
+    providerPickerPrompt === "inline-read-only";
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;
   const activeWorkspaceRoot = activeThreadWorktreePath ?? activeProjectCwd ?? undefined;
@@ -4764,6 +4812,7 @@ export default function ChatView(props: ChatViewProps) {
     composerRestingRef.current = resting;
   };
   const onComposerRestingChangeStable = useStableCallback(onComposerRestingChange);
+  const [composerSendAvailable, setComposerSendAvailable] = useState(false);
   useLayoutEffect(() => {
     if (!composerOverlayElement) return;
     composerTimelineInsetRef.current = 0;
@@ -6374,6 +6423,18 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
     const threadIdForSend = activeThread.id;
+    // Read at send time, not from this render: Save & run sets a draft's goal in the same tick.
+    const draftThreadForSend =
+      routeKind === "server"
+        ? useComposerDraftStore.getState().getDraftSessionByRef(routeThreadRef)
+        : draftId
+          ? useComposerDraftStore.getState().getDraftSession(draftId)
+          : null;
+    // "Start working on the goal." says nothing about the work, so a thread it creates is named
+    // after the goal; without a titleSeed the server keeps that title instead of generating one.
+    const goalRunTitle = isLocalDraftThread
+      ? threadGoalRunTitle({ message: trimmed, goal: draftThreadForSend?.goal })
+      : null;
     const isFirstMessage = !sendQueuesBehindSetup && (!isServerThread || activeMessageCount === 0);
     const baseBranchForWorktree =
       isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath
@@ -6568,7 +6629,7 @@ export default function ChatView(props: ChatViewProps) {
         },
         {
           active: panelAnimationsActive,
-          durationMs: panelAnimationDurationMs,
+          durationMs: panelAnimationMs,
         },
       );
       void dockTransition.catch(() => resolveDockStarted?.());
@@ -6651,9 +6712,10 @@ export default function ChatView(props: ChatViewProps) {
           ),
         );
         const title = truncate(
-          assistantCitationsToPlainText(stripInlineContextReferences(trimmed)).trim() ||
-            composerAttachmentsSnapshot[0]?.name ||
-            "New thread",
+          goalRunTitle ??
+            (assistantCitationsToPlainText(stripInlineContextReferences(trimmed)).trim() ||
+              composerAttachmentsSnapshot[0]?.name ||
+              "New thread"),
         );
         promptRef.current = "";
         clearComposerDraftContent(composerDraftTarget);
@@ -6702,13 +6764,13 @@ export default function ChatView(props: ChatViewProps) {
                       ...(context && supportsInlineMessageContext ? { context } : {}),
                     },
                     modelSelection: target.selection,
-                    titleSeed: title,
+                    ...(goalRunTitle === null ? { titleSeed: title } : {}),
                     runtimeMode,
                     interactionMode: target.interactionMode,
                     bootstrap: {
                       createThread: {
-                        ...(draftThread?.goal ? { goal: draftThread.goal } : {}),
-                        ...(draftThread?.debugMode ? { debugMode: true } : {}),
+                        ...(draftThreadForSend?.goal ? { goal: draftThreadForSend.goal } : {}),
+                        ...(draftThreadForSend?.debugMode ? { debugMode: true } : {}),
                         projectId: activeProject.id,
                         title,
                         modelSelection: target.selection,
@@ -6928,7 +6990,7 @@ export default function ChatView(props: ChatViewProps) {
         titleSeed = "New thread";
       }
     }
-    const title = truncate(titleSeed);
+    const title = truncate(goalRunTitle ?? titleSeed);
     const threadCreateModelSelection = createModelSelection(
       ctxSelectedModelSelection.instanceId,
       ctxSelectedModel || activeProjectDefaultModelSelection?.model || DEFAULT_MODEL,
@@ -6989,8 +7051,8 @@ export default function ChatView(props: ChatViewProps) {
               ...(isLocalDraftThread
                 ? {
                     createThread: {
-                      ...(draftThread?.goal ? { goal: draftThread.goal } : {}),
-                      ...(draftThread?.debugMode ? { debugMode: true } : {}),
+                      ...(draftThreadForSend?.goal ? { goal: draftThreadForSend.goal } : {}),
+                      ...(draftThreadForSend?.debugMode ? { debugMode: true } : {}),
                       projectId: activeProject.id,
                       title,
                       modelSelection: threadCreateModelSelection,
@@ -7056,7 +7118,7 @@ export default function ChatView(props: ChatViewProps) {
             })(),
           },
           modelSelection: ctxSelectedModelSelection,
-          titleSeed: title,
+          ...(goalRunTitle === null ? { titleSeed: title } : {}),
           runtimeMode,
           interactionMode: sendInteractionMode,
           dispatchMode: turnDispatchMode,
@@ -7628,6 +7690,71 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onWorktreeSetupWorkLocallyStable = useStableCallback(onWorktreeSetupWorkLocally);
   const onComposerSendStable = useStableCallback(onSend);
+  const goalRunBlockedReason = !canOperateThread
+    ? "This connection cannot change threads."
+    : activeEnvironmentUnavailable
+      ? "Not connected to this environment."
+      : threadDetailLoading || !clientSettingsHydrated || isRevertingCheckpoint
+        ? "The thread is not ready to send yet."
+        : !composerSendAvailable
+          ? "No model is available to send to."
+          : !isServerThread && composerHasDraftContent
+            ? "Send or clear the message in the composer first."
+            : null;
+  const threadGoalRun = threadGoalRunState({
+    goal: threadGoalControls.goal,
+    working: isWorking,
+    canSend: goalRunBlockedReason === null,
+  });
+  const sendThreadGoalRunMessage = (goalChanged: boolean) => {
+    const text = threadGoalRunMessage({ hasMessages: activeMessageCount > 0, goalChanged });
+    if (isServerThread) {
+      void sendStandaloneCommand(text, "Couldn't start the goal.");
+      return;
+    }
+    // A draft's first message creates the thread, so it takes the composer's first-send path.
+    // The text goes into the composer, so a send that stops early leaves it visible, not hidden.
+    promptRef.current = text;
+    setComposerDraftPrompt(composerDraftTarget, text);
+    void onSend();
+  };
+  const onRunThreadGoalStable = useStableCallback(() => {
+    if (threadGoalRun === "ready") sendThreadGoalRunMessage(false);
+  });
+  const onSaveAndRunThreadGoal = async (objective: string, changed: boolean) => {
+    if (changed && !(await threadGoalControls.saveGoal(objective))) return;
+    sendThreadGoalRunMessage(changed);
+  };
+  // `/goal run` and the command palette ask through the goal store; this view owns the send.
+  const goalRunRequested = useThreadGoalEditorStore(
+    (state) => state.runThreadKey !== null && state.runThreadKey === threadGoalKey,
+  );
+  const runRequestedThreadGoal = useStableCallback(() => {
+    clearThreadGoalRunRequest();
+    if (threadGoalRun === "ready") {
+      sendThreadGoalRunMessage(false);
+      return;
+    }
+    toastManager.add(
+      stackedThreadToast({
+        type: "info",
+        title:
+          threadGoalRun === "no-goal"
+            ? "This thread has no goal yet"
+            : threadGoalRun === "paused"
+              ? "The goal is paused"
+              : threadGoalRun === "working"
+                ? "Run the goal when the current turn ends"
+                : "Can't run the goal right now",
+        ...(threadGoalRun === "blocked" && goalRunBlockedReason !== null
+          ? { description: goalRunBlockedReason }
+          : {}),
+      }),
+    );
+  });
+  useEffect(() => {
+    if (goalRunRequested) runRequestedThreadGoal();
+  }, [goalRunRequested, runRequestedThreadGoal]);
   const sendPreviewAnnotation = (
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
@@ -7944,6 +8071,9 @@ export default function ChatView(props: ChatViewProps) {
           <ChatHeader
             threadGoal={threadGoalControls.goal}
             onEditThreadGoal={threadGoalControls.openEditor}
+            threadGoalRunState={threadGoalRun}
+            threadGoalRunBlockedReason={goalRunBlockedReason}
+            onRunThreadGoal={onRunThreadGoalStable}
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}
             isServerThread={isServerThread}
@@ -7952,7 +8082,9 @@ export default function ChatView(props: ChatViewProps) {
             parentThreadLink={parentThreadLink}
             onOpenThread={onOpenRelatedThreadStable}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
-            toolbarControlCount={inlineRightPanelOwnsTitleBar ? 1 : 0}
+            // Closed, the fixed details and panel toggles sit over the header's own
+            // padding; a count of 0 would write that padding away.
+            {...(inlineRightPanelOwnsTitleBar ? { toolbarControlCount: 1 } : {})}
             actions={
               <div data-chat-header-actions className="flex shrink-0 items-center gap-2">
                 <ViewCodeHeaderProjectActions
@@ -8055,7 +8187,11 @@ export default function ChatView(props: ChatViewProps) {
                 </div>
               </div>
             ) : null}
-            <div className="chat-banner-lane pointer-events-none absolute top-0 z-20 flex flex-col">
+            <div
+              ref={observeBannerLaneHeight}
+              className="chat-banner-lane pointer-events-none absolute top-0 z-20 flex flex-col"
+            >
+              <NoProviderPrompt environmentId={environmentId} prompt={providerPickerPrompt} />
               <ProviderStatusBanner
                 status={visibleProviderStatus}
                 onDismiss={() => setDismissedProviderStatusBannerKey(providerStatusBannerKey)}
@@ -8128,15 +8264,22 @@ export default function ChatView(props: ChatViewProps) {
                         </div>
                       )}
                       {isServerThread && activeThreadRef ? (
-                        // The thread's pull request, at the end of the conversation it came from.
+                        // A pull request the git menu is opening has no place in the
+                        // conversation yet; once linked, its card sits where it was linked.
                         <div className="chat-content-lane pt-3 empty:hidden">
-                          <ThreadPrFlowCard threadRef={activeThreadRef} />
+                          <ThreadPrCreatingCard threadRef={activeThreadRef} />
                         </div>
                       ) : null}
                       {threadStatusLine}
                     </>
                   )
                 }
+                {...(paintOnlyDisplayedTimeline
+                  ? {}
+                  : {
+                      pullRequests: timelinePullRequests,
+                      renderPullRequest: renderTimelinePullRequest,
+                    })}
                 listRef={legendListRef}
                 timelineEntries={displayedTimeline.entries}
                 runs={paintOnlyDisplayedTimeline ? [] : (serverProjection?.runs ?? [])}
@@ -8249,7 +8392,7 @@ export default function ChatView(props: ChatViewProps) {
                   className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-content-max-width)"
                 >
                   {isDraftHeroState ? (
-                    <div className="absolute inset-x-0 bottom-full">
+                    <div data-chat-hero-headline="" className="absolute inset-x-0 bottom-full">
                       <div
                         className="pb-4 group-has-data-[composer-shoulder-tab]/composer-stack:pb-0"
                         style={
@@ -8258,13 +8401,20 @@ export default function ChatView(props: ChatViewProps) {
                             : undefined
                         }
                       >
-                        <DraftHeroHeadline
-                          draftId={draftId}
-                          activeProjectRef={activeProjectRef}
-                          activeProjectTitle={activeProject?.title ?? null}
-                        />
+                        {serverThread !== null && isRockBot(serverThread.source) ? (
+                          <RockBotHeroHeadline />
+                        ) : (
+                          <DraftHeroHeadline
+                            draftId={draftId}
+                            activeProjectRef={activeProjectRef}
+                            activeProjectTitle={activeProject?.title ?? null}
+                          />
+                        )}
                       </div>
                     </div>
+                  ) : null}
+                  {!isDraftHeroState && isServerThread && activeThreadRef ? (
+                    <ThreadPrStatusChips threadRef={activeThreadRef} />
                   ) : null}
                   <div
                     ref={draftHeroComposerAnchorRef}
@@ -8439,6 +8589,7 @@ export default function ChatView(props: ChatViewProps) {
                               timelineOverflows={timelineOverflows}
                               onComposerOverlayHeightChange={publishComposerOverlayHeightStable}
                               onRestingChange={onComposerRestingChangeStable}
+                              onSendAvailableChange={setComposerSendAvailable}
                               promptRef={promptRef}
                               composerImagesRef={composerImagesRef}
                               composerFilesRef={composerFilesRef}
@@ -8727,7 +8878,7 @@ export default function ChatView(props: ChatViewProps) {
       ) : null}
       {rightPanelPresent && shouldUsePlanSidebarSheet && activeThreadRef ? (
         <RightPanelSheet
-          animationDurationMs={panelAnimationsActive ? panelAnimationDurationMs : 0}
+          animationDurationMs={panelAnimationsActive ? panelAnimationMs : 0}
           open={rightPanelOpen}
           onClose={closePreviewPanelStable}
         >
@@ -8795,7 +8946,12 @@ export default function ChatView(props: ChatViewProps) {
           goal={threadGoalControls.goal}
           canPause={isServerThread}
           disabled={isEnsuringPanelThread}
-          onSave={threadGoalControls.saveGoal}
+          run={{
+            working: isWorking,
+            blockedReason: goalRunBlockedReason,
+            onSaveAndRun: (objective, changed) => void onSaveAndRunThreadGoal(objective, changed),
+          }}
+          onSave={(objective) => void threadGoalControls.saveGoal(objective)}
           onSetPaused={threadGoalControls.setGoalPaused}
           onClear={threadGoalControls.clearGoal}
           onClose={threadGoalControls.closeEditor}

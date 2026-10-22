@@ -1,8 +1,9 @@
+import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
+import { applyAdminProviderPolicy } from "./provider/AdminProviderPolicy.ts";
 import {
-  AdminProviderPolicyRef,
-  applyAdminProviderPolicy,
-} from "./provider/AdminProviderPolicy.ts";
-import { disableFirstRunProviders } from "./provider/viewcode/firstRunProviders.ts";
+  disableFirstRunProviders,
+  keepUnchosenProvidersOff,
+} from "./provider/viewcode/firstRunProviders.ts";
 import {
   VIEWCODE_DEFAULT_RUNTIME_MODE,
   VIEWCODE_DEFAULT_SERVER_SETTINGS,
@@ -226,7 +227,7 @@ const makeTest = (overrides: DeepPartial<ServerSettings> = {}) =>
         ? { providerHealthRefreshInterval: providerHealthRefreshInterval as Duration.Duration }
         : {}),
     });
-    const adminPolicy = yield* AdminProviderPolicyRef;
+    const adminPolicy = yield* AdminPolicyRef;
     const resolveEffectiveSettings = (settings: ServerSettings) =>
       resolveTextGenerationProvider(applyAdminProviderPolicy(settings, adminPolicy.blockedDrivers));
     const currentSettingsRef = yield* Ref.make<ServerSettings>(initialSettings);
@@ -586,7 +587,7 @@ const make = Effect.gen(function* () {
   const writeSemaphore = yield* Semaphore.make(1);
   const cacheKey = "settings" as const;
   const changesPubSub = yield* PubSub.unbounded<ServerSettings>();
-  const adminPolicy = yield* AdminProviderPolicyRef;
+  const adminPolicy = yield* AdminPolicyRef;
   if (adminPolicy.problem !== null) yield* Effect.logWarning(adminPolicy.problem);
   const resolveEffectiveSettings = (settings: ServerSettings) =>
     resolveTextGenerationProvider(applyAdminProviderPolicy(settings, adminPolicy.blockedDrivers));
@@ -775,11 +776,16 @@ const make = Effect.gen(function* () {
             new ServerSettingsError({ settingsPath, operation: "read-provider-history", cause }),
         ),
       ));
-    const loaded = foldProviderInstanceEnabledFlags(
+    const foldedProviders = foldProviderInstanceEnabledFlags(
       legacyProviders === undefined
         ? settings
         : migrateLegacyProviderSettings(settings, legacyProviders, providerHistory),
     );
+    // Applied on every load rather than written: the next settings write records it.
+    const loaded =
+      brandNew || !settingsFileTrusted
+        ? foldedProviders
+        : keepUnchosenProvidersOff(foldedProviders);
     const gated = brandNew || !settingsFileTrusted ? disableFirstRunProviders(loaded) : loaded;
     const folded = settingsFileTrusted
       ? foldLegacyProjectSettings(gated, legacyProjectRows)

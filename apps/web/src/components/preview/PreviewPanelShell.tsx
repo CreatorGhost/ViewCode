@@ -70,22 +70,49 @@ function PreviewPanelShellFrame(
   const hostRef = props.hostRef ?? localHostRef;
   const returnedFocus = useRef(false);
   const { width, handlers } = props.inlineSize;
-  // Panel motion never animates width: the layout changes once and only the content slides,
-  // on the compositor, so it keeps moving while the panel's contents are still rendering.
-  // Closing keeps the width until the slide-out ends, then collapses.
+  // The host's width tweens with the content's slide (index.css, keyed on data-panel-motion so a
+  // drag resize stays immediate), on one curve, so the chat edge and the panel move as one piece.
+  // A one-step width change with only the content sliding read as a snap at the start of open
+  // and the end of close (frame capture, user feedback). The content keeps its full width
+  // throughout, so nothing inside the panel re-wraps per frame.
   const contentRef = useRef<HTMLDivElement | null>(null);
   // The shell mounts as the panel opens, so an open mount enters too; while panel motion is
   // suppressed (first paint, navigation) no animation runs and the effect settles it at once.
-  const [motion, setMotion] = useState<{ open: boolean; phase: "idle" | "enter" | "exit" }>(() => ({
+  // Opening holds the host at zero width for two frames ("pending") so the content's mount,
+  // which can stall the main thread for 100ms+, happens while nothing moves; the open animation
+  // then starts from a painted panel instead of losing its first frames to the stall.
+  const [motion, setMotion] = useState<{
+    open: boolean;
+    phase: "idle" | "pending" | "enter" | "exit";
+  }>(() => ({
     open,
-    phase: collapsible && open ? "enter" : "idle",
+    phase: collapsible && open ? "pending" : "idle",
   }));
   if (collapsible && motion.open !== open) {
-    setMotion({ open, phase: open ? "enter" : "exit" });
+    setMotion({ open, phase: open ? "pending" : "exit" });
   }
-  const exiting = motion.phase === "exit";
   useLayoutEffect(() => {
-    if (motion.phase === "idle") return;
+    if (motion.phase !== "pending") return;
+    const host = hostRef.current;
+    const enter = () =>
+      setMotion((current) =>
+        current.phase === "pending" ? { ...current, phase: "enter" } : current,
+      );
+    if (!host?.closest('[data-panel-animations="true"]')) {
+      enter();
+      return;
+    }
+    let second = 0;
+    const first = window.requestAnimationFrame(() => {
+      second = window.requestAnimationFrame(enter);
+    });
+    return () => {
+      window.cancelAnimationFrame(first);
+      window.cancelAnimationFrame(second);
+    };
+  }, [motion.phase, hostRef]);
+  useLayoutEffect(() => {
+    if (motion.phase === "idle" || motion.phase === "pending") return;
     const content = contentRef.current;
     const finish = () => setMotion((current) => ({ ...current, phase: "idle" }));
     // No running animation means motion is off (setting, reduced motion): settle at once.
@@ -149,7 +176,7 @@ function PreviewPanelShellFrame(
               [RESIZABLE_WIDTH_PROPERTY]: `${width}px`,
               width: maximized
                 ? "100%"
-                : collapsible && !open && !exiting
+                : collapsible && (!open || motion.phase === "pending")
                   ? "0px"
                   : `var(${RESIZABLE_WIDTH_PROPERTY})`,
             } as CSSProperties)
@@ -163,7 +190,9 @@ function PreviewPanelShellFrame(
         <div
           ref={contentRef}
           className="flex h-full min-h-0 min-w-0 flex-col"
-          data-panel-motion={motion.phase === "idle" ? undefined : motion.phase}
+          data-panel-motion={
+            motion.phase === "idle" || motion.phase === "pending" ? undefined : motion.phase
+          }
           style={
             collapsible && !maximized
               ? { width: `calc(var(${RESIZABLE_WIDTH_PROPERTY}) - 1px)` }

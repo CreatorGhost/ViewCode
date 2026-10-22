@@ -1,10 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { FolderIcon, SettingsIcon, SmartphoneIcon } from "lucide-react";
+import { BotIcon, FolderIcon, SettingsIcon, SmartphoneIcon } from "lucide-react";
 import { memo } from "react";
 
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
+import { threadOwnNeed } from "@t3tools/shared/threadNeedsYou";
 
 import { cn } from "~/lib/utils";
 import { useAppSettingsRoute } from "./useAppRailNavigation";
@@ -40,6 +41,9 @@ import {
   resolveRailEnvironmentId,
 } from "./appRail.logic";
 import { RailUsageRingButton } from "./RailUsageRing";
+import { useOpenRockBot } from "../rockbot/useOpenRockBot";
+import { rockBotEnvironment } from "../../state/rockbot";
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
 
 function RailButton(props: {
   label: string;
@@ -158,12 +162,16 @@ const RailProjectSwitcher = memo(function RailProjectSwitcher() {
   const threads = useThreadShells();
   const scopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
   const switchProject = useSwitchProjectScope();
+  const onRockBot = useRouteIsRockBot();
   const activityByProject = (() => buildRailProjectActivity(projectGroups, threads))();
   if (projectGroups.length === 0) return null;
-  // A scope whose project is gone reads as All until the sidebar clears it.
-  const selectedKey = projectGroups.some((group) => group.projectKey === scopeKey)
-    ? scopeKey
-    : null;
+  // A scope whose project is gone reads as All until the sidebar clears it. RockBot sits
+  // outside every folder, so while it is open no folder (nor All) is lit.
+  const selectedKey = onRockBot
+    ? undefined
+    : projectGroups.some((group) => group.projectKey === scopeKey)
+      ? scopeKey
+      : null;
   return (
     <>
       <RailButton
@@ -205,6 +213,42 @@ const RailPullRequestsButton = memo(function RailPullRequestsButton(props: { act
   );
 });
 
+/** RockBot, the chat over every project. Its badge is the rail's "needs you" count in total. */
+const RailRockBotButton = memo(function RailRockBotButton(props: { environmentId: EnvironmentId }) {
+  const threads = useThreadShells();
+  const active = useRouteIsRockBot();
+  const canOpen = useAtomValue(rockBotEnvironment.open.permissionAtom(props.environmentId));
+  const openRockBot = useOpenRockBot(props.environmentId);
+  if (!canOpen) return null;
+  const needsYou = threads.filter(
+    (thread) =>
+      thread.environmentId === props.environmentId &&
+      thread.archivedAt === null &&
+      thread.source.kind !== "sidechat" &&
+      threadOwnNeed(thread) !== null,
+  ).length;
+  return (
+    <RailButton
+      label={
+        needsYou > 0 ? `RockBot, ${needsYou} ${needsYou === 1 ? "needs" : "need"} you` : "RockBot"
+      }
+      tooltip="RockBot"
+      pressed={active}
+      onClick={() => void openRockBot()}
+    >
+      <BotIcon />
+      {needsYou > 0 ? (
+        <span
+          aria-hidden
+          className="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-warning px-0.5 font-semibold text-3xs text-background tabular-nums leading-none ring-2 ring-sidebar"
+        >
+          {needsYou}
+        </span>
+      ) : null}
+    </RailButton>
+  );
+});
+
 /** Rings for the accounts of one environment; no polling, so a thread switch only re-derives. */
 const RailUsageRings = memo(function RailUsageRings(props: { environmentId: EnvironmentId }) {
   const providers =
@@ -225,6 +269,22 @@ const RailUsageRings = memo(function RailUsageRings(props: { environmentId: Envi
     />
   ));
 });
+
+/** Whether the open thread is a RockBot chat. */
+function useRouteIsRockBot(): boolean {
+  const routeThreadId = useParams({ strict: false, select: (params) => params.threadId ?? null });
+  const routeEnvironmentId = useParams({
+    strict: false,
+    select: (params) => params.environmentId ?? null,
+  });
+  const threads = useThreadShells();
+  return threads.some(
+    (thread) =>
+      thread.id === routeThreadId &&
+      thread.environmentId === routeEnvironmentId &&
+      isRockBot(thread.source),
+  );
+}
 
 /** The open thread's environment, so a remote thread shows that server's limits. */
 function useRailEnvironmentId(): EnvironmentId | null {
@@ -274,6 +334,7 @@ export const AppRail = memo(function AppRail() {
         {railEnvironmentId ? <RailUsageRings environmentId={railEnvironmentId} /> : null}
       </div>
       <div className="flex flex-col items-center gap-1">
+        {railEnvironmentId ? <RailRockBotButton environmentId={railEnvironmentId} /> : null}
         <RailButton label="Settings" active={onSettings} onClick={openSettings}>
           <SettingsIcon />
         </RailButton>

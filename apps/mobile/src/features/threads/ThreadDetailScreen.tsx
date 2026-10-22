@@ -1,4 +1,8 @@
-import type { OrchestrationThreadShell, EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+import type {
+  OrchestrationThreadShell,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/viewcodeThread";
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
 
 import { useAtomValue } from "@effect/atom-react";
 import type { WorktreeSetupCardProps } from "./worktree-setup-card";
@@ -17,7 +21,19 @@ import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSki
 import type { LegendListRef } from "@legendapp/list/react-native";
 import { HeaderHeightContext } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
-import type { ApprovalRequestId, EnvironmentId, MessageId, ModelSelection, ProviderApprovalDecision, ProviderInteractionMode, RuntimeMode, ServerConfig as T3ServerConfig, ThreadId, UsageLimitsReport, UserInputQuestion } from "@t3tools/contracts";
+import type {
+  ApprovalRequestId,
+  EnvironmentId,
+  MessageId,
+  ModelSelection,
+  ProviderApprovalDecision,
+  ProviderInteractionMode,
+  RuntimeMode,
+  ServerConfig as T3ServerConfig,
+  ThreadId,
+  UsageLimitsReport,
+  UserInputQuestion,
+} from "@t3tools/contracts";
 import * as Haptics from "expo-haptics";
 import {
   memo,
@@ -94,7 +110,11 @@ import {
   FLOATING_WORKING_CONTROL_COVERAGE,
   FloatingWorkingControl,
 } from "./floating-working-control";
-import { connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
+import {
+  connectionFloatingStatus,
+  threadSyncNoticeStatus,
+  type FloatingWorkingStatus,
+} from "./floating-working-status";
 import {
   derivePendingUserInputMaxHeight,
   ESTIMATED_KEYBOARD_HEIGHT,
@@ -160,6 +180,8 @@ export interface ThreadDetailScreenProps {
   readonly connectionStateLabel: EnvironmentConnectionPhase;
   /** Message sync status for the selected thread (drives the composer status pill). */
   readonly threadSyncStatus?: EnvironmentThreadStatus;
+  /** The thread subscription's last error, if any. */
+  readonly threadSyncError?: string | null;
   /** Non-null when older turns exist beyond the loaded window. */
   readonly loadEarlier?: { readonly loading: boolean; readonly onLoadEarlier: () => void } | null;
   readonly environmentId: EnvironmentId;
@@ -438,6 +460,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     });
     if (connectionStatus !== null) {
       return connectionStatus;
+    }
+    const syncNotice = threadSyncNoticeStatus({
+      threadSyncError: props.threadSyncError ?? null,
+      onPress: () => Alert.alert("Can't load this chat", props.threadSyncError ?? ""),
+    });
+    if (syncNotice !== null) {
+      return syncNotice;
     }
     if (props.activePendingApproval !== null || props.activePendingUserInput !== null) {
       return null;
@@ -1160,7 +1189,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     hidden={composerSlotHidden}
                     draftMessage={props.draftMessage}
                     draftAttachments={props.draftAttachments}
-                    placeholder="Ask or run a command…"
+                    placeholder={
+                      isRockBot(props.selectedThread) ? "Ask RockBot…" : "Ask or run a command…"
+                    }
                     contentMaxWidth={contentMaxWidth}
                     connectionState={props.connectionStateLabel}
                     environmentLabel={props.environmentLabel}

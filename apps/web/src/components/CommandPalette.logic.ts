@@ -7,6 +7,7 @@ import {
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 import { filterFilesystemBrowseEntries } from "@t3tools/client-runtime/state/filesystem";
+import type { ThreadKind } from "@t3tools/contracts";
 import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import * as Arr from "effect/Array";
 import * as Result from "effect/Result";
@@ -287,7 +288,7 @@ export type BuildThreadActionItemsThread = Pick<
   | "title"
   | "worktreePath"
 > & {
-  kind?: "sidechat" | null;
+  kind?: ThreadKind | null;
   pullRequests?: SidebarThreadSummary["pullRequests"];
   updatedAt: string;
   latestUserMessageAt?: string | null;
@@ -307,6 +308,7 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
   limit?: number;
 }): CommandPaletteActionItem[] {
   const sortedThreads = sortThreads(
+    // Side chats live in their parent's dock.
     input.threads.filter((thread) => thread.archivedAt === null && thread.kind !== "sidechat"),
     input.sortOrder,
   );
@@ -314,7 +316,9 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
     input.limit === undefined ? sortedThreads : sortedThreads.slice(0, input.limit);
 
   return visibleThreads.map((thread) => {
-    const projectTitle = input.projectTitleById.get(thread.projectId);
+    // A RockBot chat sits in no project the user chose, so it is labeled by what it is.
+    const projectTitle =
+      thread.kind === "orchestrator" ? "RockBot" : input.projectTitleById.get(thread.projectId);
     const descriptionParts: string[] = [];
 
     if (projectTitle) {

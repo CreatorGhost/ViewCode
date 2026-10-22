@@ -68,6 +68,7 @@ export * from "./clientRpcPermissions.ts";
 export * from "./providerAccounts.ts";
 export * from "./providerChoice.ts";
 export * from "./agentControl.ts";
+export * from "./rockbot.ts";
 export * from "./voiceModels.ts";
 export * from "./pushNotifications.ts";
 export * from "./reviewFindings.ts";

@@ -720,6 +720,26 @@ describe("pull request detail decoding", () => {
       ["Prepare PR size config", "pending"],
     ]);
     expect(detail.checksState).toBe("pending");
+    // A run still going has started but not finished; GitHub's zero time is no finish.
+    expect(detail.checks[0]).toMatchObject({ startedAt: "2026-08-11T17:01:04Z" });
+    expect(detail.checks[0]?.completedAt).toBeUndefined();
+  });
+
+  it("carries when a finished check ran", () => {
+    const detail = detailOf([
+      inWorkflow({
+        name: "Tests",
+        workflowName: "CI",
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+        startedAt: "2026-08-11T16:06:20Z",
+        completedAt: "2026-08-11T16:06:58Z",
+      }),
+    ]);
+    expect(detail.checks[0]).toMatchObject({
+      startedAt: "2026-08-11T16:06:20Z",
+      completedAt: "2026-08-11T16:06:58Z",
+    });
   });
 
   it("keeps a check pending while another run of it on the same commit is still going", () => {
@@ -1895,11 +1915,11 @@ describe("review submission payload", () => {
   it("pins the review to the commit that was read", () => {
     expect(
       buildReviewSubmission({
-          verdict: "comment",
-          body: "",
-          comments: [],
-          commitId: "0123abcd",
-        }),
+        verdict: "comment",
+        body: "",
+        comments: [],
+        commitId: "0123abcd",
+      }),
     ).toEqual({ commit_id: "0123abcd", event: "COMMENT", body: "", comments: [] });
   });
 });

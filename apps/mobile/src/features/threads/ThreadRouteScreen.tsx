@@ -108,6 +108,8 @@ import {
 import { threadRouteIsHydrating } from "./thread-route-hydration";
 import { openThreadFromThread } from "./openThreadFromThread";
 import { useDetailBack } from "../../native/useDetailBack";
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
+import { useOpenRockBotChat } from "../rockbot/useRockBotMenu";
 
 function ThreadHeader(
   props: Parameters<typeof useThreadHeaderOptions>[0] & {
@@ -149,6 +151,13 @@ function ThreadHeader(
         onPress: () => onOpenTerminal(null),
       });
     }
+    if (props.onNewRockBotChat) {
+      actions.push({
+        accessibilityLabel: "New RockBot chat",
+        icon: "plus.bubble",
+        onPress: props.onNewRockBotChat,
+      });
+    }
     if (props.onOpenSideChat) {
       actions.push({
         accessibilityLabel: "Open side chat",
@@ -169,6 +178,7 @@ function ThreadHeader(
     onOpenTerminal,
     props.onOpenGitInspector,
     props.onOpenSideChat,
+    props.onNewRockBotChat,
     toggleAuxiliaryPane,
     props.onReturnToThread,
     props.hasThreadCwd,
@@ -348,9 +358,7 @@ function undeliveredMessagesSignature(thread: EnvironmentThread | null): string 
 function parseUndeliveredMessages(
   signature: string | null,
 ): ReadonlyMap<string, string> | undefined {
-  return signature === null
-    ? undefined
-    : new Map(JSON.parse(signature) as Array<[string, string]>);
+  return signature === null ? undefined : new Map(JSON.parse(signature) as Array<[string, string]>);
 }
 
 function ThreadRouteContent(
@@ -488,10 +496,19 @@ function ThreadRouteContent(
     [composer.interactionMode, composer.modelSelection, composer.runtimeMode, selectedThread],
   );
 
+  const rockBotEnvironmentId = selectedThread?.environmentId ?? null;
+  const newRockBotChat = useOpenRockBotChat(rockBotEnvironmentId, (threadId) => {
+    if (rockBotEnvironmentId !== null)
+      openThreadFromThread(navigation, { environmentId: String(rockBotEnvironmentId), threadId });
+  });
+
   /* ─── Native header theming ──────────────────────────────────────── */
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
   const headerSubtitle = [
-    selectedThreadProject?.title ?? null,
+    // RockBot chats sit in the scratch folder, which names no project the user chose.
+    selectedThread !== null && isRockBot(selectedThread)
+      ? "RockBot"
+      : (selectedThreadProject?.title ?? null),
     selectedEnvironmentConnection?.environmentLabel ?? null,
   ]
     .filter(Boolean)
@@ -1100,6 +1117,7 @@ function ThreadRouteContent(
           draftAttachments={composer.draftAttachments}
           connectionStateLabel={routeConnectionState}
           threadSyncStatus={selectedThreadDetailState.status}
+          threadSyncError={Option.getOrNull(selectedThreadDetailState.error)}
           loadEarlier={loadEarlierTurns}
           environmentId={selectedThread.environmentId}
           projectWorkspaceRoot={selectedThreadProject?.workspaceRoot ?? null}
@@ -1154,6 +1172,9 @@ function ThreadRouteContent(
         onOpenGitInspector={handleOpenGitInspector}
         onOpenFilesInspector={handleOpenFilesInspector}
         onReturnToThread={props.onReturnToThread}
+        {...(isRockBot(selectedThread) && newRockBotChat !== undefined
+          ? { onNewRockBotChat: () => newRockBotChat({ newChat: true }) }
+          : {})}
         onOpenSideChat={
           selectedThread.kind === "sidechat"
             ? undefined

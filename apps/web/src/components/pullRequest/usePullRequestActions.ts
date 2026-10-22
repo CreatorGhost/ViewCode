@@ -1,5 +1,6 @@
 import { useAtomCommand } from "~/state/use-atom-command";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { resolvePullRequestDetailMergeMethod } from "@t3tools/client-runtime/pull-request-merge-method";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type {
   EnvironmentId,
@@ -27,13 +28,14 @@ import { usePreparePullRequestThreadAction } from "~/lib/sourceControlActions";
 import type { ReviewCommentContext } from "~/reviewCommentContext";
 import { pullRequestEnvironment } from "~/state/pullRequests";
 
+import { useUiStateStore } from "~/uiStateStore";
 import { toastManager } from "../ui/toast";
 import { handoffPrompt, handoffReviewComments, readableFailure } from "./pullRequestDetail.logic";
 import { pullRequestEntryKey, type EnvironmentPullRequestEntry } from "./pullRequestList.logic";
 
 export function usePullRequestDefaultMergeMethodResolver(
   environmentId: EnvironmentId,
-  projectId: ProjectId,
+  projectId: ProjectId | null,
 ) {
   const projectDefault = useEnvironmentSettings(
     environmentId,
@@ -59,6 +61,23 @@ export function usePullRequestDefaultMergeMethodResolver(
       deriveLogicalProjectKeyFromSettings(project, grouping);
     return legacyOverrides[key];
   };
+}
+
+/**
+ * Picks a merge method the repository allows: the project's default, else the one last chosen,
+ * else the host's first allowed one. Without it a merge asks for a merge commit, which a repository
+ * that allows only squash or rebase refuses.
+ */
+export function usePullRequestMergeMethodResolver(
+  environmentId: EnvironmentId,
+  projectId: ProjectId | null,
+) {
+  const resolveProjectDefault = usePullRequestDefaultMergeMethodResolver(environmentId, projectId);
+  return (detail: PullRequestDetail): PullRequestMergeMethod =>
+    resolvePullRequestDetailMergeMethod(detail, [
+      resolveProjectDefault(),
+      useUiStateStore.getState().pullRequestMergeMethod,
+    ]);
 }
 
 const ACTION_SUCCESS_LABELS: Record<PullRequestAction, string> = {

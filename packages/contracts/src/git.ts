@@ -337,6 +337,82 @@ export const GitRunStackedActionResult = Schema.Struct({
 });
 export type GitRunStackedActionResult = typeof GitRunStackedActionResult.Type;
 
+export const GitPullRequestGraphInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  baseBranch: TrimmedNonEmptyStringSchema,
+  headBranch: TrimmedNonEmptyStringSchema,
+});
+export type GitPullRequestGraphInput = typeof GitPullRequestGraphInput.Type;
+
+/** `head` is the branch's own first-parent line, `base` the base's, `side` a branch merged into the base. */
+export const GitGraphLane = Schema.Literals(["head", "base", "side"]);
+export type GitGraphLane = typeof GitGraphLane.Type;
+
+export const GitGraphCommit = Schema.Struct({
+  sha: TrimmedNonEmptyStringSchema,
+  subject: Schema.String,
+  authorName: Schema.String,
+  authoredAt: Schema.String,
+  parents: Schema.Array(TrimmedNonEmptyStringSchema),
+  /** Branch names pointing at the commit, remote prefix dropped. */
+  refs: Schema.Array(TrimmedNonEmptyStringSchema),
+  lane: GitGraphLane,
+  /** A base commit the head branch has already merged in. */
+  inHead: Schema.optional(Schema.Boolean),
+});
+export type GitGraphCommit = typeof GitGraphCommit.Type;
+
+export const GitConflictHunk = Schema.Struct({
+  /** Where the clash starts in the head branch's copy of the file. */
+  line: PositiveInt,
+  ours: Schema.Array(Schema.String),
+  theirs: Schema.Array(Schema.String),
+});
+export type GitConflictHunk = typeof GitConflictHunk.Type;
+
+export const GitConflictFile = Schema.Struct({
+  path: GitFilePath,
+  count: PositiveInt,
+  /** Base commits since the fork that touched the file, newest first. */
+  baseCommits: Schema.Array(TrimmedNonEmptyStringSchema),
+  oursAuthor: Schema.NullOr(Schema.String),
+  theirsAuthor: Schema.NullOr(Schema.String),
+  /** The first few clashes only, each cut to a few lines a side. */
+  hunks: Schema.Array(GitConflictHunk),
+});
+export type GitConflictFile = typeof GitConflictFile.Type;
+
+export const GitPullRequestGraph = Schema.Struct({
+  /** Where the head branch left the base: the oldest own commit's parent. */
+  mergeBase: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  /** Newest first, capped; `*Truncated` says more exist. */
+  head: Schema.Array(GitGraphCommit),
+  headTruncated: Schema.Boolean,
+  base: Schema.Array(GitGraphCommit),
+  baseTruncated: Schema.Boolean,
+  /** The fork commit itself, the graph's last row. */
+  fork: Schema.NullOr(GitGraphCommit),
+  /** The head branch is already part of the base (merged with a merge commit). */
+  merged: Schema.Boolean,
+  /** Null when Git cannot say without touching the checkout (older than 2.38). */
+  conflicts: Schema.NullOr(
+    Schema.Struct({
+      files: Schema.Array(GitConflictFile),
+      truncated: Schema.Boolean,
+    }),
+  ),
+  /** Set while the checkout is in the middle of a merge. */
+  resolving: Schema.NullOr(
+    Schema.Struct({
+      total: NonNegativeInt,
+      unresolved: Schema.Array(GitFilePath),
+    }),
+  ),
+  /** The checkout's `user.name`, so the card can say "You". */
+  viewerName: Schema.NullOr(Schema.String),
+});
+export type GitPullRequestGraph = typeof GitPullRequestGraph.Type;
+
 export const VcsPullResult = Schema.Struct({
   status: Schema.Literals(["pulled", "skipped_up_to_date"]),
   refName: TrimmedNonEmptyStringSchema,

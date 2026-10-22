@@ -1,16 +1,14 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { PullRequestAction } from "@t3tools/contracts";
 import { pullRequestEnvironment } from "~/state/pullRequests";
-import { useUiStateStore } from "~/uiStateStore";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { resolvePullRequestMergeMethod } from "./pullRequestDetail.logic";
 import { PullRequestGlyph } from "./pullRequestIcons";
 import { pullRequestQuickActions, type EnvironmentPullRequestEntry } from "./pullRequestList.logic";
 import {
   usePullRequestActionRunner,
-  usePullRequestDefaultMergeMethodResolver,
+  usePullRequestMergeMethodResolver,
 } from "./usePullRequestActions";
 
 type PullRequestSpeedActionEntry = Pick<
@@ -43,7 +41,7 @@ export function PullRequestSpeedActions<Entry extends PullRequestSpeedActionEntr
   const canWrite = useAtomValue(
     pullRequestEnvironment.runAction.permissionAtom(entry.environmentId),
   );
-  const resolveProjectDefault = usePullRequestDefaultMergeMethodResolver(
+  const resolveMergeMethod = usePullRequestMergeMethodResolver(
     entry.environmentId,
     entry.projectId,
   );
@@ -57,19 +55,7 @@ export function PullRequestSpeedActions<Entry extends PullRequestSpeedActionEntr
     environmentId: entry.environmentId,
     reference,
     onSuccess: (action) => onActed?.({ entry, action }),
-    resolveMergeMethod: (detail) => {
-      const allowed = detail.capabilities.mergeMethods.filter(
-        (method) => detail.mergeCapabilities[method],
-      );
-      if (allowed.length === 0)
-        throw new Error("No merge method is available for this repository.");
-      return resolvePullRequestMergeMethod(
-        allowed,
-        null,
-        resolveProjectDefault(),
-        useUiStateStore.getState().pullRequestMergeMethod,
-      );
-    },
+    resolveMergeMethod,
   });
   const actions = pullRequestQuickActions(entry, hostActions);
   const busy = actionPending || closing || sweeping;

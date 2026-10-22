@@ -160,6 +160,10 @@ through the pages you have visited, like a browser's back and forward buttons.
 `readAloud.stop` stops it. Neither has a default shortcut. See
 [Read aloud](./appearance.md#read-aloud).
 
+`composer.dictate` (`mod+shift+space` by default) starts dictating into the
+composer, and inserts what it heard when pressed again. See
+[Dictation](./composer.md#dictation-on-web-and-desktop).
+
 `chat.new` may ask you to choose a project when there is more than one.
 `chat.newLocal` skips that chooser. Both use your
 [new-thread defaults](./thread-sidebar.md#start-a-thread). `chat.newWithoutProject`

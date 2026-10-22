@@ -61,6 +61,7 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "../ui/alert-dialog";
+import { BlurSwap } from "../ui/blur-swap";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -392,10 +393,22 @@ export function ThreadDetailsPrRow({
           />
         }
       >
-        {icon}
-        <span className={cn("min-w-0 flex-1 truncate text-left", THREAD_DETAILS_PANEL_LABEL_CLASS)}>
+        <BlurSwap
+          swapKey={statePresentation?.label ?? pr?.state}
+          render={<span className="flex shrink-0" />}
+        >
+          {icon}
+        </BlurSwap>
+        <BlurSwap
+          swapKey={text}
+          render={
+            <span
+              className={cn("min-w-0 flex-1 truncate text-left", THREAD_DETAILS_PANEL_LABEL_CLASS)}
+            />
+          }
+        >
           {text}
-        </span>
+        </BlurSwap>
       </TooltipTrigger>
       {rowTooltip}
     </Tooltip>
@@ -435,7 +448,13 @@ export function ThreadDetailsPrRow({
                     />
                   }
                 >
-                  {trailingAction.pending ? trailingAction.pendingLabel : trailingAction.label}
+                  <BlurSwap
+                    swapKey={
+                      trailingAction.pending ? trailingAction.pendingLabel : trailingAction.label
+                    }
+                  >
+                    {trailingAction.pending ? trailingAction.pendingLabel : trailingAction.label}
+                  </BlurSwap>
                   {trailingAction.suffix}
                 </TooltipTrigger>
                 <TooltipPopup side="top">{trailingAction.tooltip}</TooltipPopup>

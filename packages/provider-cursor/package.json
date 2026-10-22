@@ -39,6 +39,14 @@
       "types": "./src/server/CursorUsageAccounts.ts",
       "import": "./src/server/CursorUsageAccounts.ts"
     },
+    "./server/usageLimits": {
+      "types": "./src/server/usageLimits.ts",
+      "import": "./src/server/usageLimits.ts"
+    },
+    "./server/skills": {
+      "types": "./src/server/skills.ts",
+      "import": "./src/server/skills.ts"
+    },
     "./server/CursorSdk": {
       "types": "./src/server/CursorSdk.ts",
       "import": "./src/server/CursorSdk.ts"
