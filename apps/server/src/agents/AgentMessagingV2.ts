@@ -45,8 +45,8 @@ import {
 import { searchThreadHistory, type HistoryMatch } from "./searchHistory.ts";
 
 export const AGENT_MESSAGE_MAX_HOPS = 24;
-export const AGENT_CONTINUE_PROMPT = "Continue where you left off.";
-export const USAGE_RESET_CONTINUE_PROMPT =
+const AGENT_CONTINUE_PROMPT = "Continue where you left off.";
+const USAGE_RESET_CONTINUE_PROMPT =
   "The usage limit has reset. Continue exactly where you left off and finish the task.";
 
 export class AgentMessagingError extends Schema.TaggedError<AgentMessagingError>()(
@@ -232,7 +232,7 @@ interface Delivery {
   queued?: boolean;
 }
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const orchestrator = yield* OrchestratorMcpService.OrchestratorMcpService;

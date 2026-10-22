@@ -52,7 +52,7 @@ function SwatchButton(props: {
  * Default plus every palette colour. A dot marks colours other projects already use, so the
  * user can keep each project distinct.
  */
-export function ProjectColorSwatches(props: {
+function ProjectColorSwatches(props: {
   readonly value: ProjectIconColor | null;
   readonly usedElsewhere: ReadonlySet<ProjectIconColor>;
   readonly disabled?: boolean;

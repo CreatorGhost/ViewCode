@@ -32,7 +32,7 @@ import * as ServerConfig from "../config.ts";
 
 export const T3_CODE_UNSUPPORTED_WARNING =
   "This T3 Code version isn't supported, so its projects and conversations were skipped.";
-export const T3_CODE_UNREADABLE_WARNING =
+const T3_CODE_UNREADABLE_WARNING =
   "Could not read T3 Code's database, so its projects and conversations were skipped.";
 
 export interface T3CodeProject {

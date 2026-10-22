@@ -39,17 +39,6 @@ import {
   ReviewFindingsMode,
 } from "./reviewFindings.ts";
 
-export const ORCHESTRATION_WS_METHODS = {
-  dispatchCommand: "orchestration.dispatchCommand",
-  getWorkflowScript: "orchestration.getWorkflowScript",
-  getTurnDiff: "orchestration.getTurnDiff",
-  getFullThreadDiff: "orchestration.getFullThreadDiff",
-  searchThreads: "orchestration.searchThreads",
-  getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
-  subscribeShell: "orchestration.subscribeShell",
-  subscribeThread: "orchestration.subscribeThread",
-} as const;
-
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
   "on-failure",
@@ -139,8 +128,6 @@ export const RuntimeMode = Schema.Literals([
   "full-access",
 ]);
 export type RuntimeMode = typeof RuntimeMode.Type;
-/** Where new threads and fresh installs start; Full access is opt-in. */
-export const DEFAULT_RUNTIME_MODE: RuntimeMode = "auto";
 /**
  * The default before Auto. Persisted events, sessions and bindings that never
  * recorded a mode decode to it, so history replays exactly as it ran.
@@ -174,25 +161,10 @@ export const ProviderApprovalOption = Schema.Struct({
 export type ProviderApprovalOption = typeof ProviderApprovalOption.Type;
 export const ProviderUserInputAnswers = Schema.Record(Schema.String, Schema.Unknown);
 export type ProviderUserInputAnswers = typeof ProviderUserInputAnswers.Type;
-
-export const PROVIDER_SEND_TURN_MAX_INPUT_CHARS = 120_000;
-/**
- * Limit for a turn ViewCode builds itself around the user's message: a handoff
- * prelude (up to ~200k characters) plus a typical message. Server-only; what a
- * user can type stays at PROVIDER_SEND_TURN_MAX_INPUT_CHARS.
- */
-export const PROVIDER_HANDOFF_MAX_INPUT_CHARS = 240_000;
-/** The input limit for one provider turn. */
-export function providerSendTurnMaxInputChars(input: { readonly handoff?: boolean | undefined }) {
-  return input.handoff === true
-    ? PROVIDER_HANDOFF_MAX_INPUT_CHARS
-    : PROVIDER_SEND_TURN_MAX_INPUT_CHARS;
-}
-export const PROVIDER_SEND_TURN_MAX_ATTACHMENTS = 100;
-export const PROVIDER_SEND_TURN_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const PROVIDER_SEND_TURN_MAX_TOTAL_IMAGE_BYTES = 80 * 1024 * 1024;
+const PROVIDER_SEND_TURN_MAX_ATTACHMENTS = 100;
+const PROVIDER_SEND_TURN_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const PROVIDER_SEND_TURN_MAX_FILE_BYTES = 50 * 1024 * 1024;
-export const PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES = [
+const PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES = [
   "image/gif",
   "image/jpeg",
   "image/png",
@@ -218,9 +190,9 @@ const ChatAttachmentId = TrimmedNonEmptyString.check(
 );
 export type ChatAttachmentId = typeof ChatAttachmentId.Type;
 
-export const SNAP_SHOT_ACCESSIBLE_TEXT_MAX_CHARS = 32_000;
-export const SNAP_SHOT_ACCESSIBILITY_MAX_NODES = 10_000;
-export const SNAP_SHOT_ACCESSIBILITY_MAX_SERIALIZED_CHARS = 32_000;
+const SNAP_SHOT_ACCESSIBLE_TEXT_MAX_CHARS = 32_000;
+const SNAP_SHOT_ACCESSIBILITY_MAX_NODES = 10_000;
+const SNAP_SHOT_ACCESSIBILITY_MAX_SERIALIZED_CHARS = 32_000;
 
 const SnapShotAccessibilityBounds = Schema.Struct({
   x: NonNegativeInt,
@@ -396,25 +368,6 @@ export const ChatAttachment = Schema.Union([
   ChatUnknownAttachment,
 ]);
 export type ChatAttachment = typeof ChatAttachment.Type;
-
-export function getProviderAttachmentLimitError(
-  attachments: ReadonlyArray<Pick<ChatAttachment, "type" | "mimeType" | "sizeBytes">>,
-): string | undefined {
-  if (attachments.length > PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
-    return `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} files per message or question response.`;
-  }
-  const imageBytes = attachments.reduce(
-    (total, attachment) =>
-      total +
-      (attachment.type === "image" || isProviderSendTurnSupportedImageMimeType(attachment.mimeType)
-        ? attachment.sizeBytes
-        : 0),
-    0,
-  );
-  if (imageBytes > PROVIDER_SEND_TURN_MAX_TOTAL_IMAGE_BYTES) {
-    return "Images can total up to 80 MiB per message or question response. Use smaller images or send fewer at once.";
-  }
-}
 
 export const UserInputAttachments = Schema.Record(
   Schema.String,
@@ -852,7 +805,7 @@ export const ThreadKind = Schema.Literals(["sidechat", "orchestrator"]);
 export type ThreadKind = typeof ThreadKind.Type;
 
 /** Longest goal ViewCode stores; it rides along with every turn while active. */
-export const THREAD_GOAL_MAX_CHARS = 2000;
+const THREAD_GOAL_MAX_CHARS = 2000;
 export const ThreadGoalObjective = TrimmedNonEmptyString.check(
   Schema.isMaxLength(THREAD_GOAL_MAX_CHARS),
 );
@@ -1421,31 +1374,6 @@ const ThreadPullRequestWatchCommand = Schema.Struct({
     Schema.Struct({ url: TrimmedNonEmptyString, source: ThreadPullRequestLinkSource }),
   ),
 });
-
-/** How each client offers the modes, in this order; the first is the default. */
-export const AGENT_REVIEW_MODES: ReadonlyArray<{
-  readonly mode: AgentReviewMode;
-  readonly label: string;
-  readonly description: string;
-}> = [
-  {
-    mode: "quick",
-    label: "Quick review",
-    description: "One agent reads the change in a single pass.",
-  },
-  {
-    mode: "deep",
-    label: "Deep review",
-    description:
-      "Several agents review through different lenses and try to disprove each other's findings. Uses more of your plan.",
-  },
-  {
-    mode: "security",
-    label: "Security audit",
-    description:
-      "Several agents hunt for vulnerabilities in the change and the code it reaches. Uses more of your plan.",
-  },
-];
 
 /**
  * Starts an agent review of a pull request: a new thread on the reference's project, linked to
@@ -2634,41 +2562,6 @@ export class OrchestrationGetWorkflowScriptError extends Schema.TaggedError<Orch
     return WORKFLOW_SCRIPT_ERROR_MESSAGES[this.reason];
   }
 }
-
-export const OrchestrationRpcSchemas = {
-  dispatchCommand: {
-    input: ClientOrchestrationCommand,
-    output: DispatchResult,
-  },
-  getWorkflowScript: {
-    input: OrchestrationGetWorkflowScriptInput,
-    output: OrchestrationGetWorkflowScriptResult,
-  },
-  getTurnDiff: {
-    input: OrchestrationGetTurnDiffInput,
-    output: OrchestrationGetTurnDiffResult,
-  },
-  getFullThreadDiff: {
-    input: OrchestrationGetFullThreadDiffInput,
-    output: OrchestrationGetFullThreadDiffResult,
-  },
-  searchThreads: {
-    input: OrchestrationSearchThreadsInput,
-    output: OrchestrationSearchThreadsResult,
-  },
-  getArchivedShellSnapshot: {
-    input: Schema.Struct({}),
-    output: OrchestrationShellSnapshot,
-  },
-  subscribeThread: {
-    input: OrchestrationSubscribeThreadInput,
-    output: OrchestrationThreadStreamItem,
-  },
-  subscribeShell: {
-    input: OrchestrationSubscribeShellInput,
-    output: OrchestrationShellStreamItem,
-  },
-} as const;
 
 export class OrchestrationGetSnapshotError extends Schema.TaggedError<OrchestrationGetSnapshotError>()(
   "OrchestrationGetSnapshotError",

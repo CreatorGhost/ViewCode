@@ -187,13 +187,6 @@ export const ComputerUseRequest = Schema.Union([
 export type ComputerUseRequest = typeof ComputerUseRequest.Type;
 export type ComputerUseCommand = ComputerUseRequest["command"];
 
-export const COMPUTER_USE_OBSERVATION_COMMANDS = [
-  "status",
-  "list-windows",
-  "observe",
-  "screenshot",
-] as const satisfies ReadonlyArray<ComputerUseCommand>;
-
 export const COMPUTER_USE_INPUT_COMMANDS = [
   "press",
   "set-value",

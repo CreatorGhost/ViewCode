@@ -258,7 +258,7 @@ function ratedFindingsLines(path: string | null | undefined): ReadonlyArray<stri
       ];
 }
 
-export function pullRequestReviewTitle(
+function pullRequestReviewTitle(
   mode: AgentReviewMode,
   pr: Pick<PullRequestSummary, "number" | "title">,
 ): string {
@@ -269,7 +269,7 @@ export function pullRequestReviewTitle(
  * The first message of a review thread: the mode, the pull request and where the playbook is.
  * Short on purpose; the method lives in the playbook.
  */
-export function buildPullRequestReviewPrompt(input: {
+function buildPullRequestReviewPrompt(input: {
   readonly mode: AgentReviewMode;
   readonly playbookPath: string;
   readonly pr: Pick<
@@ -338,7 +338,7 @@ export function buildPullRequestReviewPrompt(input: {
  * branch vs origin/main", "Review: commit 7523ce0", "Security audit: uncommitted changes"), else
  * the checkout's local changes.
  */
-export function localReviewTitle(
+function localReviewTitle(
   mode: AgentReviewMode,
   branch: string | null,
   scope?: LocalReviewScope | undefined,
@@ -361,7 +361,7 @@ export function localReviewTitle(
  * and where the playbook is.
  */
 /** What a review of local changes is told to read, in its first message. */
-export function localReviewScopeLine(scope: LocalReviewScope | undefined): string {
+function localReviewScopeLine(scope: LocalReviewScope | undefined): string {
   switch (scope?.kind) {
     case undefined:
       return "Review the uncommitted changes there: `git status`, `git diff HEAD` and the untracked files (`git ls-files --others --exclude-standard`). If there are none, review the branch against the branch it was made from instead (`git diff <base>...HEAD`, with <base> the remote's default branch), and say which of the two you reviewed.";
@@ -376,7 +376,7 @@ export function localReviewScopeLine(scope: LocalReviewScope | undefined): strin
   }
 }
 
-export function buildLocalReviewPrompt(input: {
+function buildLocalReviewPrompt(input: {
   readonly mode: AgentReviewMode;
   readonly playbookPath: string;
   readonly cwd: string;

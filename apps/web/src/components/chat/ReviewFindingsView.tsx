@@ -94,7 +94,7 @@ import {
 } from "./reviewFixSentStore";
 import { useReviewDiff } from "./useReviewDiff";
 
-export const REVIEW_VERDICT_BADGES: Record<ReviewVerdict, "success" | "info" | "warning"> = {
+const REVIEW_VERDICT_BADGES: Record<ReviewVerdict, "success" | "info" | "warning"> = {
   approve: "success",
   "approve-with-nits": "info",
   "request-changes": "warning",

@@ -10,7 +10,7 @@ import type { ServerProvider } from "@t3tools/contracts";
  * newest end instead would let two clients on different folders evict each
  * other in a loop of broadcasts.
  */
-export const WORKSPACE_SNAPSHOTS_WIRE_MAX_BYTES = 384 * 1024;
+const WORKSPACE_SNAPSHOTS_WIRE_MAX_BYTES = 384 * 1024;
 
 export function boundWorkspaceSnapshotsForWire(
   providers: ReadonlyArray<ServerProvider>,

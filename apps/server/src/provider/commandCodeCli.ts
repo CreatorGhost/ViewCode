@@ -213,7 +213,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function classifyCommandCodeTool(toolName: string): CanonicalItemType {
+function classifyCommandCodeTool(toolName: string): CanonicalItemType {
   const name = toolName.toLowerCase();
   if (name.includes("shell") || name.includes("command") || name.includes("bash")) {
     return "command_execution";
@@ -278,7 +278,7 @@ function toNonNegativeInt(value: number | undefined): number {
   return value !== undefined && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
 
-export function commandCodeTurnTokenUsage(usage: Usage): TurnTokenUsage {
+function commandCodeTurnTokenUsage(usage: Usage): TurnTokenUsage {
   const cachedInputTokens = toNonNegativeInt(usage.cacheReadTokens);
   const cacheCreationTokens = toNonNegativeInt(usage.cacheWriteTokens);
   return {

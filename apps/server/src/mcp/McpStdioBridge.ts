@@ -18,7 +18,7 @@
 import * as NodeHttp from "node:http";
 import * as NodeReadline from "node:readline";
 
-export const MCP_STDIO_BRIDGE_TOKEN_ENV = "T3_MCP_BEARER_TOKEN";
+const MCP_STDIO_BRIDGE_TOKEN_ENV = "T3_MCP_BEARER_TOKEN";
 
 /** Where the bridge reaches `/mcp`: a socket or named pipe, or an `http:` URL. */
 export type McpStdioBridgeTarget = { readonly socketPath: string } | { readonly url: string };

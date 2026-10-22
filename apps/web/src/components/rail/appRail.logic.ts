@@ -30,9 +30,7 @@ export type RailUsageRing = {
 };
 
 /** The window closest to exhaustion; the ring warns about whichever limit hits first. */
-export function mostConstrainedWindow(
-  entry: ProviderInstanceEntry,
-): ServerProviderUsageWindow | null {
+function mostConstrainedWindow(entry: ProviderInstanceEntry): ServerProviderUsageWindow | null {
   const limits = entry.snapshot.usageLimits;
   const headline = planUsageWindow(limits, entry.driverKind);
   if (!headline || !limits) return null;

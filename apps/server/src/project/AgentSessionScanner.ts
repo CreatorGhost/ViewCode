@@ -1454,9 +1454,6 @@ export const make = Effect.gen(function* () {
 export const layer = Layer.effect(AgentSessionScanner, make);
 
 export {
-  classifyAgentSession,
-  codexSessionOrigin,
   cursorThreadToAgentSession,
   t3CodeThreadToAgentSession,
-  titleFromUserText,
 } from "./ViewCodeSessionSources.ts";

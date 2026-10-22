@@ -98,7 +98,7 @@ export function reviewFindingIdentity(
 }
 
 /** The finding a key names in a set, if any. */
-export function reviewFindingAt(
+function reviewFindingAt(
   payload: Pick<ReviewFindingsActivityPayload, "findings" | "needsChecking">,
   key: string,
 ): ReviewFinding | undefined {
@@ -161,7 +161,7 @@ export function postedReviewFindings(
 const decodeRatingPayload = Schema.decodeUnknownOption(ReviewFindingRatingActivityPayload);
 
 /** One rating record, or undefined for another activity or a bad payload. */
-export function readReviewFindingRating(
+function readReviewFindingRating(
   activity: Pick<OrchestrationThreadActivity, "kind" | "payload">,
 ): ReviewFindingRatingActivityPayload | undefined {
   if (activity.kind !== REVIEW_FINDING_RATING_ACTIVITY_KIND) return undefined;
@@ -235,16 +235,6 @@ export function fencedCode(code: string, path: string): string {
   // Blank lines around the code would show as an empty-looking block; indentation is kept.
   const body = code.replace(/^(?:[ \t]*\r?\n)+/, "").replace(/\s+$/, "");
   return `${fence}${extension}\n${body}\n${fence}`;
-}
-
-/** The expanded body of one finding: where it is, what is wrong, and the fix. */
-export function reviewFindingMarkdown(finding: ReviewFinding): string {
-  const parts = [`\`${reviewFindingLocation(finding)}\``, finding.detail];
-  if (finding.rule) parts.push(`Rule: ${finding.rule}`);
-  if (finding.suggestedFix) {
-    parts.push(`Suggested fix:\n\n${fencedCode(finding.suggestedFix, finding.path)}`);
-  }
-  return parts.join("\n\n");
 }
 
 /**

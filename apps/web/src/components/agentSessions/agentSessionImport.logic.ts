@@ -36,12 +36,12 @@ export function partitionImportableSessions<T extends AgentSessionSummary>(
 }
 
 /** The importer names threads `import:<instance>:<session>`. */
-export function isImportedThreadId(threadId: string): boolean {
+function isImportedThreadId(threadId: string): boolean {
   return threadId.startsWith("import:");
 }
 
 /** An imported thread counts as continued once it runs a turn or starts a provider session. */
-export function isUntouchedImportedThread(
+function isUntouchedImportedThread(
   thread: Pick<OrchestrationThreadShell, "latestTurn" | "session">,
 ): boolean {
   return thread.latestTurn === null && thread.session === null;

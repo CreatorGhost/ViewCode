@@ -15,7 +15,7 @@ import * as Effect from "effect/Effect";
  */
 export const fatalLogPath = (logsDir: string): string => NodePath.join(logsDir, "server-fatal.log");
 
-export const appendFatal = (path: string, origin: string, error: unknown): void => {
+const appendFatal = (path: string, origin: string, error: unknown): void => {
   try {
     const detail = typeof error === "string" ? error : NodeUtil.inspect(error, { depth: 8 });
     NodeFS.appendFileSync(

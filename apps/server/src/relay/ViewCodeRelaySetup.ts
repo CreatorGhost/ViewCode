@@ -118,14 +118,14 @@ export interface RelaySetupDeps {
  * about ten minutes in all. A fresh workers.dev hostname can be reset by a
  * corporate firewall for a while, so one reset is never the verdict.
  */
-export const VERIFY_DELAYS_SECONDS = [5, 10, 20, 40, 60, 60, 60, 60, 60, 60, 60, 60, 60] as const;
+const VERIFY_DELAYS_SECONDS = [5, 10, 20, 40, 60, 60, 60, 60, 60, 60, 60, 60, 60] as const;
 /**
  * Every wrangler run ends: one that has not finished by then is stopped and
  * setup fails with Try again, never an endless spinner. The first run also
  * downloads wrangler, hence the generous bound; sign-in waits for the person.
  */
 export const WRANGLER_RUN_TIMEOUT = Duration.minutes(10);
-export const SIGN_IN_TIMEOUT = Duration.minutes(15);
+const SIGN_IN_TIMEOUT = Duration.minutes(15);
 /** A just-stored Worker secret can take a moment to apply; 401s in a row before believing it. */
 const CREDENTIAL_REJECTIONS_BEFORE_REPORTING = 3;
 const DETAILS_MAX_CHARS = 16_000;
@@ -140,7 +140,7 @@ const STEP_MESSAGE: Record<ViewCodeRelaySetupStep, string> = {
   removing: "Removing Quick connect…",
 };
 
-export const WAITING_MESSAGE: Record<ViewCodeRelayProblem, string> = {
+const WAITING_MESSAGE: Record<ViewCodeRelayProblem, string> = {
   "network-refused":
     "Waiting for your network to allow the new address. This can take a few minutes. You can close this; ViewCode keeps trying.",
   transient:
@@ -724,7 +724,7 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
 const PROBE_TIMEOUT = Duration.seconds(10);
 
 /** `GET /__viewcode/host` with the secret: 426 means the Worker has it and answers. */
-export const probeRelay: ProbeRelay = (origin, secret) =>
+const probeRelay: ProbeRelay = (origin, secret) =>
   Effect.tryPromise({
     try: (signal) =>
       Undici.fetch(`${origin}${RELAY_HOST_PATH}`, {
@@ -819,24 +819,5 @@ export const layer = Layer.effect(
       probe: probeRelay,
       http,
     });
-  }),
-);
-
-const unavailable = new ViewCodeRelaySetupError({
-  detail: "Quick connect setup is not available on this server.",
-});
-
-/** For tests and hosts without setup: always idle. */
-export const layerUnavailable = Layer.succeed(
-  ViewCodeRelaySetup,
-  ViewCodeRelaySetup.of({
-    changes: Stream.make(idleState),
-    current: Effect.succeed(idleState),
-    start: () => Effect.fail(unavailable),
-    cancel: Effect.void,
-    continueSetup: Effect.fail(unavailable),
-    chooseAccount: () => Effect.fail(unavailable),
-    remove: () => Effect.fail(unavailable),
-    relayConnected: Effect.void,
   }),
 );

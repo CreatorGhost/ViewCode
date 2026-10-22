@@ -46,7 +46,7 @@ import {
 } from "./commandCodeProtocol.ts";
 
 export const COMMAND_CODE_DRIVER = ProviderDriverKind.make("commandCode");
-export const CommandCodeCapabilitiesV2 = {
+const CommandCodeCapabilitiesV2 = {
   ...AcpProviderCapabilitiesV2,
   runtimePolicy: { enforcement: "native" },
   sessions: { ...AcpProviderCapabilitiesV2.sessions, supportsModelSwitchInSession: true },

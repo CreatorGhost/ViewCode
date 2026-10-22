@@ -1,11 +1,10 @@
-import type { EnvironmentId, ServerProviderUsageWindow } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { makeWindow } from "@t3tools/shared/usageFormat";
 
 import { cn } from "~/lib/utils";
 import { type RailRingTone } from "../rail/appRail.logic";
 import { useUsage } from "../../state/usage";
 import {
-  buildRailUsageCardRows,
   railTokenRows,
   usageProviderForDriver,
   type RailTokenRow,
@@ -62,34 +61,6 @@ export function UsagePaceLine({ row }: { row: RailUsageCardRow }) {
       {row.paceEta ? <span>{row.paceEta}</span> : null}
     </div>
   );
-}
-
-/**
- * One window as Synara's Usage settings draw it: label with a pace dot, the
- * track, `27% left` against the reset, then reserve or deficit against the run-out.
- */
-export function UsageWindowRow({ row }: { row: RailUsageCardRow }) {
-  return (
-    <div className="flex flex-col gap-2 text-sm">
-      <span className="flex items-center gap-2 font-medium text-foreground">
-        {row.label}
-        <span aria-hidden className={cn("size-1.5 rounded-full", TONE_FILL[row.paceTone])} />
-      </span>
-      <UsageTrack row={row} />
-      <div className="flex flex-col gap-1">
-        <div className="flex items-baseline justify-between gap-3 text-muted-foreground tabular-nums">
-          <span>{row.remainingText}</span>
-          {row.reset ? <span>{row.reset}</span> : null}
-        </div>
-        <UsagePaceLine row={row} />
-      </div>
-    </div>
-  );
-}
-
-/** Rows for a provider's windows, shortest first, with pace computed at `now`. */
-export function usageWindowRows(windows: ReadonlyArray<ServerProviderUsageWindow>, now: number) {
-  return buildRailUsageCardRows(windows, now);
 }
 
 export type TokenUsageWindows = Parameters<typeof railTokenRows>[1];

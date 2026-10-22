@@ -56,6 +56,13 @@
       // Native and disk-loaded provider packages stay external to the bundle; the
       // CLI archive and desktop sidecar stage them from this manifest.
       "ignoreDependencies": ["@effect/platform-node-shared", "@t3tools/web", "@napi-rs/keyring"],
+      "ignoreIssues": {
+        // ViewCode: upstream module whose exports upstream's ClaudeDriver uses; ViewCode's
+        // driver reads banked resets through provider/viewcode/claudeResetCredits.ts.
+        "src/provider/claudeResetCredits.ts": ["exports"],
+        // ViewCode: an upstream merge dropped the only caller (lost wiring, not dead code).
+        "src/provider/viewcode/claudeEnterprisePolicy.ts": ["exports"],
+      },
     },
     "apps/desktop": {
       // Electron loads these bundles by filename rather than importing them.
@@ -77,6 +84,8 @@
       // The injected runtime resolves Playwright by string; release tooling runs
       // electron-builder from this workspace, outside its package scripts.
       "ignoreDependencies": ["playwright-core", "electron-builder"],
+      // ViewCode: unchanged upstream module; keep its exports as upstream has them.
+      "ignoreIssues": { "src/telemetry/DesktopTelemetryPublisher.ts": ["exports"] },
     },
     "apps/web": {
       // Worktree setup (scripts/setup-worktree.ts) runs this directly. ViewCode's
@@ -85,7 +94,20 @@
       // UI component modules are copied and adapted as cohesive sets. Keep their
       // named subcomponents even before they have callers; the file audit still
       // reports an entire component module when nothing imports it.
-      "ignoreIssues": { "src/components/ui/*.tsx": ["exports", "nsExports", "duplicates"] },
+      "ignoreIssues": {
+        "src/components/ui/*.tsx": ["exports", "nsExports", "duplicates"],
+        // ViewCode: upstream modules whose exports upstream uses in code ViewCode replaced
+        // (its sidebar, welcome wizard and Usage page). Kept so upstream merges apply.
+        "src/components/Sidebar.logic.ts": ["exports"],
+        "src/components/Sidebar.snooze.ts": ["exports"],
+        "src/components/chat/threadContextDrag.ts": ["exports"],
+        "src/components/usage/UsageLimits.tsx": ["exports"],
+        "src/onboarding/projectImport.logic.ts": ["exports"],
+        // ViewCode: upstream merges dropped the only callers (lost wiring, not dead code).
+        "src/components/ThreadStatusIndicators.tsx": ["exports"],
+        "src/state/use-orchestration-command.ts": ["exports"],
+        "src/components/connectPhone/ConnectPhoneDialog.tsx": ["exports"],
+      },
       // ViewCode: upstream modules ViewCode's own sidebar and settings replaced.
       // Kept so upstream merges apply; anything else unused is still reported.
       "ignoreFiles": [
@@ -248,6 +270,23 @@
     "packages/*": {
       // These workspace packages are private to this monorepo.
       "includeEntryExports": true,
+    },
+    "packages/client-runtime": {
+      "includeEntryExports": true,
+      "ignoreIssues": {
+        // ViewCode: upstream modules whose exports upstream uses in mobile and web code
+        // ViewCode replaced. Kept so upstream merges apply.
+        "src/state/models.ts": ["exports"],
+        "src/state/subagentDisplay.ts": ["exports"],
+        // ViewCode: upstream merges dropped the only callers (lost wiring, not dead code).
+        "src/state/assets.ts": ["exports"],
+        "src/operations/projects.ts": ["exports"],
+      },
+    },
+    "packages/shared": {
+      "includeEntryExports": true,
+      // ViewCode: upstream's mobile theme picker uses it; ViewCode's picker replaced that one.
+      "ignoreIssues": { "src/themePreview.ts": ["exports"] },
     },
     "packages/effect-acp": {
       "includeEntryExports": true,

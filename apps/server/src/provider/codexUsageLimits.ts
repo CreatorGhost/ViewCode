@@ -130,7 +130,7 @@ export function codexRateLimitsToLimits(input: {
  * bucket rather than nothing: a successful read with no rows kept whatever a turn event had
  * published, which could be a stale "limit reached" with no way to tell.
  */
-export function codexMainAllowance(input: {
+function codexMainAllowance(input: {
   readonly snapshot: CodexRateLimitSnapshot;
   readonly rateLimitsByLimitId?:
     | Readonly<Record<string, CodexRateLimitSnapshot>>

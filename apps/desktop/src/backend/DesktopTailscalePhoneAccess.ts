@@ -65,7 +65,7 @@ export class DesktopTailscalePhoneAccess extends Context.Service<
   }
 >()("@t3tools/desktop/backend/DesktopTailscalePhoneAccess") {}
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const settings = yield* DesktopAppSettings.DesktopAppSettings;
   const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
   const tailscaleGate = yield* DesktopTailscaleGate.DesktopTailscaleGate;

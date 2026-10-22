@@ -55,7 +55,7 @@ const isMcpFailure = Schema.is(OrchestratorMcpFailure);
 const failure = (code: OrchestratorMcpFailure["code"], message: string) =>
   new OrchestratorMcpFailure({ code, message });
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const sink = yield* EventSink.EventSinkV2;
   const executor = yield* ThreadCommandExecutor.ThreadCommandExecutor;

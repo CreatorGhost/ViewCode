@@ -27,7 +27,7 @@ export interface DiagramTokens {
   readonly danger: Rgb;
 }
 
-export const DIAGRAM_HUES = ["blue", "violet", "teal", "amber", "rose", "green"] as const;
+const DIAGRAM_HUES = ["blue", "violet", "teal", "amber", "rose", "green"] as const;
 export type DiagramHue = (typeof DIAGRAM_HUES)[number];
 
 export interface DiagramTone {
@@ -124,7 +124,7 @@ export function flattenColor(color: Rgba, base: Rgb): Rgb {
 }
 
 /** `weight` of `a`, the rest of `b`, in sRGB like CSS color-mix(in srgb). */
-export function mixColors(a: Rgb, b: Rgb, weight: number): Rgb {
+function mixColors(a: Rgb, b: Rgb, weight: number): Rgb {
   return {
     r: clampByte(a.r * weight + b.r * (1 - weight)),
     g: clampByte(a.g * weight + b.g * (1 - weight)),
@@ -132,7 +132,7 @@ export function mixColors(a: Rgb, b: Rgb, weight: number): Rgb {
   };
 }
 
-export function toHex(color: Rgb): string {
+function toHex(color: Rgb): string {
   return `#${[color.r, color.g, color.b].map((channel) => clampByte(channel).toString(16).padStart(2, "0")).join("")}`;
 }
 

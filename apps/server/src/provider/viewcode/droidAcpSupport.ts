@@ -42,7 +42,7 @@ import {
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 
 const EMPTY_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
-export const DROID_API_KEY_ENV = "FACTORY_API_KEY";
+const DROID_API_KEY_ENV = "FACTORY_API_KEY";
 const DROID_API_KEY_AUTH_METHOD_ID = "factory-api-key";
 const DROID_MODEL_CONFIG_ID = "model";
 const DROID_REASONING_CONFIG_ID = "reasoning_effort";

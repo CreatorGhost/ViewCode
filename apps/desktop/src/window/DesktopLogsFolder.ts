@@ -10,7 +10,7 @@ import * as Effect from "effect/Effect";
 
 import * as Electron from "electron";
 
-export class OpenLogsFolderError extends Data.TaggedError("OpenLogsFolderError")<{
+class OpenLogsFolderError extends Data.TaggedError("OpenLogsFolderError")<{
   readonly logDir: string;
   readonly cause: unknown;
 }> {}

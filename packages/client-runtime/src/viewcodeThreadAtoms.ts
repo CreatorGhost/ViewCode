@@ -144,29 +144,6 @@ export function createViewCodeThreadShellAtoms(
   };
 }
 
-export function mergeEnvironmentThread(
-  detail: EnvironmentThread | null,
-  shell: EnvironmentThreadShell | null,
-): EnvironmentThread | null {
-  if (
-    detail === null ||
-    shell === null ||
-    detail.id !== shell.id ||
-    detail.environmentId !== shell.environmentId
-  )
-    return detail;
-  return {
-    ...detail,
-    ...shell,
-    messages: detail.messages,
-    activities: detail.activities,
-    proposedPlans: detail.proposedPlans,
-    checkpoints: detail.checkpoints,
-    deletedAt: detail.deletedAt,
-    projection: detail.projection,
-  };
-}
-
 export function threadImagePayloadBytes(messages: ReadonlyArray<OrchestrationMessage>): number {
   return messages.reduce(
     (total, message) =>
