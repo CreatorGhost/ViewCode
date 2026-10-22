@@ -17,6 +17,9 @@ vi.mock(import("@tanstack/react-router"), async (original) => ({
   ...(await original()),
   useNavigate: (() => testState.navigate) as never,
   useCanGoBack: () => testState.canGoBack,
+  // UsagePage's header back button reads the route; these tests mount no router.
+  useLocation: ((options?: { select?: (location: { pathname: string }) => unknown }) =>
+    options?.select ? options.select({ pathname: "/usage" }) : { pathname: "/usage" }) as never,
 }));
 vi.mock(import("../../state/usage"), async (original) => ({
   ...(await original()),
