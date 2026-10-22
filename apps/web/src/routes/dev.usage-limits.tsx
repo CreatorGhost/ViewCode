@@ -6,6 +6,7 @@ import {
   type ServerProviderUsageWindow,
 } from "@t3tools/contracts";
 import type { LimitPresentations } from "@t3tools/shared/usageLimits";
+import type { ProviderTotals } from "@t3tools/shared/usageMerge";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 
 import { UsageLimitsPooled } from "~/components/usage/UsageLimitsPooled";
@@ -116,10 +117,27 @@ const presentations: LimitPresentations = new Map([
   ],
 ]);
 
+const totals = (provider: ProviderTotals["provider"], totalTokens: number, sessions: number) =>
+  ({
+    provider,
+    costUsd: 0,
+    totalTokens,
+    records: sessions,
+    sessions,
+    costShare: 0,
+    tokenShare: 0,
+  }) satisfies ProviderTotals;
+
+const tokenUsage = [
+  { label: "24h", providers: [totals("codex", 1_240_000, 4), totals("claude", 382_000, 2)] },
+  { label: "7d", providers: [totals("codex", 9_800_000, 17), totals("claude", 2_100_000, 9)] },
+  { label: "30d", providers: [totals("codex", 41_000_000, 63), totals("claude", 7_400_000, 28)] },
+];
+
 function UsageLimitsPreview() {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-8">
-      <UsageLimitsPooled presentations={presentations} now={NOW} />
+      <UsageLimitsPooled presentations={presentations} now={NOW} tokenUsage={tokenUsage} />
     </div>
   );
 }
