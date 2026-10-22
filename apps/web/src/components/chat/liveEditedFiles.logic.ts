@@ -8,7 +8,11 @@ export const LIVE_EDITED_FILES_INLINE_LIMIT = 4;
  * the tool rows already in client state. Empty when no turn is running.
  */
 export function deriveLiveEditedFiles(
-  entries: ReadonlyArray<{ readonly runId?: string | null; readonly turnId?: string | null; readonly changedFiles?: WorkLogEntry["changedFiles"] }>,
+  entries: ReadonlyArray<{
+    readonly runId?: string | null;
+    readonly turnId?: string | null;
+    readonly changedFiles?: WorkLogEntry["changedFiles"];
+  }>,
   turnId: string | null | undefined,
 ): string[] {
   if (!turnId) return [];

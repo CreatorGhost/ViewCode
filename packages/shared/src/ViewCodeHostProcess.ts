@@ -26,4 +26,3 @@ export const HostProcessOnShutdown = Context.Reference<(callback: () => void) =>
     },
   },
 );
-

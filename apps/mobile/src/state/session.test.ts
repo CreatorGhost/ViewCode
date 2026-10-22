@@ -1,4 +1,8 @@
-import { AuthOrchestrationOperateScope, EnvironmentId, type AuthSessionState } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  EnvironmentId,
+  type AuthSessionState,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";

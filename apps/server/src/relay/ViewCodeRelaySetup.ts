@@ -721,7 +721,6 @@ export const makeRelaySetup = (deps: RelaySetupDeps) =>
     return service;
   });
 
-
 const PROBE_TIMEOUT = Duration.seconds(10);
 
 /** `GET /__viewcode/host` with the secret: 426 means the Worker has it and answers. */

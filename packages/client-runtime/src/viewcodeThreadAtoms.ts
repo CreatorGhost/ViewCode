@@ -1,7 +1,4 @@
-import type {
-  OrchestrationV2ThreadProjection,
-  ScopedThreadRef,
-} from "@t3tools/contracts";
+import type { OrchestrationV2ThreadProjection, ScopedThreadRef } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
 
@@ -209,11 +206,10 @@ export function undeliveredRunMessages(
   for (const [messageId, run] of latestRunByMessage) {
     if (run.status !== "failed") continue;
     const attempts = projection.attempts.filter((attempt) => attempt.runId === run.id);
-    const started = projection.providerTurns.some(
-      (turn) =>
-        attempts.some(
-          (attempt) => turn.runAttemptId === attempt.id || turn.id === attempt.providerTurnId,
-        ),
+    const started = projection.providerTurns.some((turn) =>
+      attempts.some(
+        (attempt) => turn.runAttemptId === attempt.id || turn.id === attempt.providerTurnId,
+      ),
     );
     if (started) continue;
     const failure = projection.turnItems.findLast(

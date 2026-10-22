@@ -176,7 +176,9 @@ export class DesktopTelemetryReceiver extends Context.Service<
       enabled: boolean,
     ) => Effect.Effect<void, DesktopTelemetryControlError>;
     readonly setKeepAwake: (enabled: boolean) => Effect.Effect<void, DesktopTelemetryControlError>;
-    readonly showComputerUseCursor: (message: DesktopComputerUseCursor) => Effect.Effect<boolean, DesktopTelemetryControlError>;
+    readonly showComputerUseCursor: (
+      message: DesktopComputerUseCursor,
+    ) => Effect.Effect<boolean, DesktopTelemetryControlError>;
     readonly requestDesktopUpdate: (
       requestId: string,
     ) => Effect.Effect<void, DesktopTelemetryControlError>;
@@ -401,7 +403,11 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
         );
       }),
     );
-  const cursorBridge = yield* makeDesktopCursorBridge({ available: config.desktopTelemetryFd !== undefined && config.desktopTelemetryControlFd !== undefined, send: sendControlMessage });
+  const cursorBridge = yield* makeDesktopCursorBridge({
+    available:
+      config.desktopTelemetryFd !== undefined && config.desktopTelemetryControlFd !== undefined,
+    send: sendControlMessage,
+  });
   const setDiagnosticsDemand: DesktopTelemetryReceiver["Service"]["setDiagnosticsDemand"] = (
     enabled,
   ) =>
@@ -534,7 +540,10 @@ export const make = Effect.fn("resourceTelemetry.desktopTelemetryReceiver.make")
           );
         }
 
-        if (message.type === "computerUseCursorReady") return recordContact.pipe(Effect.andThen(cursorBridge.acknowledge(message.requestId, message.ready)));
+        if (message.type === "computerUseCursorReady")
+          return recordContact.pipe(
+            Effect.andThen(cursorBridge.acknowledge(message.requestId, message.ready)),
+          );
         if (message.type !== "desktopTelemetry") return recordContact;
 
         const sampledAt = DateTime.makeUnsafe(message.sampledAtUnixMs);

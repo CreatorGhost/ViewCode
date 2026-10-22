@@ -234,13 +234,16 @@ function ReviewFindingsViewContent({
     setTicks(new Set());
     setPendingRatings(NO_PENDING_RATINGS);
   }
-  const [viewer, setViewer] = useState<CodeViewHandle<FindingAnnotationGroup, undefined> | null>(null);
+  const [viewer, setViewer] = useState<CodeViewHandle<FindingAnnotationGroup, undefined> | null>(
+    null,
+  );
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
   const capabilities = useServerConfigs().get(environmentId)?.environment.capabilities;
-  const rereview = startReview !== null && capabilities?.incrementalAgentReview === true
-        ? reviewRereviewBasis(source, startReview.request)
-        : null;
+  const rereview =
+    startReview !== null && capabilities?.incrementalAgentReview === true
+      ? reviewRereviewBasis(source, startReview.request)
+      : null;
   const rereviewSummary = reviewRereviewSummary(findings);
 
   const diff = useReviewDiff({
@@ -255,16 +258,17 @@ function ReviewFindingsViewContent({
   const entries = reviewFindingEntries(findings);
   const sent = reviewFindingMarksByKey(entries, sentByIdentity);
   const dismissed = reviewFindingMarksByKey(entries, dismissedByIdentity);
-  const currentKey = currentIdentity === null
-        ? null
-        : (entries.find((entry) => reviewFindingIdentity(entry.finding) === currentIdentity)?.key ??
-          null);
+  const currentKey =
+    currentIdentity === null
+      ? null
+      : (entries.find((entry) => reviewFindingIdentity(entry.finding) === currentIdentity)?.key ??
+        null);
   const identityOf = (key: ReviewFindingKey) => {
-      const entry = entries.find((candidate) => candidate.key === key);
-      return entry === undefined ? key : reviewFindingIdentity(entry.finding);
-    };
+    const entry = entries.find((candidate) => candidate.key === key);
+    return entry === undefined ? key : reviewFindingIdentity(entry.finding);
+  };
   const dismissedCount = entries.filter((entry) => dismissed[entry.key]).length;
-  const shown = (showDismissed ? entries : entries.filter((entry) => !dismissed[entry.key]));
+  const shown = showDismissed ? entries : entries.filter((entry) => !dismissed[entry.key]);
   const { general, placed } = placeReviewFindings(shown, diff.files);
   // Previous and Next walk what is on screen, in reading order.
   const order = reviewIssueOrder(general, placed);
@@ -275,50 +279,51 @@ function ReviewFindingsViewContent({
   const currentPlacement = placed.find((entry) => entry.entry.key === currentKey) ?? null;
 
   const toggleExpanded = (key: ReviewFindingKey) =>
-      setExpanded((current) => {
-        const next = new Set(current);
-        if (!next.delete(key)) next.add(key);
-        return next;
-      });
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
   const tick = (key: ReviewFindingKey, value: boolean) =>
-      setTicks((current) => {
-        const next = new Set(current);
-        if (value) next.add(key);
-        else next.delete(key);
-        return next;
-      });
+    setTicks((current) => {
+      const next = new Set(current);
+      if (value) next.add(key);
+      else next.delete(key);
+      return next;
+    });
   const setDismissedFor = useReviewFixSentStore((state) => state.setDismissed);
-  const dismiss = (key: ReviewFindingKey, value: boolean) => setDismissedFor(cardKey, identityOf(key), value);
+  const dismiss = (key: ReviewFindingKey, value: boolean) =>
+    setDismissedFor(cardKey, identityOf(key), value);
   const rateFinding = useAtomCommand(reviewEnvironment.rateFinding, { reportFailure: false });
   const canRate = capabilities?.reviewFindingRatings === true;
   const rate = (key: ReviewFindingKey, rating: ReviewFindingRating | null) => {
-      setPendingRatings((current) => new Map(current).set(key, rating));
-      void rateFinding({
-        environmentId,
-        input: {
-          reviewThreadId: source.threadId,
-          findingsActivityId: source.activityId,
-          findingKey: key,
-          rating,
-        },
-      }).then((result) => {
-        if (result._tag !== "Failure") return;
-        // Back to what the server has, unless a later click already replaced this one.
-        setPendingRatings((current) => {
-          if (current.get(key) !== rating) return current;
-          const next = new Map(current);
-          next.delete(key);
-          return next;
-        });
-        if (isAtomCommandInterrupted(result)) return;
-        const error = squashAtomCommandFailure(result);
-        toastManager.add({
-          type: "error",
-          title: "Could not save the rating",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        });
+    setPendingRatings((current) => new Map(current).set(key, rating));
+    void rateFinding({
+      environmentId,
+      input: {
+        reviewThreadId: source.threadId,
+        findingsActivityId: source.activityId,
+        findingKey: key,
+        rating,
+      },
+    }).then((result) => {
+      if (result._tag !== "Failure") return;
+      // Back to what the server has, unless a later click already replaced this one.
+      setPendingRatings((current) => {
+        if (current.get(key) !== rating) return current;
+        const next = new Map(current);
+        next.delete(key);
+        return next;
       });
-    };
+      if (isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add({
+        type: "error",
+        title: "Could not save the rating",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    });
+  };
 
   // Somebody else's pull request: findings are posted to it as review comments, not fixed.
   const pullRequestTarget = findings.target.kind === "pull-request" ? findings.target : null;
@@ -375,8 +380,8 @@ function ReviewFindingsViewContent({
   };
   // The cards' action keeps one identity per set, so the memoized cards do not redraw for it.
   const startPost = (keys: ReadonlyArray<string>) => {
-      setPosting(entries.filter((entry) => keys.includes(entry.key)));
-    };
+    setPosting(entries.filter((entry) => keys.includes(entry.key)));
+  };
   // Fixing is a request in a chat's composer that the reader sends themselves, never another
   // session picked here: the chat beside the panel, or seen from the reviewer itself (reviewers do
   // not fix) the chat the review was started from (`resolveReviewFixChat`).
@@ -387,49 +392,49 @@ function ReviewFindingsViewContent({
   const openSent = (destination: ReviewFixDestination) => revealFix(environmentId, destination);
   const sendToChat = useSendReviewFixToChat();
   const fix = async (selection: ReadonlyArray<ReviewFindingEntry>) => {
-      if (selection.length === 0) return;
-      const request = reviewFindingsFixPrompt({
-        activityId: source.activityId,
-        entries: selection,
-      });
-      const keys = selection.map((entry) => entry.key);
-      // The pull request page has its own way to a chat (`onFixInChat`).
-      if (onFixInChat !== undefined) {
-        const sent = await onFixInChat(request);
-        if (sent) markSent(cardKey, keys.map(identityOf), sent);
-        return;
-      }
-      const chat: ReviewFixChat | null =
-        !fixInReviewThread && threadRef !== null
-          ? { kind: "thread", ref: threadRef, title: panelThread?.title ?? "this chat" }
-          : resolveReviewFixChat({
-              environmentId,
-              reviewThreadId: source.threadId,
-              projectId,
-              target: findings.target,
-            });
-      if (chat === null) return;
-      const destination = await sendToChat(environmentId, chat, request);
-      if (destination !== null) markSent(cardKey, keys.map(identityOf), destination);
-    };
+    if (selection.length === 0) return;
+    const request = reviewFindingsFixPrompt({
+      activityId: source.activityId,
+      entries: selection,
+    });
+    const keys = selection.map((entry) => entry.key);
+    // The pull request page has its own way to a chat (`onFixInChat`).
+    if (onFixInChat !== undefined) {
+      const sent = await onFixInChat(request);
+      if (sent) markSent(cardKey, keys.map(identityOf), sent);
+      return;
+    }
+    const chat: ReviewFixChat | null =
+      !fixInReviewThread && threadRef !== null
+        ? { kind: "thread", ref: threadRef, title: panelThread?.title ?? "this chat" }
+        : resolveReviewFixChat({
+            environmentId,
+            reviewThreadId: source.threadId,
+            projectId,
+            target: findings.target,
+          });
+    if (chat === null) return;
+    const destination = await sendToChat(environmentId, chat, request);
+    if (destination !== null) markSent(cardKey, keys.map(identityOf), destination);
+  };
   const cardAction: ReviewFindingAction = commentMode
-        ? { kind: "post", label: "Post comment", run: (key) => startPost([key]) }
-        : {
-            kind: "fix",
-            label: "Fix with agent",
-            run: (key) => void fix(entries.filter((candidate) => candidate.key === key)),
-          };
+    ? { kind: "post", label: "Post comment", run: (key) => startPost([key]) }
+    : {
+        kind: "fix",
+        label: "Fix with agent",
+        run: (key) => void fix(entries.filter((candidate) => candidate.key === key)),
+      };
 
   const filesWithFindings = new Set(placed.map((entry) => entry.fileKey));
   // Files with findings open and the rest fold, until the reader says otherwise.
   const fileCollapsed = (fileKey: string) =>
     reviewFileCollapsed(fileKey, filesWithFindings, toggledFiles);
   const toggleFile = (fileKey: string) =>
-      setToggledFiles((current) => {
-        const next = new Set(current);
-        if (!next.delete(fileKey)) next.add(fileKey);
-        return next;
-      });
+    setToggledFiles((current) => {
+      const next = new Set(current);
+      if (!next.delete(fileKey)) next.add(fileKey);
+      return next;
+    });
 
   // Each step to a finding, the same one again included (Issue 1/1), scrolls to it and marks it.
   const [focusStep, setFocusStep] = useState(0);
@@ -452,26 +457,26 @@ function ReviewFindingsViewContent({
   };
   /** Scrolls a finding into view and marks it once; false while its file is not drawn yet. */
   const reveal = (key: ReviewFindingKey): boolean => {
-      const placement = placed.find((entry) => entry.entry.key === key) ?? null;
-      if (placement === null) {
-        cardElements.current.get(key)?.scrollIntoView({ block: "nearest" });
-      } else {
-        if (viewer === null) return false;
-        viewer.scrollTo({
-          type: "range",
-          id: placement.fileKey,
-          range: {
-            start: placement.startLine,
-            end: placement.lineNumber,
-            side: "additions" as const,
-            endSide: "additions" as const,
-          },
-          align: "center",
-        });
-      }
-      flashReviewFinding(() => cardElements.current.get(key));
-      return true;
-    };
+    const placement = placed.find((entry) => entry.entry.key === key) ?? null;
+    if (placement === null) {
+      cardElements.current.get(key)?.scrollIntoView({ block: "nearest" });
+    } else {
+      if (viewer === null) return false;
+      viewer.scrollTo({
+        type: "range",
+        id: placement.fileKey,
+        range: {
+          start: placement.startLine,
+          end: placement.lineNumber,
+          side: "additions" as const,
+          endSide: "additions" as const,
+        },
+        align: "center",
+      });
+    }
+    flashReviewFinding(() => cardElements.current.get(key));
+    return true;
+  };
   // Scrolls once the viewer has drawn the finding's file open.
   useEffect(() => {
     if (focusStep === 0 || currentKey === null) return;
@@ -507,66 +512,67 @@ function ReviewFindingsViewContent({
   }, [diff.pending, order, readerScrolled, reveal]);
 
   const items = diff.files.map(({ fileKey, fileDiff }) => {
-        const inFile = placed.filter((entry) => entry.fileKey === fileKey);
-        const byLine = new Map<number, PlacedReviewFinding[]>();
-        for (const entry of inFile) {
-          byLine.set(entry.lineNumber, [...(byLine.get(entry.lineNumber) ?? []), entry]);
-        }
-        const annotations = [...byLine].map(
-          ([lineNumber, group]): DiffLineAnnotation<FindingAnnotationGroup> => ({
+    const inFile = placed.filter((entry) => entry.fileKey === fileKey);
+    const byLine = new Map<number, PlacedReviewFinding[]>();
+    for (const entry of inFile) {
+      byLine.set(entry.lineNumber, [...(byLine.get(entry.lineNumber) ?? []), entry]);
+    }
+    const annotations = [...byLine].map(
+      ([lineNumber, group]): DiffLineAnnotation<FindingAnnotationGroup> => ({
+        side: "additions" as const,
+        lineNumber,
+        metadata: { findings: group },
+      }),
+    );
+    const collapsed = reviewFileCollapsed(fileKey, filesWithFindings, toggledFiles);
+    // Everything a card draws from, so the viewer redraws a file's cards when one changes.
+    const state = inFile
+      .map(({ entry: { key } }) =>
+        [
+          key,
+          key === currentKey ? "c" : "",
+          expanded.has(key) ? "e" : "",
+          dismissed[key] ? "d" : "",
+          ticks.has(key) ? "t" : "",
+          ratings.get(key) ?? "",
+          sent[key]?.title ?? "",
+          busyKeys.has(key) ? "b" : "",
+          posted.get(key)?.placement ?? "",
+          failures.get(key) ?? "",
+        ].join(""),
+      )
+      .join("|");
+    return {
+      id: fileKey,
+      type: "diff" as const,
+      fileDiff,
+      annotations,
+      collapsed,
+      version: fnv1a32(`${collapsed ? "1" : "0"}:${state}`),
+    };
+  });
+  const selectedLines =
+    currentPlacement === null
+      ? null
+      : {
+          id: currentPlacement.fileKey,
+          range: {
+            start: currentPlacement.startLine,
+            end: currentPlacement.lineNumber,
             side: "additions" as const,
-            lineNumber,
-            metadata: { findings: group },
-          }),
-        );
-        const collapsed = reviewFileCollapsed(fileKey, filesWithFindings, toggledFiles);
-        // Everything a card draws from, so the viewer redraws a file's cards when one changes.
-        const state = inFile
-          .map(({ entry: { key } }) =>
-            [
-              key,
-              key === currentKey ? "c" : "",
-              expanded.has(key) ? "e" : "",
-              dismissed[key] ? "d" : "",
-              ticks.has(key) ? "t" : "",
-              ratings.get(key) ?? "",
-              sent[key]?.title ?? "",
-              busyKeys.has(key) ? "b" : "",
-              posted.get(key)?.placement ?? "",
-              failures.get(key) ?? "",
-            ].join(""),
-          )
-          .join("|");
-        return {
-          id: fileKey,
-          type: "diff" as const,
-          fileDiff,
-          annotations,
-          collapsed,
-          version: fnv1a32(`${collapsed ? "1" : "0"}:${state}`),
+            endSide: "additions" as const,
+          },
         };
-      });
-  const selectedLines = currentPlacement === null
-        ? null
-        : {
-            id: currentPlacement.fileKey,
-            range: {
-              start: currentPlacement.startLine,
-              end: currentPlacement.lineNumber,
-              side: "additions" as const,
-              endSide: "additions" as const,
-            },
-          };
-  const diffViewOptions = ({
-      diffStyle: "unified" as const,
-      lineDiffType: "none" as const,
-      overflow: settings.wordWrap ? ("wrap" as const) : ("scroll" as const),
-      theme: resolveDiffThemeName(resolvedTheme),
-      preferredHighlighter: PREFERRED_HIGHLIGHTER,
-      themeType: resolvedTheme,
-      stickyHeaders: true,
-      ...(diff.loadDiffFiles ? { loadDiffFiles: diff.loadDiffFiles } : {}),
-    });
+  const diffViewOptions = {
+    diffStyle: "unified" as const,
+    lineDiffType: "none" as const,
+    overflow: settings.wordWrap ? ("wrap" as const) : ("scroll" as const),
+    theme: resolveDiffThemeName(resolvedTheme),
+    preferredHighlighter: PREFERRED_HIGHLIGHTER,
+    themeType: resolvedTheme,
+    stickyHeaders: true,
+    ...(diff.loadDiffFiles ? { loadDiffFiles: diff.loadDiffFiles } : {}),
+  };
 
   const renderCard = (entry: ReviewFindingEntry, showLocation: boolean) => (
     <ReviewFindingCard
@@ -600,27 +606,27 @@ function ReviewFindingsViewContent({
     </div>
   );
   const renderHeaderPrefix = (item: CodeViewItem<FindingAnnotationGroup>) => {
-      const collapsed = item.collapsed === true;
-      return (
-        <Button
-          size="icon-micro"
-          variant="ghost-muted"
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? "Expand diff" : "Collapse diff"}
-          className="mr-1"
-          onClick={(event) => {
-            event.stopPropagation();
-            toggleFile(item.id);
-          }}
-        >
-          {collapsed ? (
-            <ChevronRightIcon className="size-4" />
-          ) : (
-            <ChevronDownIcon className="size-4" />
-          )}
-        </Button>
-      );
-    };
+    const collapsed = item.collapsed === true;
+    return (
+      <Button
+        size="icon-micro"
+        variant="ghost-muted"
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? "Expand diff" : "Collapse diff"}
+        className="mr-1"
+        onClick={(event) => {
+          event.stopPropagation();
+          toggleFile(item.id);
+        }}
+      >
+        {collapsed ? (
+          <ChevronRightIcon className="size-4" />
+        ) : (
+          <ChevronDownIcon className="size-4" />
+        )}
+      </Button>
+    );
+  };
 
   const tickedKeys = order.filter((key) => ticks.has(key) && !posted.has(key));
   const unposted = openEntries.filter((entry) => !posted.has(entry.key));

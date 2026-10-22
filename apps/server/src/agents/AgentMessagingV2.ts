@@ -447,7 +447,11 @@ export const make = Effect.gen(function* () {
     if (delivery === undefined) return;
     if (run.status === "interrupted" && paused.has(run.threadId))
       interrupted.set(run.threadId, delivery);
-    if (delivery.replyExpected && !delivery.replied && (run.status === "completed" || run.status === "failed")) {
+    if (
+      delivery.replyExpected &&
+      !delivery.replied &&
+      (run.status === "completed" || run.status === "failed")
+    ) {
       const records = yield* threads.getThreadRecords(run.threadId, ["messages"]);
       const answer = records.messages
         .filter(
@@ -457,9 +461,11 @@ export const make = Effect.gen(function* () {
         .at(-1)
         ?.text.trim();
       const shell = answer ? null : yield* threads.getThreadShell(run.threadId);
-      const body = answer || (run.status === "failed"
-        ? `(failed without an answer: ${shell?.lastError ?? "the provider could not finish this turn"})`
-        : "(finished without a written answer)");
+      const body =
+        answer ||
+        (run.status === "failed"
+          ? `(failed without an answer: ${shell?.lastError ?? "the provider could not finish this turn"})`
+          : "(finished without a written answer)");
       yield* send(delivery.toThreadId, {
         to: delivery.fromThreadId,
         message: body.slice(-24_000),

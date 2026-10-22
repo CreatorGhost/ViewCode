@@ -1,4 +1,8 @@
-import { worktreeSetupStageLabel, type WorktreeSetupSnapshot, type WorktreeSetupStage } from "@t3tools/contracts";
+import {
+  worktreeSetupStageLabel,
+  type WorktreeSetupSnapshot,
+  type WorktreeSetupStage,
+} from "@t3tools/contracts";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import { formatDuration } from "@t3tools/client-runtime/viewcodeTiming";
 import { useEffect, useState } from "react";

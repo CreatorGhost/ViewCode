@@ -6,8 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 vi.mock("../ui/input-group", async () => {
   const { createElement } = await import("react");
   return {
-    InputGroup: ({ children, ...props }: ComponentProps<"div">) => createElement("div", props, children),
-    InputGroupAddon: ({ children, ...props }: ComponentProps<"span">) => createElement("span", props, children),
+    InputGroup: ({ children, ...props }: ComponentProps<"div">) =>
+      createElement("div", props, children),
+    InputGroupAddon: ({ children, ...props }: ComponentProps<"span">) =>
+      createElement("span", props, children),
     InputGroupInput: (props: ComponentProps<"input">) => createElement("input", props),
   };
 });
@@ -75,7 +77,15 @@ describe("ThreadFindBar with v2 server search", () => {
     const preventDefault = vi.fn();
     const stopPropagation = vi.fn();
     const key = (shiftKey = false, isComposing = false, keyCode = 13) => {
-      act(() => input.props.onKeyDown({ key: "Enter", shiftKey, nativeEvent: { isComposing, keyCode }, preventDefault, stopPropagation }));
+      act(() =>
+        input.props.onKeyDown({
+          key: "Enter",
+          shiftKey,
+          nativeEvent: { isComposing, keyCode },
+          preventDefault,
+          stopPropagation,
+        }),
+      );
     };
     key(false, true);
     key(false, false, 229);

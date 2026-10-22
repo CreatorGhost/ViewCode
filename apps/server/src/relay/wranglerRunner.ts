@@ -12,7 +12,10 @@
  */
 import * as NodeChildProcess from "node:child_process";
 
-import { ExecutablePath as HostProcessExecutablePath, Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
+import {
+  ExecutablePath as HostProcessExecutablePath,
+  Platform as HostProcessPlatform,
+} from "@t3tools/shared/HostProcess";
 import { resolveCommandPath, resolveSpawnCommand } from "@t3tools/shared/shell";
 import { WRANGLER_PACKAGE } from "@t3tools/shared/viewcodeRelaySetup";
 import * as Data from "effect/Data";

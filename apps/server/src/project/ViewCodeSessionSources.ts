@@ -1,4 +1,11 @@
-import { DEFAULT_MODEL, DEFAULT_MODEL_BY_PROVIDER, ProviderDriverKind, ProviderInstanceId, type AgentSessionHiddenReason, type ServerSettings as ServerSettingsValue } from "@t3tools/contracts";
+import {
+  DEFAULT_MODEL,
+  DEFAULT_MODEL_BY_PROVIDER,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type AgentSessionHiddenReason,
+  type ServerSettings as ServerSettingsValue,
+} from "@t3tools/contracts";
 import { AGENT_MESSAGE_TAG } from "@t3tools/shared/agentMessages";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
@@ -276,7 +283,6 @@ export function cursorThreadToAgentSession(
   };
 }
 
-
 export interface ExternalCandidate {
   readonly cwd: string;
   readonly source: "cursor" | "t3code";
@@ -311,58 +317,92 @@ export const make = Effect.gen(function* () {
       },
     }),
   );
-const discover = Effect.fn("ViewCodeSessionSources.discover")(function* (sinceMs: number) {
-  const candidates: ExternalCandidate[] = [];
-  const warnings: string[] = [];
-  if (Option.isSome(cursor)) {
-    const read = yield* cursor.value.projects(sinceMs);
-    const warning = CursorHistory.cursorReadWarning(read);
-    if (warning !== null) warnings.push(warning);
-    if (read._tag === "Read") for (const project of read.value) candidates.push({
-      cwd: project.workspaceRoot, source: "cursor", providerInstanceId: ProviderInstanceId.make("cursor"),
-      threadCount: project.threadCount, lastActiveAtMs: project.lastActiveAt === null ? null : Date.parse(project.lastActiveAt), transcripts: [],
-    });
-  }
-  if (Option.isSome(t3)) {
-    const read = yield* t3.value.projects;
-    const warning = T3CodeHistory.t3CodeReadWarning(read);
-    if (warning !== null) warnings.push(warning);
-    if (read._tag === "Read") for (const project of read.value) candidates.push({
-      cwd: project.workspaceRoot, source: "t3code", providerInstanceId: ProviderInstanceId.make("t3code"), externalProjectId: project.id,
-      threadCount: project.threadCount, lastActiveAtMs: project.lastActiveAt === null ? null : Date.parse(project.lastActiveAt), transcripts: [],
-    });
-  }
-  return { candidates, warnings };
-});
-const recent = Effect.fn("ViewCodeSessionSources.recent")(function* (
-  candidates: ReadonlyArray<{ readonly cwd: string; readonly source: string; readonly externalProjectId?: string }>,
-  sinceMs: number,
-  settings: Pick<ServerSettingsValue, "providerInstances">,
-) {
-  const outcomes: AgentSessionRecentThread[] = [];
-  const append = (thread: AgentSessionThread | null, filePath: string) => {
-    if (thread === null) return;
-    outcomes.push({ _tag: "Importable", thread, source: {
-      provider: thread.source, providerInstanceId: thread.providerInstanceId, providerSessionId: thread.providerSessionId,
-      filePath, size: 0, mtimeMs: null, device: 0, inode: null, birthtimeMs: null,
-    } });
-  };
-  const roots = candidates.filter((c) => c.source === "cursor").map((c) => c.cwd);
-  if (Option.isSome(cursor) && roots.length > 0) {
-    const read = yield* cursor.value.threads(roots, sinceMs);
-    const warning = CursorHistory.cursorReadWarning(read);
-    if (warning !== null) outcomes.push({ _tag: "Warning", message: warning });
-    if (read._tag === "Read") for (const thread of read.value) append(cursorThreadToAgentSession(thread), thread.sourcePath);
-  }
-  const ids = candidates.filter((c) => c.source === "t3code").flatMap((c) => c.externalProjectId === undefined ? [] : [c.externalProjectId]);
-  if (Option.isSome(t3) && ids.length > 0) {
-    const read = yield* t3.value.threads(ids);
-    const warning = T3CodeHistory.t3CodeReadWarning(read);
-    if (warning !== null) outcomes.push({ _tag: "Warning", message: warning });
-    if (read._tag === "Read") for (const thread of read.value) append(t3CodeThreadToAgentSession(thread, settings), read.databasePath);
-  }
-  return outcomes;
-});
+  const discover = Effect.fn("ViewCodeSessionSources.discover")(function* (sinceMs: number) {
+    const candidates: ExternalCandidate[] = [];
+    const warnings: string[] = [];
+    if (Option.isSome(cursor)) {
+      const read = yield* cursor.value.projects(sinceMs);
+      const warning = CursorHistory.cursorReadWarning(read);
+      if (warning !== null) warnings.push(warning);
+      if (read._tag === "Read")
+        for (const project of read.value)
+          candidates.push({
+            cwd: project.workspaceRoot,
+            source: "cursor",
+            providerInstanceId: ProviderInstanceId.make("cursor"),
+            threadCount: project.threadCount,
+            lastActiveAtMs: project.lastActiveAt === null ? null : Date.parse(project.lastActiveAt),
+            transcripts: [],
+          });
+    }
+    if (Option.isSome(t3)) {
+      const read = yield* t3.value.projects;
+      const warning = T3CodeHistory.t3CodeReadWarning(read);
+      if (warning !== null) warnings.push(warning);
+      if (read._tag === "Read")
+        for (const project of read.value)
+          candidates.push({
+            cwd: project.workspaceRoot,
+            source: "t3code",
+            providerInstanceId: ProviderInstanceId.make("t3code"),
+            externalProjectId: project.id,
+            threadCount: project.threadCount,
+            lastActiveAtMs: project.lastActiveAt === null ? null : Date.parse(project.lastActiveAt),
+            transcripts: [],
+          });
+    }
+    return { candidates, warnings };
+  });
+  const recent = Effect.fn("ViewCodeSessionSources.recent")(function* (
+    candidates: ReadonlyArray<{
+      readonly cwd: string;
+      readonly source: string;
+      readonly externalProjectId?: string;
+    }>,
+    sinceMs: number,
+    settings: Pick<ServerSettingsValue, "providerInstances">,
+  ) {
+    const outcomes: AgentSessionRecentThread[] = [];
+    const append = (thread: AgentSessionThread | null, filePath: string) => {
+      if (thread === null) return;
+      outcomes.push({
+        _tag: "Importable",
+        thread,
+        source: {
+          provider: thread.source,
+          providerInstanceId: thread.providerInstanceId,
+          providerSessionId: thread.providerSessionId,
+          filePath,
+          size: 0,
+          mtimeMs: null,
+          device: 0,
+          inode: null,
+          birthtimeMs: null,
+        },
+      });
+    };
+    const roots = candidates.filter((c) => c.source === "cursor").map((c) => c.cwd);
+    if (Option.isSome(cursor) && roots.length > 0) {
+      const read = yield* cursor.value.threads(roots, sinceMs);
+      const warning = CursorHistory.cursorReadWarning(read);
+      if (warning !== null) outcomes.push({ _tag: "Warning", message: warning });
+      if (read._tag === "Read")
+        for (const thread of read.value)
+          append(cursorThreadToAgentSession(thread), thread.sourcePath);
+    }
+    const ids = candidates
+      .filter((c) => c.source === "t3code")
+      .flatMap((c) => (c.externalProjectId === undefined ? [] : [c.externalProjectId]));
+    if (Option.isSome(t3) && ids.length > 0) {
+      const read = yield* t3.value.threads(ids);
+      const warning = T3CodeHistory.t3CodeReadWarning(read);
+      if (warning !== null) outcomes.push({ _tag: "Warning", message: warning });
+      if (read._tag === "Read")
+        for (const thread of read.value)
+          append(t3CodeThreadToAgentSession(thread, settings), read.databasePath);
+    }
+    return outcomes;
+  });
 
-return { discover, recent };
+  return { discover, recent };
 });

@@ -10,7 +10,12 @@
  * @module state/usage
  */
 import { useAtomValue } from "@effect/atom-react";
-import { USAGE_CONTRACT_VERSION, type EnvironmentId, type UsageSummary, type UsageSummaryInput } from "@t3tools/contracts";
+import {
+  USAGE_CONTRACT_VERSION,
+  type EnvironmentId,
+  type UsageSummary,
+  type UsageSummaryInput,
+} from "@t3tools/contracts";
 import { needsCursorKeychainAccess, refreshUsage } from "@t3tools/client-runtime/state/usage";
 import { mergeUsage, type EnvironmentUsage, type MergedUsage } from "@t3tools/shared/usageMerge";
 import * as Option from "effect/Option";

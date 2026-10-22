@@ -219,12 +219,22 @@ it.effect("notifies a requester when the addressed native run fails without an a
   Effect.gen(function* () {
     const h = yield* harness;
     yield* h.messaging.start();
-    const sent = yield* h.messaging.sendMessage(ROOT,{to:CHILD,message:"Please inspect this change",replyExpected:true});
+    const sent = yield* h.messaging.sendMessage(ROOT, {
+      to: CHILD,
+      message: "Please inspect this change",
+      replyExpected: true,
+    });
     yield* Queue.take(h.recorded);
     const run = h.runs.get(MessageId.make(sent.messageId))!;
     // No assistant message is available for this failed run.
     h.runs.delete(run.userMessageId);
-    yield* Queue.offer(h.events,{type:"run.updated",id: importFailureEventId,threadId:CHILD,occurredAt:now,payload:{...run,status:"failed"}});
+    yield* Queue.offer(h.events, {
+      type: "run.updated",
+      id: importFailureEventId,
+      threadId: CHILD,
+      occurredAt: now,
+      payload: { ...run, status: "failed" },
+    });
     yield* Queue.take(h.recorded);
     expect(h.sends[1]?.text).toContain("failed without an answer");
     expect(h.sends[1]?.text).toContain(`in-reply-to="${sent.messageId}"`);

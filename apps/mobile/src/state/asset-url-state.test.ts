@@ -2,7 +2,11 @@ import { describe, expect, it } from "@effect/vitest";
 
 import { deriveAssetUrlState } from "./asset-url-state";
 
-const SUCCESS = { _tag: "Success" as const, expiresAt: Number.MAX_SAFE_INTEGER, url: "https://environment.example/api/assets/abc" };
+const SUCCESS = {
+  _tag: "Success" as const,
+  expiresAt: Number.MAX_SAFE_INTEGER,
+  url: "https://environment.example/api/assets/abc",
+};
 
 describe("deriveAssetUrlState", () => {
   it("passes a resolved URL through on a live environment", () => {

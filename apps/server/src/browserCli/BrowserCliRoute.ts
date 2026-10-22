@@ -48,7 +48,9 @@ const MAX_BODY_BYTES = 256 * 1024;
 
 const decodeJson = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 
-const decodeToolInputs = Record.map(PreviewToolkit.tools, (tool) => Schema.decodeUnknownEffect(tool.parametersSchema));
+const decodeToolInputs = Record.map(PreviewToolkit.tools, (tool) =>
+  Schema.decodeUnknownEffect(tool.parametersSchema),
+);
 
 const noStore = { "cache-control": "no-store" };
 

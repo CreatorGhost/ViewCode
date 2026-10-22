@@ -2522,7 +2522,12 @@ export const make = Effect.gen(function* () {
           operation: "submitReview",
           method: "POST",
           path: `repos/${owner}/${name}/pulls/${input.number}/reviews`,
-          body: buildReviewSubmission({ verdict: input.verdict, body: input.body, comments: input.comments, ...(input.commitId === undefined ? {} : { commitId: input.commitId }) }),
+          body: buildReviewSubmission({
+            verdict: input.verdict,
+            body: input.body,
+            comments: input.comments,
+            ...(input.commitId === undefined ? {} : { commitId: input.commitId }),
+          }),
         })
         .pipe(Effect.asVoid);
     },

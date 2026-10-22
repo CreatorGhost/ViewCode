@@ -211,12 +211,12 @@ const MESSAGE_CREATED_AT = "2026-03-17T19:12:28.000Z";
 function buildProps() {
   return {
     isWorking: false,
-    activeTurnInProgress:false,
-    runs:[],
-    onOpenThread:()=>{},
-    onForkFromRun:async()=>{},
-    onRollbackCheckpoint:()=>{},
-    onAnchorSizeChanged:()=>{},
+    activeTurnInProgress: false,
+    runs: [],
+    onOpenThread: () => {},
+    onForkFromRun: async () => {},
+    onRollbackCheckpoint: () => {},
+    onAnchorSizeChanged: () => {},
     activeTurnStartedAt: null,
     listRef: createRef<LegendListRef | null>(),
     latestRun: null,
@@ -613,7 +613,9 @@ describe("MessagesTimeline", () => {
     let navigateManually = () => {};
     function ChatProbe() {
       const [liveFollowEnabled, setLiveFollowEnabled] = useState(true);
-      useLayoutEffect(() => { navigateManually = () => setLiveFollowEnabled(false); }, []);
+      useLayoutEffect(() => {
+        navigateManually = () => setLiveFollowEnabled(false);
+      }, []);
       return (
         <MessagesTimeline
           {...props}
@@ -910,11 +912,19 @@ describe("MessagesTimeline", () => {
   });
 });
 
-
 describe("ViewCode agent messages on the native timeline", () => {
   it("renders a native user message's validated envelope as an incoming agent card", () => {
-    const text = formatAgentMessage({messageId:"mail-in",fromThreadId:"agent-scout",fromName:"Scout",replyExpected:true,inReplyTo:null,body:"The second account can read this repository."});
-    const markup = renderToStaticMarkup(<MessagesTimeline {...buildProps()} timelineEntries={[buildUserTimelineEntry(text)]} />);
+    const text = formatAgentMessage({
+      messageId: "mail-in",
+      fromThreadId: "agent-scout",
+      fromName: "Scout",
+      replyExpected: true,
+      inReplyTo: null,
+      body: "The second account can read this repository.",
+    });
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={[buildUserTimelineEntry(text)]} />,
+    );
     expect(markup).toContain('data-agent-message-id="mail-in"');
     expect(markup).toContain("Scout");
     expect(markup).toContain("Reply expected");
@@ -922,8 +932,37 @@ describe("ViewCode agent messages on the native timeline", () => {
     expect(markup).not.toContain("&lt;viewcode-agent-message");
   });
   it("renders a persisted native ViewCode notice as the outgoing message card", () => {
-    const entries = deriveViewCodeAgentWorkLogEntries([{id:EventId.make("notice-mail-out"),tone:"info",kind:"viewcode.agent-message.sent",summary:"Message to Scout",turnId:null,createdAt:MESSAGE_CREATED_AT,payload:{messageId:"mail-out",toThreadId:"agent-scout",toName:"Scout",replyExpected:true,inReplyTo:null,body:"Read the API boundary before implementing.",kind:"message",delivery:"queued"}}]);
-    const markup = renderToStaticMarkup(<MessagesTimeline {...buildProps()} timelineEntries={entries.map((entry) => ({id:entry.id,kind:"work",createdAt:entry.createdAt,entry}))} />);
+    const entries = deriveViewCodeAgentWorkLogEntries([
+      {
+        id: EventId.make("notice-mail-out"),
+        tone: "info",
+        kind: "viewcode.agent-message.sent",
+        summary: "Message to Scout",
+        turnId: null,
+        createdAt: MESSAGE_CREATED_AT,
+        payload: {
+          messageId: "mail-out",
+          toThreadId: "agent-scout",
+          toName: "Scout",
+          replyExpected: true,
+          inReplyTo: null,
+          body: "Read the API boundary before implementing.",
+          kind: "message",
+          delivery: "queued",
+        },
+      },
+    ]);
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={entries.map((entry) => ({
+          id: entry.id,
+          kind: "work",
+          createdAt: entry.createdAt,
+          entry,
+        }))}
+      />,
+    );
     expect(markup).toContain('data-agent-message-id="mail-out"');
     expect(markup).toContain("Scout");
     expect(markup).toContain("queued");

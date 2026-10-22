@@ -62,10 +62,23 @@ export const browserMiniPlayerSource = (tabId: string): PreviewMiniPlayerSource 
   tabId,
 });
 
-function withPlayer(byThreadKey: Record<string, PreviewMiniPlayerState>, threadKey: string, source: PreviewMiniPlayerSource) {
+function withPlayer(
+  byThreadKey: Record<string, PreviewMiniPlayerState>,
+  threadKey: string,
+  source: PreviewMiniPlayerSource,
+) {
   const current = byThreadKey[threadKey];
-  if (current && previewMiniPlayerSourceKey(current.source) === previewMiniPlayerSourceKey(source)) return byThreadKey;
-  return { ...byThreadKey, [threadKey]: { source, position: current?.position ?? null, width: current?.width ?? null, lastInteraction: current?.lastInteraction ?? "drag" } };
+  if (current && previewMiniPlayerSourceKey(current.source) === previewMiniPlayerSourceKey(source))
+    return byThreadKey;
+  return {
+    ...byThreadKey,
+    [threadKey]: {
+      source,
+      position: current?.position ?? null,
+      width: current?.width ?? null,
+      lastInteraction: current?.lastInteraction ?? "drag",
+    },
+  };
 }
 
 export const usePreviewMiniPlayerStore = create<PreviewMiniPlayerStoreState>()((set, get) => ({
@@ -88,11 +101,15 @@ export const usePreviewMiniPlayerStore = create<PreviewMiniPlayerStoreState>()((
     });
     return true;
   },
-  dismiss: (ref) => set((state) => {
-    const threadKey = scopedThreadKey(ref);
-    const { [threadKey]: _closed, ...byThreadKey } = state.byThreadKey;
-    return { byThreadKey, dismissedThreadKeys: { ...state.dismissedThreadKeys, [threadKey]: true } };
-  }),
+  dismiss: (ref) =>
+    set((state) => {
+      const threadKey = scopedThreadKey(ref);
+      const { [threadKey]: _closed, ...byThreadKey } = state.byThreadKey;
+      return {
+        byThreadKey,
+        dismissedThreadKeys: { ...state.dismissedThreadKeys, [threadKey]: true },
+      };
+    }),
   close: (ref) =>
     set((state) => {
       const threadKey = scopedThreadKey(ref);
@@ -143,13 +160,15 @@ export const usePreviewMiniPlayerStore = create<PreviewMiniPlayerStoreState>()((
         },
       };
     }),
-  removeThread: (ref) => set((state) => {
-    const threadKey = scopedThreadKey(ref);
-    if (!(threadKey in state.byThreadKey) && !(threadKey in state.dismissedThreadKeys)) return state;
-    const { [threadKey]: _removed, ...byThreadKey } = state.byThreadKey;
-    const { [threadKey]: _forgotten, ...dismissedThreadKeys } = state.dismissedThreadKeys;
-    return { byThreadKey, dismissedThreadKeys };
-  }),
+  removeThread: (ref) =>
+    set((state) => {
+      const threadKey = scopedThreadKey(ref);
+      if (!(threadKey in state.byThreadKey) && !(threadKey in state.dismissedThreadKeys))
+        return state;
+      const { [threadKey]: _removed, ...byThreadKey } = state.byThreadKey;
+      const { [threadKey]: _forgotten, ...dismissedThreadKeys } = state.dismissedThreadKeys;
+      return { byThreadKey, dismissedThreadKeys };
+    }),
 }));
 
 export function selectThreadPreviewMiniPlayer(

@@ -7,7 +7,12 @@ import {
   verifyPersistedAttachmentUpload,
 } from "@t3tools/client-runtime/state/attachments";
 import { runAtomCommand, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import type { ChatFileAttachment, ChatImageAttachment, EnvironmentId, UploadChatImageAttachment } from "@t3tools/contracts";
+import type {
+  ChatFileAttachment,
+  ChatImageAttachment,
+  EnvironmentId,
+  UploadChatImageAttachment,
+} from "@t3tools/contracts";
 import { PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 

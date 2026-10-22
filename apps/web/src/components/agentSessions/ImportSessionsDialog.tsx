@@ -134,7 +134,9 @@ function ImportSessionsPopup({
     fetchSessions();
   };
 
-  const { visible, hidden } = partitionImportableSessions(list.status === "ready" ? list.sessions : []);
+  const { visible, hidden } = partitionImportableSessions(
+    list.status === "ready" ? list.sessions : [],
+  );
   const shown = showHidden ? [...visible, ...hidden] : visible;
   const selected = (list.status === "ready" ? list.sessions : []).filter(
     (session) => !session.alreadyImported && checked.has(sessionKey(session)),

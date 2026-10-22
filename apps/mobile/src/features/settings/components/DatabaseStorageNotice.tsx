@@ -23,7 +23,13 @@ export function DatabaseStorageNotice({ target }: { readonly target: SettingsTar
     AsyncResult.isSuccess(preferences) &&
     preferences.value.dismissedDatabaseStorageNotices?.includes(target.environmentId) === true;
   const status = result._tag === "Success" ? result.value : null;
-  if (!viewcodeProductPolicy.doctor || dismissed || status === null || !shouldRecommendDatabaseCompaction(status)) return null;
+  if (
+    !viewcodeProductPolicy.doctor ||
+    dismissed ||
+    status === null ||
+    !shouldRecommendDatabaseCompaction(status)
+  )
+    return null;
   const gib = (status.reclaimableBytes / 1024 ** 3).toFixed(1);
   return (
     <SettingsSection title={`Reclaim ${gib} GiB on ${target.label}`}>
