@@ -40,6 +40,11 @@ choose **Sign in** to run `cursor-agent login` in a terminal inside Settings, or
 `cursor-agent logout`, which signs the CLI out everywhere on that machine. The settings card shows
 the account the CLI is signed in with.
 
+After the computer sleeps or changes network, a Cursor message can fail because the CLI could not
+read its saved sign-in (for example while the Mac's Keychain is locked) or reach Cursor. Send the
+message again: ViewCode starts a fresh `cursor-agent` for it. Sign in again only if
+`cursor-agent status` in a terminal says you are signed out.
+
 With the **SDK runtime**, choose **Sign in**, then open the sign-in page and complete it in your
 browser. ViewCode updates automatically when sign-in finishes. This works when connected to a remote
 environment too. On mobile, use **Settings > Provider accounts** for an already configured Cursor
