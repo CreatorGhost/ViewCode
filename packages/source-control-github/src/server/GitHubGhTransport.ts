@@ -39,9 +39,7 @@ export const GitHubGhTransport = Context.Reference<{
  * GitHub Enterprise Server serves its API under `/api/v3` and `/api/graphql`; GHE.com data
  * residency from `api.<tenant>.ghe.com`.
  */
-function ghEndpointOf(
-  url: URL,
-): { readonly host: string; readonly endpoint: string } | null {
+function ghEndpointOf(url: URL): { readonly host: string; readonly endpoint: string } | null {
   const host = url.host.toLowerCase();
   if (host === "api.github.com" || host === "github.com") return null;
   const tenant = host.startsWith("api.") && host.endsWith(".ghe.com") ? host.slice(4) : null;
