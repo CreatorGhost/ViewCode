@@ -1236,13 +1236,17 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         projection: initial.projection,
         snapshotSequence: 0,
       });
-      assert.lengthOf(bounded.projection.visibleTurnItems, 10 * 102);
-      assert.strictEqual(bounded.projection.visibleTurnItems[0]?.sourceItemId, allIds[35 * 102]);
-      const loaded = bounded.projection.visibleTurnItems.map((row) => String(row.sourceItemId));
+      // ViewCode caps a bounded snapshot below Quick connect's 1 MiB message limit even inside a
+      // turn (threadSnapshotRelayBudget.viewcode.test.ts), so ten 200 KB turns arrive as their
+      // newest rows; earlier pages still join up exactly.
+      const visible = bounded.projection.visibleTurnItems;
+      assert.isAbove(visible.length, 0);
+      assert.isBelow(visible.length, 10 * 102);
+      assert.strictEqual(visible.at(-1)?.sourceItemId, allIds.at(-1));
+      const loaded = visible.map((row) => String(row.sourceItemId));
       let cursor = bounded.historyCursor;
-      for (const turns of [20, 15]) {
-        assert.isNotNull(cursor);
-        const anchor = decodeThreadHistoryCursor(cursor!);
+      while (cursor !== null) {
+        const anchor = decodeThreadHistoryCursor(cursor);
         const snapshot = yield* projectionStore.getThreadSnapshotWindow(threadId, {
           rowLimit: 77,
           userTurnLimit: 20,
@@ -1251,14 +1255,13 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         });
         const page = selectHistoryPageFromCursor({
           items: snapshot.projection.visibleTurnItems,
-          cursor: cursor!,
+          cursor,
           snapshotSequence: 0,
         });
-        assert.lengthOf(page.items, turns * 102);
+        assert.isAbove(page.items.length, 0);
         loaded.unshift(...page.items.map((row) => String(row.sourceItemId)));
         cursor = page.nextCursor;
       }
-      assert.isNull(cursor);
       assert.deepEqual(loaded, allIds);
     }),
   );
