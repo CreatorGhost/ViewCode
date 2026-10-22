@@ -196,10 +196,12 @@ function stubDomGlobals() {
   });
 }
 
+// The first import transforms the whole timeline graph; on a shared CI runner
+// running every web suite at once that alone has taken over 30 seconds.
 beforeAll(async () => {
   stubDomGlobals();
   ({ MessagesTimeline, resolvePreviewAnnotationImage } = await import("./MessagesTimeline"));
-}, 30_000);
+}, 120_000);
 
 // The scroll-settling test clears every global stub; mounted timeline rows
 // still touch `window` through the tooltip's focus handling.
