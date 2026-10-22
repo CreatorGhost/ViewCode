@@ -33,6 +33,8 @@ export const make = Effect.gen(function* () {
     },
   });
   return Effect.fn("GitHubSshAlias.remote")(function* (remote: string, cwd: string) {
+    // `https:` would otherwise read as an scp-style `host:` and be looked up as an alias.
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(remote) && !/^ssh:\/\//i.test(remote)) return remote;
     const match =
       /^(ssh:\/\/(?:[^@/\s]+@)?)([^:/\s]+)(?=[:/])/.exec(remote) ??
       /^((?:[^@:/\s]+@)?)([a-z0-9][a-z0-9._-]+)(?=:)/i.exec(remote);

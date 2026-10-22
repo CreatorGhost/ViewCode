@@ -592,7 +592,10 @@ pins one credential for a repository operation, including its mutations and
 stack-rebase ownership decisions. Repository visibility probes can choose a
 second authenticated account; explicit credentials remain authoritative. Never
 call `gh auth switch`. SSH aliases such as `github.com-work` must resolve to the
-actual API host while preserving repository/account selection. Test both
+actual API host while preserving repository/account selection. An Enterprise
+host without a `github` label is GitHub only because discovery claimed it, so
+the routed providers take its host from the provider context, never a
+github.com default (`GitHubRoutedSourceControlProvider.viewcode.test.ts`). Test both
 accounts with a repository inaccessible to the default account.
 
 A fork's repository identity is its upstream (upstream's rule, `docs/internals/remote.md`), so the
