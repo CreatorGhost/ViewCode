@@ -3,13 +3,25 @@ import { assert, describe, it } from "@effect/vitest";
 import type { CursorSettings } from "@t3tools/provider-cursor/settings";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { createModelCapabilities } from "@t3tools/shared/model";
+import type { ServerProviderModel } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import * as TestClock from "effect/testing/TestClock";
 import * as EffectAcpErrors from "effect-acp/errors";
 
-import { cursorAgentPromptAuthProblem, cursorAgentPromptFailure } from "./cursorAgentAcpSupport.ts";
-import { checkCursorAgentProviderStatus } from "./cursorAgentStatus.ts";
+import {
+  CursorAgentModelDiscoveryError,
+  CursorAgentStalledError,
+  cursorAgentPromptAuthProblem,
+  cursorAgentPromptFailure,
+} from "./cursorAgentAcpSupport.ts";
+import {
+  checkCursorAgentProviderStatus,
+  MODEL_DISCOVERY_RETRY_DELAY,
+} from "./cursorAgentStatus.ts";
 
 const settings: CursorSettings = { enabled: true, customModels: [] };
 const MODELS = [
@@ -27,8 +39,20 @@ interface AboutReply {
   readonly code?: number;
 }
 
+type DiscoverModels = () => Effect.Effect<
+  ReadonlyArray<ServerProviderModel>,
+  CursorAgentModelDiscoveryError
+>;
+
 /** Runs `cursor-agent about` as a Node one-liner that prints the given reply. */
-const check = (reply: AboutReply, hasSavedLogin: boolean) =>
+const check = (
+  reply: AboutReply,
+  hasSavedLogin: boolean,
+  models: {
+    readonly discover?: DiscoverModels;
+    readonly lastKnown?: ReadonlyArray<ServerProviderModel>;
+  } = {},
+) =>
   Effect.gen(function* () {
     const live = yield* ChildProcessSpawner.ChildProcessSpawner;
     const spawner = ChildProcessSpawner.make((command) => {
@@ -43,8 +67,9 @@ const check = (reply: AboutReply, hasSavedLogin: boolean) =>
     return yield* checkCursorAgentProviderStatus(
       settings,
       {},
-      () => Effect.succeed(MODELS),
+      models.discover ?? (() => Effect.succeed(MODELS)),
       Effect.succeed(hasSavedLogin),
+      Effect.succeed(models.lastKnown ?? []),
     ).pipe(
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       Effect.provideService(HostProcess.Platform, "darwin"),
@@ -107,6 +132,74 @@ describe("Cursor CLI sign-in status after sleep", () => {
   );
 });
 
+/** A model list that fails `failures` times, then lists `MODELS`; `failed` settles at the first failure. */
+const flakyDiscovery = (failures: number, failed: Deferred.Deferred<void>) => {
+  let calls = 0;
+  const discover: DiscoverModels = () =>
+    Effect.suspend(() => {
+      calls += 1;
+      return calls > failures
+        ? Effect.succeed(MODELS)
+        : Deferred.succeed(failed, undefined).pipe(
+            Effect.andThen(
+              Effect.fail(
+                new CursorAgentModelDiscoveryError({ cause: "fetch failed: ECONNRESET" }),
+              ),
+            ),
+          );
+    });
+  return { discover, calls: () => calls };
+};
+
+const OTHER_MODELS = [{ ...MODELS[0]!, slug: "gpt-5.4", name: "GPT-5.4" }];
+
+describe("Cursor CLI model list after sleep", () => {
+  it.effect("retries a failed model list once, after a backoff", () =>
+    Effect.gen(function* () {
+      const failed = yield* Deferred.make<void>();
+      const discovery = flakyDiscovery(1, failed);
+      const checking = yield* check({ stdout: SIGNED_IN }, true, {
+        discover: discovery.discover,
+      }).pipe(Effect.forkChild);
+      yield* Deferred.await(failed);
+      yield* TestClock.adjust(MODEL_DISCOVERY_RETRY_DELAY);
+      const result = yield* Fiber.join(checking);
+
+      assert.equal(discovery.calls(), 2);
+      assert.equal(result.status, "ready");
+      assert.include(
+        result.models.map((model) => model.slug),
+        "default",
+      );
+      assert.isUndefined(result.message);
+    }),
+  );
+
+  it.effect("keeps the last model list when the refresh cannot reach Cursor", () =>
+    Effect.gen(function* () {
+      const failed = yield* Deferred.make<void>();
+      const discovery = flakyDiscovery(Number.POSITIVE_INFINITY, failed);
+      const checking = yield* check({ stdout: SIGNED_IN }, true, {
+        discover: discovery.discover,
+        lastKnown: OTHER_MODELS,
+      }).pipe(Effect.forkChild);
+      yield* Deferred.await(failed);
+      yield* TestClock.adjust(MODEL_DISCOVERY_RETRY_DELAY);
+      const result = yield* Fiber.join(checking);
+
+      assert.equal(discovery.calls(), 2);
+      assert.equal(result.status, "warning");
+      assert.include(
+        result.models.map((model) => model.slug),
+        "gpt-5.4",
+      );
+      assert.equal(result.message, "Couldn't reach Cursor to list models; will retry.");
+      // `about` read a current, signed-in CLI: an update would not help.
+      assert.notInclude(result.message ?? "", "update");
+    }),
+  );
+});
+
 describe("Cursor CLI turn failures", () => {
   const failure = (message: string) =>
     EffectAcpErrors.AcpRequestError.internalError(message) as unknown;
@@ -144,5 +237,23 @@ describe("Cursor CLI turn failures", () => {
 
     const other = cursorAgentPromptFailure(failure("Model gpt-x is not available"));
     assert.notInclude(other.message, "fresh one");
+  });
+
+  it("says Cursor stopped responding for a stall or a lost connection, not for an exit", () => {
+    const stalled = cursorAgentPromptFailure(
+      new EffectAcpErrors.AcpTransportError({
+        method: "session/prompt",
+        cause: new CursorAgentStalledError({ idleSeconds: 600 }),
+      }),
+    );
+    assert.equal(stalled.message, "Cursor stopped responding; send it again.");
+    assert.equal(
+      cursorAgentPromptFailure(new EffectAcpErrors.AcpInputStreamEndedError({})).message,
+      "Cursor stopped responding; send it again.",
+    );
+    const exited = cursorAgentPromptFailure(
+      new EffectAcpErrors.AcpProcessExitedError({ code: 1, stderr: "panic: boom" }),
+    );
+    assert.notEqual(exited.message, "Cursor stopped responding; send it again.");
   });
 });

@@ -346,8 +346,10 @@ and prints no token; run them while ViewCode is in the failing state.
    login the CLI could not read (Keychain) or confirm (network). The `problem` of "lost its
    sign-in" lines is what a failed message hit; ViewCode replaced that process.
 5. **What the turns got:** `grep -c 'acp-prompt-failed' ~/.viewcode/userdata/logs/server-child.log`
-   (older builds show these as plain "Provider turn failed."). Settings → Providers → refresh
-   re-runs the status check by hand.
+   (older builds show these as plain "Provider turn failed."). A turn that spun until
+   "Cursor stopped responding" logs `Cursor CLI stopped responding mid-turn`; status re-checks
+   after a wake or focus log `Re-checking Cursor status` with their trigger. Settings →
+   Providers → refresh re-runs the status check by hand.
 
 If fresh ViewCode-started processes keep failing (step 4 says Keychain, step 3 shows new
 processes) while the terminal works, the Keychain is refusing ViewCode's children; that is the

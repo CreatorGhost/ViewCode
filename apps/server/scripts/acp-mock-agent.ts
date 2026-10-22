@@ -45,6 +45,7 @@ const emitXAiRateLimitThenHang = process.env.T3_ACP_EMIT_XAI_RATE_LIMIT_THEN_HAN
 const emitXAiAskUserQuestionThenHang =
   process.env.T3_ACP_EMIT_XAI_ASK_USER_QUESTION_THEN_HANG === "1";
 const emitContentThenHang = process.env.T3_ACP_EMIT_CONTENT_THEN_HANG === "1";
+const contentAgainTriggerPath = process.env.T3_ACP_CONTENT_AGAIN_TRIGGER_PATH;
 const emitPlanThenHang = process.env.T3_ACP_EMIT_PLAN_THEN_HANG === "1";
 const emitActiveToolThenHang = process.env.T3_ACP_EMIT_ACTIVE_TOOL_THEN_HANG === "1";
 const emitGrokMonitorPostTurnPoll = process.env.T3_ACP_EMIT_GROK_MONITOR_POST_TURN_POLL === "1";
@@ -1476,6 +1477,18 @@ const program = Effect.gen(function* () {
             content: { type: "text", text: "partial before stall" },
           },
         });
+        if (contentAgainTriggerPath !== undefined) {
+          while (!(yield* Effect.sync(() => NodeFS.existsSync(contentAgainTriggerPath)))) {
+            yield* Effect.sleep("20 millis");
+          }
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: " and more" },
+            },
+          });
+        }
         return yield* Effect.never;
       }
 

@@ -25,13 +25,17 @@
 import type { CursorSettings } from "@t3tools/provider-cursor/settings";
 import type { ModelCapabilities, RuntimeMode, ServerProviderModel } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
+import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
-import type * as EffectAcpErrors from "effect-acp/errors";
+import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
@@ -80,7 +84,175 @@ export interface CursorAgentAcpRuntimeInput extends Omit<
   readonly environment: NodeJS.ProcessEnv;
   readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
   readonly runtimeMode?: RuntimeMode | undefined;
+  /** Turns only: ends a prompt `cursor-agent` stopped answering (`watchPromptStalls`). */
+  readonly promptStallTimeout?: Duration.Input | undefined;
+  /** With `promptStallTimeout`: one element each time the host wakes or unlocks. */
+  readonly hostWakes?: Stream.Stream<void> | undefined;
 }
+
+/**
+ * Ten minutes of awake time. Model output streams, so a working agent is rarely
+ * silent that long; the long silences (a build, `delegate_task` waiting on a child,
+ * a question to the user) happen inside a reported tool call or a request to us,
+ * and those pause the watch.
+ */
+export const CURSOR_AGENT_PROMPT_STALL_TIMEOUT = Duration.minutes(10);
+
+/**
+ * After a wake the user is looking at the spinner, and an agent that survived
+ * the sleep writes again within seconds: a model stream resumes or its request
+ * fails.
+ */
+export const CURSOR_AGENT_WAKE_STALL_TIMEOUT = Duration.seconds(90);
+
+const CURSOR_AGENT_STALLED_MESSAGE = "Cursor stopped responding; send it again.";
+
+export class CursorAgentStalledError extends Schema.TaggedError<CursorAgentStalledError>()(
+  "CursorAgentStalledError",
+  { idleSeconds: Schema.Number },
+) {
+  override get message(): string {
+    return CURSOR_AGENT_STALLED_MESSAGE;
+  }
+}
+
+const isCursorAgentStalledError = Schema.is(CursorAgentStalledError);
+const isAcpInputStreamEndedError = Schema.is(EffectAcpErrors.AcpInputStreamEndedError);
+
+type StallWatchedOptions = Pick<
+  AcpSessionRuntime.AcpSessionRuntimeOptions,
+  | "transformStdout"
+  | "transformSessionUpdate"
+  | "onIncomingRequest"
+  | "onOutgoingResponse"
+  | "onOutgoingResponseFailure"
+>;
+
+/**
+ * After the Mac sleeps, a `cursor-agent` whose connection to Cursor died can
+ * leave `session/prompt` unanswered forever while the process stays alive. A
+ * prompt fails with `CursorAgentStalledError` once the agent has written nothing
+ * to stdout for `timeout`, unless it is running a tool it reported or waiting on
+ * a request we have not answered. The idle time is monotonic, which stops while
+ * the machine sleeps, so the sleep itself never counts. When the host wakes
+ * mid-prompt, the agent has `CURSOR_AGENT_WAKE_STALL_TIMEOUT` to write again
+ * before the same rule ends the turn. On a stall the agent gets `session/cancel`
+ * in case it wakes; the caller replaces the process before the next turn and
+ * never resends the prompt.
+ */
+const watchPromptStalls = Effect.fnUntraced(function* (
+  timeout: Duration.Input,
+  hostWakes: Stream.Stream<void>,
+  options: StallWatchedOptions,
+) {
+  const timeoutNanos = Duration.toNanosUnsafe(Duration.fromInputUnsafe(timeout));
+  const wakeTimeoutNanos = Duration.toNanosUnsafe(CURSOR_AGENT_WAKE_STALL_TIMEOUT);
+  const scope = yield* Effect.scope;
+  let lastFrameAt = yield* Clock.monotonicTimeNanos;
+  // A wake during the prompt with no frame since.
+  let wokeAt: bigint | undefined;
+  const unanswered = new Set<string>();
+  const runningTools = new Set<string>();
+  const touch = Clock.clockWith((clock) =>
+    Effect.sync(() => {
+      lastFrameAt = clock.monotonicTimeNanosUnsafe();
+      wokeAt = undefined;
+    }),
+  );
+  const answered = (requestId: string) =>
+    Effect.sync(() => unanswered.delete(requestId)).pipe(Effect.andThen(touch));
+
+  const runtimeOptions = {
+    transformStdout: (stdout) =>
+      (options.transformStdout?.(stdout) ?? stdout).pipe(Stream.tap(() => touch)),
+    // Synchronous by contract, and it sees every `session/update` before the runtime does.
+    transformSessionUpdate: (notification) => {
+      const update = notification.update;
+      if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
+        if (update.status === "completed" || update.status === "failed") {
+          runningTools.delete(update.toolCallId);
+        } else if (update.sessionUpdate === "tool_call" || update.status != null) {
+          runningTools.add(update.toolCallId);
+        }
+      }
+      return options.transformSessionUpdate?.(notification) ?? notification;
+    },
+    onIncomingRequest: (requestId, method, payload) =>
+      Effect.sync(() => unanswered.add(requestId)).pipe(
+        Effect.andThen(options.onIncomingRequest?.(requestId, method, payload) ?? Effect.void),
+      ),
+    onOutgoingResponse: (requestId) =>
+      answered(requestId).pipe(
+        Effect.andThen(options.onOutgoingResponse?.(requestId) ?? Effect.void),
+      ),
+    onOutgoingResponseFailure: (requestId, error) =>
+      answered(requestId).pipe(
+        Effect.andThen(options.onOutgoingResponseFailure?.(requestId, error) ?? Effect.void),
+      ),
+  } satisfies StallWatchedOptions;
+
+  const stalled = Effect.gen(function* () {
+    const woke = yield* Queue.sliding<void>(1);
+    yield* hostWakes.pipe(
+      Stream.runForEach(() =>
+        Clock.monotonicTimeNanos.pipe(
+          Effect.flatMap((now) => {
+            wokeAt = now;
+            return Queue.offer(woke, undefined);
+          }),
+        ),
+      ),
+      Effect.forkScoped,
+    );
+    while (true) {
+      const now = yield* Clock.monotonicTimeNanos;
+      const window = wokeAt === undefined ? timeoutNanos : wakeTimeoutNanos;
+      const idleDeadline = lastFrameAt + timeoutNanos;
+      const deadline =
+        wokeAt === undefined || idleDeadline < wokeAt + wakeTimeoutNanos
+          ? idleDeadline
+          : wokeAt + wakeTimeoutNanos;
+      const busy = unanswered.size > 0 || runningTools.size > 0;
+      if (!busy && now >= deadline) {
+        return new CursorAgentStalledError({
+          idleSeconds: Number((now - lastFrameAt) / 1_000_000_000n),
+        });
+      }
+      yield* Effect.raceFirst(
+        Effect.sleep(Duration.nanos(busy ? window : deadline - now)),
+        Queue.take(woke),
+      );
+    }
+  }).pipe(Effect.scoped);
+
+  const wrap = (
+    runtime: AcpSessionRuntime.AcpSessionRuntime["Service"],
+  ): AcpSessionRuntime.AcpSessionRuntime["Service"] => ({
+    ...runtime,
+    prompt: (payload, promptOptions) =>
+      Effect.sync(() => runningTools.clear()).pipe(
+        Effect.andThen(touch),
+        Effect.andThen(
+          Effect.raceFirst(
+            runtime.prompt(payload, promptOptions),
+            stalled.pipe(
+              Effect.tap(() => runtime.cancel.pipe(Effect.ignore, Effect.forkIn(scope))),
+              Effect.flatMap(
+                (stall) =>
+                  new EffectAcpErrors.AcpTransportError({
+                    method: "session/prompt",
+                    detail: "cursor-agent stopped responding to the prompt",
+                    cause: stall,
+                  }),
+              ),
+            ),
+          ),
+        ),
+      ),
+  });
+
+  return { runtimeOptions, wrap };
+});
 
 export const makeCursorAgentAcpRuntime = (
   input: CursorAgentAcpRuntimeInput,
@@ -90,10 +262,23 @@ export const makeCursorAgentAcpRuntime = (
   Crypto.Crypto | Scope.Scope
 > =>
   Effect.gen(function* () {
-    const { settings, environment, childProcessSpawner, runtimeMode, ...runtimeOptions } = input;
+    const {
+      settings,
+      environment,
+      childProcessSpawner,
+      runtimeMode,
+      promptStallTimeout,
+      hostWakes,
+      ...runtimeOptions
+    } = input;
+    const stallWatch =
+      promptStallTimeout === undefined
+        ? undefined
+        : yield* watchPromptStalls(promptStallTimeout, hostWakes ?? Stream.never, runtimeOptions);
     const context = yield* Layer.build(
       AcpSessionRuntime.layer({
         ...runtimeOptions,
+        ...stallWatch?.runtimeOptions,
         clientCapabilities: {
           ...runtimeOptions.clientCapabilities,
           _meta: { ...runtimeOptions.clientCapabilities?._meta, ...CURSOR_AGENT_CLIENT_META },
@@ -110,7 +295,10 @@ export const makeCursorAgentAcpRuntime = (
         Layer.provide(Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner)),
       ),
     );
-    return yield* Effect.service(AcpSessionRuntime.AcpSessionRuntime).pipe(Effect.provide(context));
+    const runtime = yield* Effect.service(AcpSessionRuntime.AcpSessionRuntime).pipe(
+      Effect.provide(context),
+    );
+    return stallWatch === undefined ? runtime : stallWatch.wrap(runtime);
   });
 
 /** A parameterized pick such as `gpt-5.4[reasoning=high]` names its base model first. */
@@ -329,8 +517,36 @@ function cursorAgentPromptFailureMessage(problem: CursorAgentAuthProblem, detail
   }
 }
 
+/**
+ * A prompt the stall watch ended, or one whose connection to `cursor-agent` closed
+ * under it. A process that exited keeps its own error, which carries its stderr.
+ */
+export function cursorAgentPromptStalled(cause: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current = cause;
+  for (let depth = 0; depth < 8 && typeof current === "object" && current !== null; depth++) {
+    if (seen.has(current)) break;
+    seen.add(current);
+    if (isCursorAgentStalledError(current) || isAcpInputStreamEndedError(current)) return true;
+    const record = current as Record<string, unknown>;
+    if (record._tag === "AcpTransportError" && record.operation === "read-input-stream") {
+      return true;
+    }
+    current = record.cause;
+  }
+  return false;
+}
+
 /** The turn failure the user sees; other failures keep the adapter's default. */
 export function cursorAgentPromptFailure(cause: unknown) {
+  if (cursorAgentPromptStalled(cause)) {
+    return makeProviderFailure({
+      cause,
+      class: "transport_error",
+      message: CURSOR_AGENT_STALLED_MESSAGE,
+      retryable: true,
+    });
+  }
   const problem = cursorAgentPromptAuthProblem(cause);
   if (problem === undefined) return makeProviderFailure({ cause, class: "provider_error" });
   const detail = cursorAgentFailureText(cause).split("\n")[0]?.trim().slice(0, 300) ?? "";

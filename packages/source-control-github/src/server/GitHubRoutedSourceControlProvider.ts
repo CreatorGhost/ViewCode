@@ -45,8 +45,13 @@ export const make = Effect.gen(function* () {
               },
             };
       const effect = use(input);
+      // A remote that does not name GitHub (an Enterprise server discovery claimed because gh is
+      // signed in there) is read on the host its context carries, as the wrapped provider does.
       const host =
-        remote === undefined ? "github.com" : (gitHubApiHostForRemote(remote) ?? "github.com");
+        apiHost ??
+        (context === undefined
+          ? "github.com"
+          : (URL.parse(context.provider.baseUrl)?.host.toLowerCase() ?? "github.com"));
       const reference =
         input.reference === undefined ? null : parsePullRequestReference(input.reference);
       const normalized = remote === undefined ? null : normalizeGitRemoteUrl(remote);
