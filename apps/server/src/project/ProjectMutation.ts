@@ -23,6 +23,7 @@ export const projectMutationOperation = Effect.fn("projectMutationOperation")(fu
           ? {}
           : { defaultModelSelection: mutation.defaultModelSelection }),
         ...(mutation.scripts === undefined ? {} : { scripts: mutation.scripts }),
+        ...(mutation.projectColor === undefined ? {} : { projectColor: mutation.projectColor }),
       });
 
     case "project.update":
@@ -41,6 +42,9 @@ export const projectMutationOperation = Effect.fn("projectMutationOperation")(fu
           ? {}
           : { defaultThreadEnvMode: mutation.defaultThreadEnvMode }),
         ...(mutation.scripts === undefined ? {} : { scripts: mutation.scripts }),
+        // The colour the Project color dialog and the rail menu set; dropped here, the shell
+        // tint and the rail tile never changed although the server answered success.
+        ...(mutation.projectColor === undefined ? {} : { projectColor: mutation.projectColor }),
       });
 
     case "project.delete":
