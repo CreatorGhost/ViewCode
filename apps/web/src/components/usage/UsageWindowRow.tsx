@@ -1,13 +1,13 @@
-import type { ServerProviderUsageWindow } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { makeWindow } from "@t3tools/shared/usageFormat";
 
 import { cn } from "~/lib/utils";
 import { type RailRingTone } from "../rail/appRail.logic";
 import { useUsage } from "../../state/usage";
 import {
-  buildRailUsageCardRows,
   railTokenRows,
   usageProviderForDriver,
+  type RailTokenRow,
   type RailUsageCardRow,
 } from "../rail/railUsageCard.logic";
 
@@ -63,50 +63,32 @@ export function UsagePaceLine({ row }: { row: RailUsageCardRow }) {
   );
 }
 
+export type TokenUsageWindows = Parameters<typeof railTokenRows>[1];
+
 /**
- * One window as Synara's Usage settings draw it: label with a pace dot, the
- * track, `27% left` against the reset, then reserve or deficit against the run-out.
+ * Usage over 24h, 7d and 30d: three reads, whatever the number of providers. Each
+ * report already carries every provider, so callers share one set across their cards.
  */
-export function UsageWindowRow({ row }: { row: RailUsageCardRow }) {
-  return (
-    <div className="flex flex-col gap-2 text-sm">
-      <span className="flex items-center gap-2 font-medium text-foreground">
-        {row.label}
-        <span aria-hidden className={cn("size-1.5 rounded-full", TONE_FILL[row.paceTone])} />
-      </span>
-      <UsageTrack row={row} />
-      <div className="flex flex-col gap-1">
-        <div className="flex items-baseline justify-between gap-3 text-muted-foreground tabular-nums">
-          <span>{row.remainingText}</span>
-          {row.reset ? <span>{row.reset}</span> : null}
-        </div>
-        <UsagePaceLine row={row} />
-      </div>
-    </div>
-  );
-}
-
-/** Rows for a provider's windows, shortest first, with pace computed at `now`. */
-export function usageWindowRows(windows: ReadonlyArray<ServerProviderUsageWindow>, now: number) {
-  return buildRailUsageCardRows(windows, now);
-}
-
-/** Tokens and sessions for this provider over 24h, 7d and 30d, from the same report the Usage page reads. */
-export function TokenRows({ driverKind, openedAt }: { driverKind: string; openedAt: number }) {
-  const provider = usageProviderForDriver(driverKind);
+export function useTokenUsageWindows(
+  openedAt: number,
+  selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null = null,
+): TokenUsageWindows {
   const [day, week, month] = (() => {
     const now = new Date(openedAt);
     return [makeWindow(1, now, "hour"), makeWindow(7, now), makeWindow(30, now)];
   })();
-  const d = useUsage(day).merged.providers;
-  const w = useUsage(week).merged.providers;
-  const m = useUsage(month).merged.providers;
-  if (!provider) return null;
-  const rows = railTokenRows(provider, [
+  const d = useUsage(day, selectedEnvironmentIds).merged.providers;
+  const w = useUsage(week, selectedEnvironmentIds).merged.providers;
+  const m = useUsage(month, selectedEnvironmentIds).merged.providers;
+  return [
     { label: "24h", providers: d },
     { label: "7d", providers: w },
     { label: "30d", providers: m },
-  ]);
+  ];
+}
+
+/** `24h · 439M tokens`, then the session count, one block per window with any usage. */
+export function TokenRowList({ rows }: { rows: ReadonlyArray<RailTokenRow> }) {
   return rows.map((row) => (
     <div key={row.label} className="flex flex-col gap-0.5">
       <div className="flex items-baseline justify-between gap-3">
@@ -116,4 +98,12 @@ export function TokenRows({ driverKind, openedAt }: { driverKind: string; opened
       <span className="text-muted-foreground tabular-nums">{row.sessions}</span>
     </div>
   ));
+}
+
+/** Tokens and sessions for this provider over 24h, 7d and 30d, from the same report the Usage page reads. */
+export function TokenRows({ driverKind, openedAt }: { driverKind: string; openedAt: number }) {
+  const provider = usageProviderForDriver(driverKind);
+  const windows = useTokenUsageWindows(openedAt);
+  if (!provider) return null;
+  return <TokenRowList rows={railTokenRows(provider, windows)} />;
 }

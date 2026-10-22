@@ -520,7 +520,24 @@ closes any left from a restart.
   `cursor-agent` as the fallback where the SDK ships no native package. Detection and
   the launch gate use the same resolver and never run the binary. Both runtimes share
   one continuation key; a thread whose saved session belongs to the other runtime
-  fails resume and gets native resume fallback with a full handoff. Running the SDK in
+  fails resume and gets native resume fallback with a full handoff. A `cursor-agent acp`
+  process lives as long as its thread's session (the idle timer does not run while the Mac
+  sleeps), and the CLI can keep a lost sign-in or dead connection in memory after a wake
+  while a new process signs in fine. So a prompt that fails with a sign-in, Keychain or
+  network error replaces the process before the next turn (`restartRuntimeAfterPromptFailure`)
+  and re-checks status. A process can also leave `session/prompt` unanswered for good: only the
+  Cursor CLI runtime watches for that (`watchPromptStalls` in `cursorAgentAcpSupport.ts`, not
+  the shared ACP adapter). Ten minutes of awake time with no stdout from the agent ends the
+  turn and takes the same restart, or 90 seconds when the host woke or unlocked mid-prompt and
+  the agent has not written since (the wake reaches the runtime from the `BackgroundPolicy`
+  edge in `cursorStatusRecheck.ts`). A running tool call or a request we have not answered
+  pauses both, because `delegate_task` waits and builds are silent far longer. The prompt is
+  never resent. `about` says "Not logged in" when it cannot read its Keychain token
+  too; with `authInfo` still in `~/.cursor/cli-config.json` that is reported as unconfirmed,
+  not signed out. A status that is not ready is re-checked on wake or unlock, on a client
+  coming to the front and on a client's network coming back (`cursorStatusRecheck.ts`, from
+  `BackgroundPolicy` edges; the web report carries `networkType` for the last one), and a
+  failed model list keeps the last good one. Running the SDK in
   a child `node` process was rejected: the tools' parent would still be a generic
   `node`, which is what the EDR objects to, and it needs a new packaged entry and an
   IPC protocol for the SDK runner's callbacks.
@@ -585,8 +602,21 @@ pins one credential for a repository operation, including its mutations and
 stack-rebase ownership decisions. Repository visibility probes can choose a
 second authenticated account; explicit credentials remain authoritative. Never
 call `gh auth switch`. SSH aliases such as `github.com-work` must resolve to the
-actual API host while preserving repository/account selection. Test both
+actual API host while preserving repository/account selection. An Enterprise
+host without a `github` label is GitHub only because discovery claimed it, so
+the routed providers take its host from the provider context, never a
+github.com default (`GitHubRoutedSourceControlProvider.viewcode.test.ts`). Test both
 accounts with a repository inaccessible to the default account.
+
+Upstream's clients call the API from Node with a token taken from `gh`, but a
+managed machine's corporate CA, proxy or VPN may only be known to `gh`, which
+ViewCode used for every read before v2. So a request to a host other than
+github.com that fails before any HTTP answer is sent again through `gh api` with
+the same token, and that host goes through `gh` for the life of the server
+(`GitHubGhTransport.ts`, wrapped into the REST and GraphQL clients). github.com
+never falls back, an HTTP refusal is an answer rather than a transport failure,
+and the request error names the cause (an untrusted certificate, a refused
+connection) instead of a bare "could not be read".
 
 A fork's repository identity is its upstream (upstream's rule, `docs/internals/remote.md`), so the
 Pull requests list reads the fork's `origin` beside it and flags the upstream rows (`upstream` on

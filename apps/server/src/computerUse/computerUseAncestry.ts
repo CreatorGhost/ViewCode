@@ -22,7 +22,7 @@ export class ServerProcessAncestry extends Context.Service<
   ReadonlySet<number>
 >()("t3/computerUse/computerUseAncestry/ServerProcessAncestry") {}
 
-export const readServerProcessAncestry = Effect.gen(function* () {
+const readServerProcessAncestry = Effect.gen(function* () {
   const platform = yield* HostProcessPlatform;
   const runner = yield* ProcessRunner.ProcessRunner;
   const pids = new Set<number>([process.pid]);

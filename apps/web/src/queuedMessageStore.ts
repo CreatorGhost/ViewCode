@@ -267,7 +267,3 @@ export function isQueuedMessageDue(input: {
   if (input.supportsTurnSteering === false) return false;
   return input.latestToolActivityId !== input.message.queuedAfterToolActivityId;
 }
-
-export function useQueuedMessages(threadKey: string): QueuedComposerMessage[] {
-  return useQueuedMessageStore((state) => state.queuesByThreadKey[threadKey] ?? EMPTY_QUEUE);
-}

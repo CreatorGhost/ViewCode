@@ -10,14 +10,33 @@ const make = Effect.gen(function* () {
   const connector = yield* Connector.ViewCodeRelayConnector;
   const setup = yield* Setup.ViewCodeRelaySetup;
   return {
-    accessFields: Effect.all({viewcodeRelay:connector.currentState,viewcodeRelaySetup:setup.current}),
-    changes: Stream.merge(connector.stateChanges.pipe(Stream.map(() => undefined)), setup.changes.pipe(Stream.map(() => undefined))),
+    accessFields: Effect.all({
+      viewcodeRelay: connector.currentState,
+      viewcodeRelaySetup: setup.current,
+    }),
+    changes: Stream.merge(
+      connector.stateChanges.pipe(Stream.map(() => undefined)),
+      setup.changes.pipe(Stream.map(() => undefined)),
+    ),
     networkChanged: connector.networkChanged,
-    run: (target: LocalTarget) => Effect.all([
-      connector.run(target),
-      connector.stateChanges.pipe(Stream.runForEach((state) => state.status === "connected" ? setup.relayConnected : Effect.void)),
-    ], {concurrency:"unbounded",discard:true}),
+    run: (target: LocalTarget) =>
+      Effect.all(
+        [
+          connector.run(target),
+          connector.stateChanges.pipe(
+            Stream.runForEach((state) =>
+              state.status === "connected" ? setup.relayConnected : Effect.void,
+            ),
+          ),
+        ],
+        { concurrency: "unbounded", discard: true },
+      ),
   };
 });
-export class ViewCodeRelayRuntime extends Context.Service<ViewCodeRelayRuntime,Effect.Success<typeof make>>() ("t3/server/viewcodeRelayLayers/ViewCodeRelayRuntime") {}
-export const layer = Layer.effect(ViewCodeRelayRuntime,make).pipe(Layer.provideMerge(Layer.merge(Connector.layer,Setup.layer)));
+export class ViewCodeRelayRuntime extends Context.Service<
+  ViewCodeRelayRuntime,
+  Effect.Success<typeof make>
+>()("t3/server/viewcodeRelayLayers/ViewCodeRelayRuntime") {}
+export const layer = Layer.effect(ViewCodeRelayRuntime, make).pipe(
+  Layer.provideMerge(Layer.merge(Connector.layer, Setup.layer)),
+);

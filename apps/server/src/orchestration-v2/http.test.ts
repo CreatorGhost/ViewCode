@@ -28,7 +28,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HttpApi from "effect/http-api/HttpApi";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
 
 import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
@@ -106,15 +105,12 @@ it.effect("exports full history with size, scope, and missing-thread checks", ()
     );
     const services = yield* Layer.build(
       Layer.mergeAll(
-        runtime,
         ThreadManagementService.layer.pipe(
-          Layer.provide(
-            Layer.mergeAll(runtime, CommandReceiptStore.layer, ServerSettings.layerTest({})),
-          ),
+          Layer.provide(Layer.mergeAll(CommandReceiptStore.layer, ServerSettings.layerTest({}))),
         ),
         OrchestrationEventStore.layer,
         ProjectStore.layer,
-      ).pipe(Layer.provideMerge(SqlitePersistence.layerMemory)),
+      ).pipe(Layer.provideMerge(runtime)),
     );
     const eventSink = Context.get(services, EventSinkV2);
     yield* eventSink.write({

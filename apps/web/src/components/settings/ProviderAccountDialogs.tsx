@@ -214,21 +214,3 @@ export function AddProviderAccountDialog(props: {
     </Dialog>
   );
 }
-
-/** Sign in / add-account buttons shown in a Codex or Claude instance's Setup section. */
-export function ProviderAccountActions(props: {
-  readonly readOnly: boolean;
-  readonly onSignIn: () => void;
-  readonly onAddAccount: () => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="outline" disabled={props.readOnly} onClick={props.onSignIn}>
-        Sign in
-      </Button>
-      <Button size="sm" variant="outline" disabled={props.readOnly} onClick={props.onAddAccount}>
-        Add another account
-      </Button>
-    </div>
-  );
-}

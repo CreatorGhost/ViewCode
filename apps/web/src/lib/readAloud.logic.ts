@@ -15,7 +15,7 @@ import type { OrchestrationMessage as ChatMessage } from "@t3tools/client-runtim
 import type { EnvironmentThread as Thread } from "@t3tools/client-runtime/viewcodeThread";
 
 /** Chromium's speechSynthesis can cut off long utterances, so each one stays short. */
-export const READ_ALOUD_MAX_CHUNK_LENGTH = 250;
+const READ_ALOUD_MAX_CHUNK_LENGTH = 250;
 
 const SKIPPED_CODE_BLOCK = "Code block skipped.";
 const URL_LIKE_TEXT = /^(?:[a-z][a-z0-9+.-]*:\/\/|www\.)/i;

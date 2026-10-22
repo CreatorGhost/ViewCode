@@ -11,6 +11,7 @@ step by step. It is short; read all of it before starting.
 - Merge on a branch, never on `dev`. Record P (`git rev-parse HEAD`) before merging.
 - Resolve conflicts, commit the merge, then run `vp run upstream-merge-check`.
   A non-zero exit means the merge deleted a ViewCode test: restore it, or justify it.
+  CI's `Upstream merge check` job runs the same check on the PR.
 - Review every listed file against `git diff <base> <P> -- <file>`, largest missing
   count first. A file upstream rewrote is where fixes vanish without a conflict.
 - Run `vp run test:viewcode` and the changed packages' tests and typecheck. No

@@ -55,7 +55,7 @@ export function devinCommand(settings: Pick<DevinSettings, "binaryPath">): strin
 }
 
 /** True for a model a user picked, as opposed to "whatever Devin is set to". */
-export function isExplicitDevinModel(model: string | undefined): model is string {
+function isExplicitDevinModel(model: string | undefined): model is string {
   return model !== undefined && model.trim() !== "" && model !== DEVIN_DEFAULT_MODEL;
 }
 
@@ -99,7 +99,7 @@ export const makeDevinAcpRuntime = (
  * The advertised `model` value for a model slug: the value itself, a name
  * that matches, or the first variant of that family (`swe-1-6` → `swe-1-6-fast`).
  */
-export function matchDevinModelValue(
+function matchDevinModelValue(
   option: EffectAcpSchema.SessionConfigOption | undefined,
   slug: string,
 ): string | undefined {

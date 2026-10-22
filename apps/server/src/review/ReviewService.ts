@@ -28,7 +28,7 @@ import * as KnownWorkspaces from "../workspace/KnownWorkspaces.ts";
 const REVIEW_COMMIT_FORMAT = "%H%x1f%h%x1f%s%x1f%an%x1f%cI%x1e";
 
 /** Commits as `git log --format=REVIEW_COMMIT_FORMAT` prints them, newest first. */
-export function parseReviewCommitLog(stdout: string): ReviewListCommitsResult["commits"] {
+function parseReviewCommitLog(stdout: string): ReviewListCommitsResult["commits"] {
   return stdout.split("\x1e").flatMap((record) => {
     const [sha, shortSha, subject, author, committedAt] = record.trim().split("\x1f");
     if (!sha || !shortSha || committedAt === undefined) return [];

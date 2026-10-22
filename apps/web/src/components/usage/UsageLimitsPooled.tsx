@@ -14,7 +14,12 @@ import {
   type LimitPoolWindow,
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
-import { buildRailUsageCardRows } from "@t3tools/shared/usagePace";
+import {
+  buildRailUsageCardRows,
+  railPlanLabel,
+  railTokenRows,
+  usageProviderForDriver,
+} from "@t3tools/shared/usagePace";
 import type { ServerProviderUsageWindow } from "@t3tools/contracts";
 import { AlertTriangleIcon, ExternalLinkIcon, TicketIcon } from "lucide-react";
 import { Fragment, type ReactNode, useState } from "react";
@@ -32,7 +37,7 @@ import { Alert, AlertTitle } from "../ui/alert";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import type { RailRingTone } from "../rail/appRail.logic";
 import { ResetCreditDialog, resetCreditsSummary, useResetCredit } from "./UsageLimits";
-import { TONE_FILL } from "./UsageWindowRow";
+import { TONE_FILL, TokenRowList, type TokenUsageWindows } from "./UsageWindowRow";
 
 /** `formatResetsIn` reads "resets in 4h" mid-sentence; a row's trailing label starts a phrase. */
 function resetsInLabel(window: ServerProviderUsageWindow | null | undefined, now: number) {
@@ -467,16 +472,34 @@ function PoolWindowRow({
   );
 }
 
-/** One card per provider, its windows stacked inside, as Synara's Usage settings draw them. */
-function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: number }) {
+/**
+ * One card per provider, its windows stacked inside, then 24h / 7d / 30d tokens, as Synara's
+ * Usage settings draw them.
+ */
+function PoolSection({
+  pool,
+  now,
+  tokenUsage,
+}: {
+  readonly pool: LimitPool;
+  readonly now: number;
+  readonly tokenUsage: TokenUsageWindows | undefined;
+}) {
   const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
   const windows = displayLimitWindows(pool);
   const plans = new Set(pool.accounts.map((account) => account.plan).filter(Boolean));
-  const plan = plans.size === 1 ? [...plans][0] : undefined;
-  const accountLabel =
-    pool.accounts.length === 1
-      ? (pool.accounts[0]?.email ?? pool.accounts[0]?.sourceLabel ?? null)
-      : `${pool.accounts.length} accounts`;
+  const shared = plans.size === 1 ? [...plans][0] : undefined;
+  const plan = shared ? railPlanLabel(shared, label) : null;
+  // The email stays behind the popover's reveal, so a shared screen does not show it: the
+  // instance's own name when it was renamed, otherwise it is just the default account.
+  const only = pool.accounts.length === 1 ? pool.accounts[0] : undefined;
+  const accountLabel = only
+    ? only.displayName && only.displayName.toLowerCase() !== label.toLowerCase()
+      ? only.displayName
+      : "Default account"
+    : `${pool.accounts.length} accounts`;
+  const provider = usageProviderForDriver(pool.driver);
+  const tokenRows = provider && tokenUsage ? railTokenRows(provider, tokenUsage) : [];
   return (
     <section className="flex flex-col gap-4 rounded-xl border bg-card p-4">
       <h2 className="flex items-center justify-between gap-3">
@@ -492,9 +515,7 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
           </span>
           <span className="flex min-w-0 flex-col">
             <span className="truncate text-sm font-semibold text-foreground">{label}</span>
-            {accountLabel ? (
-              <span className="truncate text-xs text-muted-foreground">{accountLabel}</span>
-            ) : null}
+            <span className="truncate text-xs text-muted-foreground">{accountLabel}</span>
           </span>
         </span>
         {plan ? (
@@ -518,6 +539,11 @@ function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: nu
           );
         })}
       </div>
+      {tokenRows.length > 0 ? (
+        <div className="flex flex-col gap-3 border-t border-border/60 pt-4 text-xs">
+          <TokenRowList rows={tokenRows} />
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -526,10 +552,13 @@ export function UsageLimitsPooled({
   presentations,
   now,
   cursorPrompt,
+  tokenUsage,
 }: {
   readonly presentations: Parameters<typeof collectLimitAccounts>[0];
   readonly now: number;
   readonly cursorPrompt?: ReactNode;
+  /** One 24h / 7d / 30d read shared by every card (`useTokenUsageWindows`), never one per provider. */
+  readonly tokenUsage?: TokenUsageWindows;
 }) {
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const notices = collectLimitNotices(presentations);
@@ -549,7 +578,7 @@ export function UsageLimitsPooled({
       {pools.map((pool, index) => (
         <Fragment key={pool.driver}>
           {index === cursorPromptAt ? cursorPrompt : null}
-          <PoolSection pool={pool} now={now} />
+          <PoolSection pool={pool} now={now} tokenUsage={tokenUsage} />
         </Fragment>
       ))}
       {cursorPromptAt === pools.length ? cursorPrompt : null}

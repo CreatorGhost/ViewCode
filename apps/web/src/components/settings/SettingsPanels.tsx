@@ -1436,8 +1436,7 @@ export function AppearanceSettingsPanel() {
             </div>
           }
           resetAction={
-            settings.panelAnimationMs !==
-            DEFAULT_UNIFIED_SETTINGS.panelAnimationMs ? (
+            settings.panelAnimationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationMs ? (
               <SettingResetButton
                 label="panel animations"
                 onClick={() =>

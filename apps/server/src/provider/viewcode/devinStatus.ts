@@ -86,7 +86,7 @@ const runDevin = (
   });
 
 /** Sign-in state and models from one `devin models list` run. */
-export function readDevinModelsProbe(output: {
+function readDevinModelsProbe(output: {
   readonly code: number;
   readonly stdout: string;
   readonly stderr: string;

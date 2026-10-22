@@ -16,7 +16,7 @@ export function deriveTimelineMinimapItems(
     const row = rows[index];
     const userText =
       row?.kind === "message" && row.message.role === "user"
-        ? parseAgentMessage(row.message.text)?.body ?? row.message.text
+        ? (parseAgentMessage(row.message.text)?.body ?? row.message.text)
         : null;
     if (row === undefined || userText === null) {
       continue;

@@ -472,7 +472,8 @@ export function StorageSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      {!isProjectScope && viewcodeProductPolicy.doctor &&
+      {!isProjectScope &&
+        viewcodeProductPolicy.doctor &&
         connectedEnvironments
           .filter(
             (environment) =>

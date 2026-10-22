@@ -1,6 +1,15 @@
 export interface HistoryRecord {
-  readonly messages: ReadonlyArray<{ readonly role: string; readonly createdAt: string; readonly text: string }>;
-  readonly activities: ReadonlyArray<{ readonly kind: string; readonly createdAt: string; readonly summary: string; readonly payload: unknown }>;
+  readonly messages: ReadonlyArray<{
+    readonly role: string;
+    readonly createdAt: string;
+    readonly text: string;
+  }>;
+  readonly activities: ReadonlyArray<{
+    readonly kind: string;
+    readonly createdAt: string;
+    readonly summary: string;
+    readonly payload: unknown;
+  }>;
 }
 
 export interface HistoryMatch {

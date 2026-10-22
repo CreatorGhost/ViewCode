@@ -17,7 +17,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 
 /** Where Claude Code reads an enterprise-managed MCP configuration. */
-export function claudeManagedMcpConfigPaths(platform: NodeJS.Platform): ReadonlyArray<string> {
+function claudeManagedMcpConfigPaths(platform: NodeJS.Platform): ReadonlyArray<string> {
   switch (platform) {
     case "darwin":
       return ["/Library/Application Support/ClaudeCode/managed-mcp.json"];
@@ -26,16 +26,6 @@ export function claudeManagedMcpConfigPaths(platform: NodeJS.Platform): Readonly
     default:
       return ["/etc/claude-code/managed-mcp.json"];
   }
-}
-
-// Claude Code's own refusal when a client passes MCP servers (or
-// --strict-mcp-config) on a machine with an enterprise MCP config.
-const ENTERPRISE_MCP_REFUSAL =
-  /cannot (?:dynamically configure MCP servers|use --strict-mcp-config) when an enterprise MCP config is present/i;
-
-/** Whether `text` (stderr or an error message) is Claude Code refusing client MCP config. */
-export function isClaudeEnterpriseMcpRefusal(text: string): boolean {
-  return ENTERPRISE_MCP_REFUSAL.test(text);
 }
 
 /** Override for the policy file locations (tests); `undefined` uses the platform's. */
@@ -58,7 +48,7 @@ export const hasClaudeManagedMcpConfig: Effect.Effect<boolean> = Effect.gen(func
 });
 
 /** Where Claude Code reads the administrator's managed settings. */
-export function claudeManagedSettingsPaths(platform: NodeJS.Platform): ReadonlyArray<string> {
+function claudeManagedSettingsPaths(platform: NodeJS.Platform): ReadonlyArray<string> {
   switch (platform) {
     case "darwin":
       return ["/Library/Application Support/ClaudeCode/managed-settings.json"];

@@ -13,7 +13,7 @@ export const TLS_REFUSALS_BEFORE_BLOCKED = 3;
 /** A registration that dies sooner than this counts as a short-lived one. */
 export const SHORT_REGISTRATION_MS = 60_000;
 /** Short-lived registrations in a row before the tunnel is called unstable. */
-export const SHORT_REGISTRATIONS_BEFORE_UNSTABLE = 2;
+const SHORT_REGISTRATIONS_BEFORE_UNSTABLE = 2;
 
 export type TunnelSignal = "registered" | "tls-refused" | "edge-lost";
 
@@ -127,9 +127,4 @@ export function reduceTunnelHealth(health: TunnelHealth, event: TunnelHealthEven
     case "retry":
       return initialTunnelHealth;
   }
-}
-
-/** Only these states have a tunnel a phone can reach right now. */
-export function isTunnelReachable(health: TunnelHealth): boolean {
-  return health.registered && health.status !== "blocked-by-network";
 }

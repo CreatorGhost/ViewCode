@@ -19,12 +19,9 @@ export function isViewCodeThemeId(id: string): boolean {
 /**
  * The standard T3 Code palette, kept separate from the optional built-in theme library. Mobile
  * registers it as the base Uniwind `light` and `dark` themes. It is not what a new phone wears:
- * that is `MOBILE_INITIAL_THEME_ID`.
+ * that is ViewCode Teal (`VIEWCODE_TEAL_THEME_ID`).
  */
 export const MOBILE_DEFAULT_THEME_ID = "t3-code";
-
-/** What a phone that never chose a theme, or chose one that no longer exists, wears. */
-export const MOBILE_INITIAL_THEME_ID = VIEWCODE_TEAL_THEME_ID;
 
 /**
  * Every palette the mobile app can render: the built-ins web and desktop offer, in their order
@@ -1103,7 +1100,7 @@ export const VIEWCODE_THEME: ThemeDefinition = {
  * tints the shell as a whisper (`shellTint.ts`). The light half is warm paper
  * so both halves read as one theme; the old blue-grey light mode did not.
  */
-export const VIEWCODE_TEAL_THEME: ThemeDefinition = {
+const VIEWCODE_TEAL_THEME: ThemeDefinition = {
   id: VIEWCODE_TEAL_THEME_ID,
   label: "ViewCode Teal",
   appearance: "dark",
@@ -1250,9 +1247,6 @@ export const WEB_BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
     light: VIEWCODE_LIGHT_COLORS,
   }),
 ];
-
-/** Palettes the mobile app registers as Uniwind themes, beside its standard one. */
-export const MOBILE_PALETTE_THEMES: ReadonlyArray<ThemeDefinition> = WEB_BUILT_IN_THEMES;
 
 export function getThemeColorsForAppearance(
   theme: ThemeDefinition,

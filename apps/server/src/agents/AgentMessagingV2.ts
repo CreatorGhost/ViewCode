@@ -45,8 +45,8 @@ import {
 import { searchThreadHistory, type HistoryMatch } from "./searchHistory.ts";
 
 export const AGENT_MESSAGE_MAX_HOPS = 24;
-export const AGENT_CONTINUE_PROMPT = "Continue where you left off.";
-export const USAGE_RESET_CONTINUE_PROMPT =
+const AGENT_CONTINUE_PROMPT = "Continue where you left off.";
+const USAGE_RESET_CONTINUE_PROMPT =
   "The usage limit has reset. Continue exactly where you left off and finish the task.";
 
 export class AgentMessagingError extends Schema.TaggedError<AgentMessagingError>()(
@@ -232,7 +232,7 @@ interface Delivery {
   queued?: boolean;
 }
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const orchestrator = yield* OrchestratorMcpService.OrchestratorMcpService;
@@ -447,7 +447,11 @@ export const make = Effect.gen(function* () {
     if (delivery === undefined) return;
     if (run.status === "interrupted" && paused.has(run.threadId))
       interrupted.set(run.threadId, delivery);
-    if (delivery.replyExpected && !delivery.replied && (run.status === "completed" || run.status === "failed")) {
+    if (
+      delivery.replyExpected &&
+      !delivery.replied &&
+      (run.status === "completed" || run.status === "failed")
+    ) {
       const records = yield* threads.getThreadRecords(run.threadId, ["messages"]);
       const answer = records.messages
         .filter(
@@ -457,9 +461,11 @@ export const make = Effect.gen(function* () {
         .at(-1)
         ?.text.trim();
       const shell = answer ? null : yield* threads.getThreadShell(run.threadId);
-      const body = answer || (run.status === "failed"
-        ? `(failed without an answer: ${shell?.lastError ?? "the provider could not finish this turn"})`
-        : "(finished without a written answer)");
+      const body =
+        answer ||
+        (run.status === "failed"
+          ? `(failed without an answer: ${shell?.lastError ?? "the provider could not finish this turn"})`
+          : "(finished without a written answer)");
       yield* send(delivery.toThreadId, {
         to: delivery.fromThreadId,
         message: body.slice(-24_000),

@@ -1,4 +1,9 @@
-import { PROVIDER_DISPLAY_NAMES, type OrchestrationV2TurnItem, type ProviderDriverKind, type ProviderInstanceId } from "@t3tools/contracts";
+import {
+  PROVIDER_DISPLAY_NAMES,
+  type OrchestrationV2TurnItem,
+  type ProviderDriverKind,
+  type ProviderInstanceId,
+} from "@t3tools/contracts";
 
 export function resolveThreadActivityMetadata(input: {
   readonly providerDriver: ProviderDriverKind | null;

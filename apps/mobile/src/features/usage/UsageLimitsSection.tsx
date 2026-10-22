@@ -1,5 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, ProviderConsumeResetCreditOutcome, ProviderConsumeResetCreditInput, ServerProvider, ServerProviderResetCredits } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ProviderConsumeResetCreditOutcome,
+  ProviderConsumeResetCreditInput,
+  ServerProvider,
+  ServerProviderResetCredits,
+} from "@t3tools/contracts";
 import { formatDuration, limitsNotice, usageRefreshNotice } from "@t3tools/shared/usageLimits";
 import { buildRailUsageCardRows } from "@t3tools/shared/usagePace";
 import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";

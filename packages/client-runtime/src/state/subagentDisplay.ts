@@ -213,7 +213,7 @@ export function spawnedAgentsHeading(count: number): string {
 }
 
 /** Rows a spawn lists before the rest fold into "+N more"; at this size or less, all show. */
-export const MAX_VISIBLE_AGENT_ROWS = 8;
+const MAX_VISIBLE_AGENT_ROWS = 8;
 
 export function visibleAgentRows<Agent>(
   agents: ReadonlyArray<Agent>,

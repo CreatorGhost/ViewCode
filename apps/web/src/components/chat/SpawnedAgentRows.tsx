@@ -54,7 +54,7 @@ const STATUS_TEXT_CLASS: Partial<Record<SpawnedAgentRowStatus, string>> = {
 };
 
 /** Disclosure keys, kept in the timeline's spawn-row state so they survive virtualization. */
-export const spawnedAgentDetailsKey = (messageId: string) => `agent-spawn:${messageId}`;
+const spawnedAgentDetailsKey = (messageId: string) => `agent-spawn:${messageId}`;
 
 /**
  * Child agents this thread started, one line each: provider icon with a

@@ -18,8 +18,8 @@ import { parseLenientJson } from "@t3tools/shared/viewcodeRelaySetup";
 /** The folder the server build writes next to `dist/bin.mjs`. */
 export const RELAY_WORKER_BUNDLE_DIR = "viewcode-relay-worker";
 /** The Worker's own modules, from `infra/viewcode-relay/src`. */
-export const RELAY_WORKER_MODULES = ["worker.ts", "relayDurableObject.ts", "routing.ts"] as const;
-export const RELAY_PROTOCOL_MODULE = "viewcodeRelayProtocol.ts";
+const RELAY_WORKER_MODULES = ["worker.ts", "relayDurableObject.ts", "routing.ts"] as const;
+const RELAY_PROTOCOL_MODULE = "viewcodeRelayProtocol.ts";
 const PROTOCOL_IMPORT = "@t3tools/shared/viewcodeRelayProtocol";
 const WRANGLER_TEMPLATE = "wrangler.jsonc";
 
@@ -81,7 +81,7 @@ export const findRelayWorkerFiles = (here: string) =>
  * The wrangler config for the staged folder: the committed template with the
  * entry point and the shared protocol import pointed at the flat copies.
  */
-export function stagedWranglerConfig(templateText: string): string {
+function stagedWranglerConfig(templateText: string): string {
   const template = parseLenientJson(templateText);
   if (template === null || typeof template !== "object" || Array.isArray(template)) {
     throw new Error("The relay Worker's wrangler.jsonc is not a JSON object.");

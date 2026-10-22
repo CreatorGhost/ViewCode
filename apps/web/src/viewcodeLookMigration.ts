@@ -9,7 +9,7 @@
  */
 
 export const LOOK_MIGRATION_KEY = "viewcode:look-migrated:v1";
-export const LOOK_MIGRATION_PREVIOUS_KEY = "viewcode:look-previous:v1";
+const LOOK_MIGRATION_PREVIOUS_KEY = "viewcode:look-previous:v1";
 const THEME_KEY = "t3code:theme";
 const THEME_HALVES_KEY = "t3code:theme-halves:v1";
 
@@ -35,7 +35,7 @@ export function migrateToViewCodeLook(storage: Storage): boolean {
   return true;
 }
 
-export const TEAL_MIGRATION_KEY = "viewcode:look-migrated:teal-v1";
+const TEAL_MIGRATION_KEY = "viewcode:look-migrated:teal-v1";
 
 /**
  * One-time move from the plain "viewcode" theme (neutral grey, amber accent)

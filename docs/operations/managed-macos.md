@@ -323,6 +323,38 @@ exception, or touches the EDR.
    (`node scripts/pack-viewcode-npm.ts`, see the README) and
    `npm install -g` the tarball here.
 
+## Cursor asks for a login after sleep
+
+Reported October 2026 on a managed Mac, CLI runtime: Cursor worked, the lid closed, and after
+wake and a page reload every message failed with a sign-in error while `cursor-agent` in a
+terminal was signed in. Not reproduced on another managed Mac. Each check below is read-only
+and prints no token; run them while ViewCode is in the failing state.
+
+1. **Same binary?** `command -v cursor-agent` in the terminal, against the executables in
+   `grep cursor-agent ~/.viewcode/userdata/logs/spawn-trace.log | tail -20`. A different path
+   is a second install with its own login.
+2. **Saved login on disk:** `grep -c '"authInfo"' ~/.cursor/cli-config.json` (1 means the CLI
+   has a login; the token itself is in the Keychain and is not read).
+3. **Did ViewCode reuse a process from before the sleep?** Compare the `cursor-agent` start and
+   exit lines in `spawn-trace.log` with the wake time from
+   `pmset -g log | grep -E ' (Sleep|Wake) ' | tail -4`. A Cursor start before the sleep with no
+   exit until after the failures is the stale-process case, which current builds recover from
+   on the next message.
+4. **What ViewCode concluded** (current builds):
+   `cd ~/.viewcode/userdata/logs && grep -h -o -E 'Cursor CLI (reports no sign-in|lost its sign-in)[^]]{0,200}' server-child.log server.trace.ndjson | tail -6`.
+   `"reading": "signed-out"` with `"savedLogin": false` is a real sign-out; any other reading is a
+   login the CLI could not read (Keychain) or confirm (network). The `problem` of "lost its
+   sign-in" lines is what a failed message hit; ViewCode replaced that process.
+5. **What the turns got:** `grep -c 'acp-prompt-failed' ~/.viewcode/userdata/logs/server-child.log`
+   (older builds show these as plain "Provider turn failed."). A turn that spun until
+   "Cursor stopped responding" logs `Cursor CLI stopped responding mid-turn`; status re-checks
+   after a wake or focus log `Re-checking Cursor status` with their trigger. Settings →
+   Providers → refresh re-runs the status check by hand.
+
+If fresh ViewCode-started processes keep failing (step 4 says Keychain, step 3 shows new
+processes) while the terminal works, the Keychain is refusing ViewCode's children; that is the
+case that needs the Mac itself to understand.
+
 ## Cursor Enterprise MCP policy
 
 If Cursor reports that MCP servers are blocked by team policy, ask the team's

@@ -18,7 +18,7 @@ import { makeCachedKeychainSecretReader, readKeychainPassword } from "./viewcode
  * real Mac. Confirm with `security find-generic-password -s "Claude Code-credentials"`
  * (attributes only; never pass `-w`, which prints the secret).
  */
-export const CLAUDE_KEYCHAIN_ITEM = {
+const CLAUDE_KEYCHAIN_ITEM = {
   service: "Claude Code-credentials",
   account: () => {
     let user: string;

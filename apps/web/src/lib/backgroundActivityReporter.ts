@@ -101,6 +101,8 @@ function createActivityReport(
     focused: document.hasFocus(),
     recentlyInteracted: wasRecentlyInteracted(lastInteractionAtMs, observedAtMs),
     appState: document.visibilityState === "visible" ? "active" : "background",
+    // ViewCode: the server re-checks a degraded provider when this goes back online.
+    networkType: navigator.onLine ? "online" : "offline",
     scopes,
     ttlMs: LEASE_TTL_MS,
     observedAt: DateTime.makeUnsafe(observedAtMs),
@@ -217,6 +219,7 @@ export const layer = Layer.effectDiscard(
         window.addEventListener("focus", requestReport);
         window.addEventListener("blur", requestReport);
         window.addEventListener("online", requestReport);
+        window.addEventListener("offline", requestReport);
         window.addEventListener("pointermove", recordInteraction);
         window.addEventListener("keydown", recordInteraction);
         window.addEventListener("wheel", recordInteraction, passiveListenerOptions);
@@ -229,6 +232,7 @@ export const layer = Layer.effectDiscard(
           window.removeEventListener("focus", requestReport);
           window.removeEventListener("blur", requestReport);
           window.removeEventListener("online", requestReport);
+          window.removeEventListener("offline", requestReport);
           window.removeEventListener("pointermove", recordInteraction);
           window.removeEventListener("keydown", recordInteraction);
           window.removeEventListener("wheel", recordInteraction);

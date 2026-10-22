@@ -22,15 +22,6 @@ const UNDERSCORE = 95;
 const CODEX_FILE_CITATION_NAME = "codex-file-citation";
 const CODEX_ARTIFACT_TEMPLATE_NAME = "artifact-template";
 
-export const CODEX_ARTIFACT_TEMPLATE_HAST_PROPERTIES = [
-  "dataCodexArtifactTemplate",
-  "dataArtifactKind",
-  "dataDisplayName",
-  "dataGalleryKind",
-  "dataSkillDirectory",
-  "dataSkillName",
-] as const;
-
 interface MarkdownPosition {
   readonly start: { readonly offset?: number };
   readonly end: { readonly offset?: number };
@@ -255,7 +246,7 @@ function attachCodexDirectives(this: Processor) {
   };
 }
 
-export const remarkCodexDirectives = attachCodexDirectives;
+const remarkCodexDirectives = attachCodexDirectives;
 
 const directiveParser = unified().use(remarkParse).use(remarkCodexDirectives).freeze();
 
@@ -368,21 +359,4 @@ export function splitCodexArtifactTemplateMarkdown(
     segments.push({ kind: "markdown", markdown: markdown.slice(cursor), sourceOffset: cursor });
   }
   return segments;
-}
-
-export function artifactTemplateFromHastProperties(
-  properties: Readonly<Record<string, unknown>> | null | undefined,
-): CodexArtifactTemplate | null {
-  if (properties?.dataCodexArtifactTemplate !== "true") return null;
-  const stringProperty = (name: string) => {
-    const value = properties[name];
-    return typeof value === "string" ? value : undefined;
-  };
-  return resolveCodexArtifactTemplate({
-    artifact_kind: stringProperty("dataArtifactKind"),
-    display_name: stringProperty("dataDisplayName"),
-    gallery_kind: stringProperty("dataGalleryKind"),
-    skill_directory: stringProperty("dataSkillDirectory"),
-    skill_name: stringProperty("dataSkillName"),
-  });
 }

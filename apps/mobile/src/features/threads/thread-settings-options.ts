@@ -1,4 +1,9 @@
-import { type ProviderOptionDescriptor, providerRuntimeModeLimit, type ProviderRuntimeModeLimits, type RuntimeMode } from "@t3tools/contracts";
+import {
+  type ProviderOptionDescriptor,
+  providerRuntimeModeLimit,
+  type ProviderRuntimeModeLimits,
+  type RuntimeMode,
+} from "@t3tools/contracts";
 
 /**
  * Desktop-oriented effort keywords that don't belong in the phone picker.

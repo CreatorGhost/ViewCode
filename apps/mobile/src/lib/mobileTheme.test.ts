@@ -3,7 +3,6 @@ import {
   BUILT_IN_THEME_IDS,
   BUILT_IN_THEMES,
   MOBILE_PALETTE_THEME_IDS,
-  MOBILE_PALETTE_THEMES,
   T3_CHAT_THEME,
   T3_CODE_LIGHT_THEME_COLORS,
   T3_CODE_DARK_THEME_COLORS,
@@ -89,7 +88,6 @@ describe("mobile themes", () => {
   });
 
   it("offers desktop's built-ins in desktop's order, beside the standard palette", () => {
-    expect(MOBILE_PALETTE_THEMES).toBe(WEB_BUILT_IN_THEMES);
     expect(MOBILE_PALETTE_THEME_IDS).toEqual(WEB_BUILT_IN_THEMES.map((theme) => theme.id));
     expect(MOBILE_THEME_OPTIONS.map((option) => option.id)).toEqual([
       "viewcode-teal",

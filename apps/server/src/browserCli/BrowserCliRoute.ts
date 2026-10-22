@@ -48,7 +48,9 @@ const MAX_BODY_BYTES = 256 * 1024;
 
 const decodeJson = Schema.decodeUnknownExit(Schema.fromJsonString(Schema.Unknown));
 
-const decodeToolInputs = Record.map(PreviewToolkit.tools, (tool) => Schema.decodeUnknownEffect(tool.parametersSchema));
+const decodeToolInputs = Record.map(PreviewToolkit.tools, (tool) =>
+  Schema.decodeUnknownEffect(tool.parametersSchema),
+);
 
 const noStore = { "cache-control": "no-store" };
 
@@ -98,7 +100,7 @@ const isTool = (value: unknown): value is BrowserCliTool =>
  * The failure the agent sees. Preview errors build their message on the
  * server and say what to do next; anything else is named by its tag only.
  */
-export const browserCliFailure = (cause: Cause.Cause<unknown>): BrowserCliError => {
+const browserCliFailure = (cause: Cause.Cause<unknown>): BrowserCliError => {
   const error = cause.reasons.find(Cause.isFailReason)?.error;
   if (typeof error === "object" && error !== null && "_tag" in error) {
     const tag = String((error as { _tag: unknown })._tag);
@@ -150,7 +152,7 @@ const snapshotResult = (snapshot: Snapshot, includeImage: boolean) =>
   });
 
 /** Runs one tool for a credential scope: the same decoding and handler as the MCP tool. */
-export const runBrowserTool = (
+const runBrowserTool = (
   scope: McpInvocationContext.McpInvocationScope,
   tool: BrowserCliTool,
   input: unknown,

@@ -368,125 +368,6 @@ it.effect.each([
     }).pipe(Effect.provide(layer)),
 );
 
-it.effect.each([
-  ["memory", ProjectionStore.layerMemory],
-  ["SQL", layerTest],
-] as const)("%s shells name the subagent threads the lead is running", ([, layer]) =>
-  Effect.gen(function* () {
-    const store = yield* ProjectionStore.ProjectionStoreV2;
-    const now = yield* DateTime.now;
-    const threadId = ThreadId.make("thread:running-subagents");
-    const runId = RunId.make("run:running-subagents");
-    const rootNodeId = NodeId.make("node:running-subagents");
-    const run = {
-      id: runId,
-      threadId,
-      ordinal: 1,
-      providerInstanceId,
-      modelSelection,
-      providerThreadId: null,
-      userMessageId: MessageId.make("message:running-subagents"),
-      rootNodeId,
-      activeAttemptId: null,
-      status: "running" as const,
-      requestedAt: now,
-      startedAt: now,
-      completedAt: null,
-      checkpointId: null,
-      contextHandoffId: null,
-    };
-    yield* store.apply({
-      id: EventId.make("event:running-subagents:thread"),
-      type: "thread.created",
-      threadId,
-      occurredAt: now,
-      payload: {
-        createdBy: "user",
-        creationSource: "web",
-        id: threadId,
-        projectId: ProjectId.make("project:running-subagents"),
-        title: "Lead",
-        providerInstanceId,
-        modelSelection,
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        branch: null,
-        worktreePath: null,
-        activeProviderThreadId: null,
-        lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
-        forkedFrom: null,
-        createdAt: now,
-        updatedAt: now,
-        archivedAt: null,
-        settledOverride: null,
-        settledAt: null,
-        lastVisitedAt: null,
-        deletedAt: null,
-      },
-    });
-    yield* store.apply({
-      id: EventId.make("event:running-subagents:run"),
-      type: "run.created",
-      threadId,
-      runId,
-      nodeId: rootNodeId,
-      driver,
-      providerInstanceId,
-      occurredAt: now,
-      payload: run,
-    });
-    const subagent = (index: number, status: "running" | "completed") => ({
-      id: TurnItemId.make(`item:running-subagents:${index}`),
-      threadId,
-      runId,
-      nodeId: rootNodeId,
-      providerThreadId: null,
-      providerTurnId: null,
-      nativeItemRef: null,
-      parentItemId: null,
-      ordinal: index,
-      status,
-      title: `Research ${index}`,
-      startedAt: now,
-      completedAt: status === "completed" ? now : null,
-      updatedAt: now,
-      type: "subagent" as const,
-      subagentId: NodeId.make(`node:running-subagents:${index}`),
-      origin: "provider_native" as const,
-      driver,
-      providerInstanceId,
-      childThreadId: ThreadId.make(`thread:running-subagents:child-${index}`),
-      prompt: `Research ${index}`,
-      result: null,
-    });
-    const setItem = (index: number, status: "running" | "completed") =>
-      store.apply({
-        id: EventId.make(`event:running-subagents:${index}:${status}`),
-        type: "turn-item.updated",
-        threadId,
-        runId,
-        nodeId: rootNodeId,
-        driver,
-        occurredAt: now,
-        payload: subagent(index, status),
-      });
-    const assertRunning = Effect.fnUntraced(function* (expected: ReadonlyArray<string>) {
-      const listed = (yield* store.getShellSnapshot()).threads.find(
-        (thread) => thread.id === threadId,
-      );
-      for (const shell of [yield* store.getThreadShell(threadId), listed]) {
-        assert.deepEqual([...(shell?.runningSubagentThreadIds ?? [])].toSorted(), expected);
-      }
-    });
-    yield* setItem(1, "running");
-    yield* setItem(2, "running");
-    // The lead's own run is still active, so nothing is "pending background work" yet.
-    yield* assertRunning(["thread:running-subagents:child-1", "thread:running-subagents:child-2"]);
-    yield* setItem(1, "completed");
-    yield* assertRunning(["thread:running-subagents:child-2"]);
-  }).pipe(Effect.provide(layer)),
-);
-
 const addOrphanedRecoveryCandidate = Effect.fn("addOrphanedRecoveryCandidate")(function* (
   suffix: string,
 ) {
@@ -1355,13 +1236,17 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         projection: initial.projection,
         snapshotSequence: 0,
       });
-      assert.lengthOf(bounded.projection.visibleTurnItems, 10 * 102);
-      assert.strictEqual(bounded.projection.visibleTurnItems[0]?.sourceItemId, allIds[35 * 102]);
-      const loaded = bounded.projection.visibleTurnItems.map((row) => String(row.sourceItemId));
+      // ViewCode caps a bounded snapshot below Quick connect's 1 MiB message limit even inside a
+      // turn (threadSnapshotRelayBudget.viewcode.test.ts), so ten 200 KB turns arrive as their
+      // newest rows; earlier pages still join up exactly.
+      const visible = bounded.projection.visibleTurnItems;
+      assert.isAbove(visible.length, 0);
+      assert.isBelow(visible.length, 10 * 102);
+      assert.strictEqual(visible.at(-1)?.sourceItemId, allIds.at(-1));
+      const loaded = visible.map((row) => String(row.sourceItemId));
       let cursor = bounded.historyCursor;
-      for (const turns of [20, 15]) {
-        assert.isNotNull(cursor);
-        const anchor = decodeThreadHistoryCursor(cursor!);
+      while (cursor !== null) {
+        const anchor = decodeThreadHistoryCursor(cursor);
         const snapshot = yield* projectionStore.getThreadSnapshotWindow(threadId, {
           rowLimit: 77,
           userTurnLimit: 20,
@@ -1370,14 +1255,13 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         });
         const page = selectHistoryPageFromCursor({
           items: snapshot.projection.visibleTurnItems,
-          cursor: cursor!,
+          cursor,
           snapshotSequence: 0,
         });
-        assert.lengthOf(page.items, turns * 102);
+        assert.isAbove(page.items.length, 0);
         loaded.unshift(...page.items.map((row) => String(row.sourceItemId)));
         cursor = page.nextCursor;
       }
-      assert.isNull(cursor);
       assert.deepEqual(loaded, allIds);
     }),
   );

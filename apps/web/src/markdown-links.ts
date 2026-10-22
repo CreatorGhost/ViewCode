@@ -86,4 +86,8 @@ function buildFileLinkMetaFromTarget(targetPath: string, cwd?: string): Markdown
   };
 }
 
-export { extractMarkdownLinkHrefs, isWindowsDrivePathHref, normalizeMarkdownLinkDestination } from "@t3tools/shared/markdownLinks";
+export {
+  extractMarkdownLinkHrefs,
+  isWindowsDrivePathHref,
+  normalizeMarkdownLinkDestination,
+} from "@t3tools/shared/markdownLinks";

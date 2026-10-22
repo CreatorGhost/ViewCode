@@ -20,7 +20,7 @@ import {
 import * as DateTime from "effect/DateTime";
 
 const NOW = DateTime.makeUnsafe("2026-10-21T00:00:00.000Z");
-export const GOAL_THREAD_ID = ThreadId.make("thread-goal");
+const GOAL_THREAD_ID = ThreadId.make("thread-goal");
 const PROVIDER_INSTANCE_ID = ProviderInstanceId.make("claude");
 
 const prose = (label: string, bytes: number) =>

@@ -52,7 +52,7 @@ export function resolveThemeEnvironmentIdentificationMode(
   return mode === "artwork" ? "pill" : mode;
 }
 
-export function stageArtworkAllowed(): boolean {
+function stageArtworkAllowed(): boolean {
   return false;
 }
 

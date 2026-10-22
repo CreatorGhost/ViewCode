@@ -23,7 +23,7 @@ export const OLDER_THREAD_USER_TURN_LIMIT = 20;
  * (a Cloudflare Durable Object) refuses any message over 1 MiB, which closes the
  * client's socket. Stay well under it so the RPC envelope always fits.
  */
-export const THREAD_SNAPSHOT_MAX_WIRE_BYTES = 896 * 1024;
+const THREAD_SNAPSHOT_MAX_WIRE_BYTES = 896 * 1024;
 
 export function isConversationHistoryItem(item: Pick<OrchestrationV2TurnItem, "type">): boolean {
   return !["command_execution", "reasoning", "file_change", "dynamic_tool"].includes(item.type);

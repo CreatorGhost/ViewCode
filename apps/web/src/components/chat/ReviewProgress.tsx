@@ -47,7 +47,7 @@ import type { LatestReviewStatus } from "./useReviewFindingsSource";
  * How long a review has run, by the shared minute clock, so the panel and the chat say the same
  * thing: until `endMs` once it stopped, else until now.
  */
-export function useReviewElapsedMs(startedAt: string, endMs: number | null): number {
+function useReviewElapsedMs(startedAt: string, endMs: number | null): number {
   const nowMinute = useNowMinute();
   // The clock's minute is UTC ("YYYY-MM-DDTHH:MM"); it re-renders its readers once a minute.
   const now = endMs ?? Date.parse(`${nowMinute}:00.000Z`);

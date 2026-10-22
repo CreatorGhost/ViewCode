@@ -5,7 +5,6 @@ import * as NodePath from "node:path";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 import * as Context from "effect/Context";
-import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
 /**
@@ -80,33 +79,3 @@ export const resolveClaudeSdkExecutablePath = Effect.fn("resolveClaudeSdkExecuta
     return binaryPath;
   },
 );
-
-/**
- * ViewCode: the path the Claude Agent SDK will launch, resolved and validated
- * now by an uncached filesystem lookup on every platform. Fails instead of
- * handing the SDK a command that does not resolve, so a missing or removed
- * `claude` is never executed. Used by the capabilities probe and sessions.
- */
-export const requireClaudeSdkExecutablePath = Effect.fn("requireClaudeSdkExecutablePath")(
-  function* (binaryPath: string, environment: NodeJS.ProcessEnv) {
-    const sdkPath = yield* resolveClaudeSdkExecutablePath(binaryPath, environment);
-    const platform = yield* HostProcess.Platform;
-    const resolveExecutable = yield* SpawnExecutableResolution;
-    const isFile = yield* ClaudeExecutableFileCheck;
-    // An npm `cli.js` entry is run by the SDK with a JavaScript runtime.
-    if (NodePath.extname(sdkPath).toLowerCase() === ".js" && isFile(sdkPath)) return sdkPath;
-    const resolved = resolveExecutable(sdkPath, platform, environment);
-    if (resolved === undefined) {
-      return yield* new ClaudeExecutableNotFoundError({ binaryPath });
-    }
-    return resolved;
-  },
-);
-
-export class ClaudeExecutableNotFoundError extends Data.TaggedError(
-  "ClaudeExecutableNotFoundError",
-)<{ readonly binaryPath: string }> {
-  override get message() {
-    return `Claude Agent CLI (\`${this.binaryPath}\`) was not found, so it was not launched.`;
-  }
-}

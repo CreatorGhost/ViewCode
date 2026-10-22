@@ -30,18 +30,27 @@ paths it touched, and every file ViewCode had changed that the merge changed, wi
 how many of ViewCode's lines are gone. It exits 1 when a ViewCode test file was
 deleted.
 
+CI runs the same check on every pull request that merges upstream: one of its merge
+commits has a second parent on upstream's `main` that the base branch lacks. It compares
+the whole PR with its base, so a test restored in a later commit counts, and fails the
+`Upstream merge check` job while a ViewCode test file is still deleted.
+
 - Restore every deleted ViewCode test, or say in the PR why its behaviour is gone on
   purpose.
 - Review each listed file against `git diff <base> <P> -- <file>`, starting from the
   top of the list. Treat a large missing count on a file upstream rewrote as a lost
   fix until shown otherwise.
 - A fix you restore gets a guard in a `*.viewcode.test.ts(x)` file beside the code.
+- Keep GitHub Enterprise host routing and the `gh` transport fallback (`GitHubGhTransport.ts`, wrapped in `GitHubRest.ts` and `gitHubGraphQlClient.ts`), and run their guards: `GitHubGhTransport`, `GitHubRoutedSourceControlProvider` and `PullRequestService` `.viewcode.test.ts`.
 
 ## Test
 
 ```sh
 vp run test:viewcode                   # every *.viewcode.test.* guard, from the root
 ```
+
+CI's test jobs run the guards of every package a PR affects; running them all locally
+finds a lost fix in an unaffected package too.
 
 Then run the tests of each package the merge changed (`vp test run <files>` from the
 package) and typecheck those packages. No repo-wide runs.
