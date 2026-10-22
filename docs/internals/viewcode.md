@@ -520,7 +520,14 @@ closes any left from a restart.
   `cursor-agent` as the fallback where the SDK ships no native package. Detection and
   the launch gate use the same resolver and never run the binary. Both runtimes share
   one continuation key; a thread whose saved session belongs to the other runtime
-  fails resume and gets native resume fallback with a full handoff. Running the SDK in
+  fails resume and gets native resume fallback with a full handoff. A `cursor-agent acp`
+  process lives as long as its thread's session (the idle timer does not run while the Mac
+  sleeps), and the CLI can keep a lost sign-in or dead connection in memory after a wake
+  while a new process signs in fine. So a prompt that fails with a sign-in, Keychain or
+  network error replaces the process before the next turn (`restartRuntimeAfterPromptFailure`)
+  and re-checks status. `about` says "Not logged in" when it cannot read its Keychain token
+  too; with `authInfo` still in `~/.cursor/cli-config.json` that is reported as unconfirmed,
+  not signed out. Running the SDK in
   a child `node` process was rejected: the tools' parent would still be a generic
   `node`, which is what the EDR objects to, and it needs a new packaged entry and an
   IPC protocol for the SDK runner's callbacks.

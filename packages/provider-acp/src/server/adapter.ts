@@ -317,6 +317,12 @@ export interface AcpAdapterV2Flavor {
    * Grok can keep `task_already_running` state until the process exits.
    */
   readonly restartRuntimeAfterInterrupt?: boolean;
+  /**
+   * True when a failed prompt leaves the agent process unusable, so the next turn
+   * starts a new one. A long-lived CLI can keep a lost login in memory after the
+   * machine sleeps while a fresh process signs in fine (ViewCode, Cursor CLI).
+   */
+  readonly restartRuntimeAfterPromptFailure?: (cause: unknown) => Effect.Effect<boolean>;
   readonly restartRuntimeOnEveryInterrupt?: boolean;
   readonly terminateRuntimeProcessGroupOnInterrupt?: boolean;
   readonly preserveRuntimeOnSettledInterrupt?: boolean;
@@ -6742,6 +6748,14 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   promptGeneration,
                   Effect.gen(function* () {
                     if (context.finalized) return;
+                    // Before finalizing, so the next turn cannot start on the old process.
+                    if (
+                      !context.interrupted &&
+                      flavor.restartRuntimeAfterPromptFailure !== undefined &&
+                      (yield* flavor.restartRuntimeAfterPromptFailure(Cause.squash(cause)))
+                    ) {
+                      yield* Ref.set(runtimeRestartRequired, true);
+                    }
                     yield* finalizeTurn(
                       context,
                       context.interrupted ? "interrupted" : "failed",

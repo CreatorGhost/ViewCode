@@ -16,6 +16,7 @@ import type * as CursorUsageAccounts from "@t3tools/provider-cursor/server/Curso
 import { readCursorUsageLimits } from "@t3tools/provider-cursor/server/usageLimits";
 import { probeCursorSkills } from "@t3tools/provider-cursor/server/skills";
 import { withAgentDeviceEnvironment } from "@t3tools/provider-core/server/mcpSession";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
@@ -55,6 +56,8 @@ import {
   CURSOR_AGENT_CLIENT_META,
   cursorAgentBaseModelId,
   CursorAgentModelDiscoveryError,
+  cursorAgentPromptAuthProblem,
+  cursorAgentPromptFailure,
   listCursorAgentModels,
   makeCursorAgentAcpRuntime,
   registerCursorAgentExtensions,
@@ -65,6 +68,7 @@ import {
   checkCursorAgentProviderStatus,
   type CursorAgentAbout,
 } from "./cursorAgentStatus.ts";
+import { cursorCliLoginIdentity } from "./cursorCredentialStore.ts";
 import { effectiveCursorRuntime } from "./cursorRuntime.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("cursor");
@@ -112,6 +116,22 @@ const createCursorAgentInstance = (input: ProviderDriverCreateInput<CursorSettin
     const selfInvocation = yield* resolveSelfInvocation();
     const loggers = yield* ProviderEventLoggers.ProviderEventLoggers;
     const nativeLogger = yield* makeAcpNativeLoggerFactory();
+    const instanceScope = yield* Effect.scope;
+    // A turn is the user asking, so this re-check does not wait for the
+    // background policy that paces the periodic status refresh.
+    const recheckStatus = Effect.suspend(() => snapshot.refresh).pipe(
+      Effect.ignoreCause({ log: true }),
+      Effect.forkIn(instanceScope),
+      Effect.asVoid,
+    );
+    const recheckAfterAuthProblem = (cause: unknown) => {
+      const problem = cursorAgentPromptAuthProblem(cause);
+      return problem === undefined
+        ? Effect.succeed(false)
+        : Effect.logWarning("Cursor CLI lost its sign-in or connection; replacing the process", {
+            problem,
+          }).pipe(Effect.andThen(recheckStatus), Effect.as(true));
+    };
     const flavor: AcpAdapterV2Flavor = {
       driver: DRIVER_KIND,
       runtimeHarness: "Cursor CLI",
@@ -120,6 +140,9 @@ const createCursorAgentInstance = (input: ProviderDriverCreateInput<CursorSettin
         threads: { ...ViewCodeAcpCapabilities.threads, canRollbackThread: false },
       },
       clientCapabilitiesMeta: CURSOR_AGENT_CLIENT_META,
+      promptFailure: cursorAgentPromptFailure,
+      restartRuntimeAfterPromptFailure: recheckAfterAuthProblem,
+      withRuntimeStartup: (startup) => startup.pipe(Effect.tapError(recheckAfterAuthProblem)),
       resolveModelId: (selection) => cursorAgentBaseModelId(selection.model),
       applyModelSelection: ({ runtime, modelSelection }) =>
         applyCursorAgentModel(runtime, modelSelection.model),
@@ -206,10 +229,21 @@ const createCursorAgentInstance = (input: ProviderDriverCreateInput<CursorSettin
         ),
     });
 
+    // The CLI keeps its account in `~/.cursor/cli-config.json` and the token in
+    // the Keychain; only the former is read, to tell a lost login from an unread one.
+    const hasSavedCliLogin = Effect.gen(function* () {
+      const home = environment.HOME?.trim() || (yield* HostProcess.HomeDirectory);
+      const config = yield* fileSystem.readFileString(
+        path.join(home, ".cursor", "cli-config.json"),
+      );
+      return yield* Effect.try(() => cursorCliLoginIdentity(config).length > 0);
+    }).pipe(Effect.orElseSucceed(() => false));
+
     const checkProvider = checkCursorAgentProviderStatus(
       settings,
       environment,
       discoverModels,
+      hasSavedCliLogin,
     ).pipe(
       Effect.flatMap((draft) =>
         settings.enabled && draft.installed && draft.auth.status === "authenticated"

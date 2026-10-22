@@ -34,11 +34,17 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
+import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import type { AcpAdapterV2Flavor } from "@t3tools/provider-acp/server/adapter";
 import { acpProviderOptionDescriptors } from "@t3tools/provider-acp/server/sessionConfig";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { cursorAgentCommand } from "./cursorRuntime.ts";
+import {
+  classifyCursorAgentAuthProblem,
+  cursorAgentFailureText,
+  type CursorAgentAuthProblem,
+} from "./cursorAgentStatus.ts";
 
 const CURSOR_AGENT_AUTH_METHOD_ID = "cursor_login";
 export const CURSOR_AGENT_CLIENT_META = { parameterizedModelPicker: true } as const;
@@ -297,3 +303,41 @@ export const listCursorAgentModels = (
       });
     }),
   );
+
+/**
+ * A turn that failed because the CLI lost or could not read its sign-in, or lost
+ * the network. The process is replaced before the next turn: a long-lived
+ * `cursor-agent` can keep that state in memory after the Mac sleeps while a new
+ * one (like the user's terminal) reads the saved login again.
+ */
+export function cursorAgentPromptAuthProblem(cause: unknown): CursorAgentAuthProblem | undefined {
+  return classifyCursorAgentAuthProblem(cursorAgentFailureText(cause));
+}
+
+const NEXT_MESSAGE_RETRY =
+  "ViewCode closed that Cursor CLI process, so your next message starts a fresh one that reads the sign-in again.";
+
+function cursorAgentPromptFailureMessage(problem: CursorAgentAuthProblem, detail: string): string {
+  const quoted = detail ? ` (Cursor CLI: "${detail}")` : "";
+  switch (problem) {
+    case "credentials-unreadable":
+      return `The Cursor CLI could not read its saved sign-in${quoted}. On a Mac this usually means the login Keychain is locked, for example after sleep. Unlock the Mac and send the message again. ${NEXT_MESSAGE_RETRY}`;
+    case "network":
+      return `The Cursor CLI could not reach Cursor${quoted}, which often happens right after sleep or a network change. ${NEXT_MESSAGE_RETRY} Send it again once you are online.`;
+    case "signed-out":
+      return `The Cursor CLI session reported that it is not signed in${quoted}. ${NEXT_MESSAGE_RETRY} If it fails again, run \`cursor-agent status\` in a terminal, and \`cursor-agent login\` only if that says you are signed out.`;
+  }
+}
+
+/** The turn failure the user sees; other failures keep the adapter's default. */
+export function cursorAgentPromptFailure(cause: unknown) {
+  const problem = cursorAgentPromptAuthProblem(cause);
+  if (problem === undefined) return makeProviderFailure({ cause, class: "provider_error" });
+  const detail = cursorAgentFailureText(cause).split("\n")[0]?.trim().slice(0, 300) ?? "";
+  return makeProviderFailure({
+    cause,
+    class: problem === "network" ? "transport_error" : "provider_error",
+    message: cursorAgentPromptFailureMessage(problem, detail),
+    retryable: true,
+  });
+}
