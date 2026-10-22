@@ -1,4 +1,4 @@
-// node:sqlite snapshots a live T3 Code database synchronously, like usage/opencodeUsageReader.
+// node:sqlite snapshots a live T3 Code database synchronously.
 // @effect-diagnostics nodeBuiltinImport:off
 /**
  * T3CodeHistory - projects and threads from a T3 Code install on this machine,
@@ -206,10 +206,12 @@ const nullableText = (value: unknown) =>
 
 /** Active T3 projects with their importable thread counts. */
 export function readT3CodeProjects(databasePath: string): T3CodeRead<ReadonlyArray<T3CodeProject>> {
-  return T3CodeHistoryV2.projects(databasePath) ?? withSnapshot(
-    databasePath,
-    (db) => {
-      db.exec(`
+  return (
+    T3CodeHistoryV2.projects(databasePath) ??
+    withSnapshot(
+      databasePath,
+      (db) => {
+        db.exec(`
         CREATE TABLE projects AS
         SELECT
           p.project_id AS id,
@@ -228,24 +230,25 @@ export function readT3CodeProjects(databasePath: string): T3CodeRead<ReadonlyArr
         WHERE p.deleted_at IS NULL
         GROUP BY p.project_id
       `);
-    },
-    (db) =>
-      db
-        .prepare("SELECT id, title, workspace_root, thread_count, last_active_at FROM projects")
-        .all()
-        .flatMap((row) => {
-          const workspaceRoot = nullableText(row.workspace_root);
-          if (workspaceRoot === null) return [];
-          return [
-            {
-              id: text(row.id),
-              title: text(row.title),
-              workspaceRoot,
-              threadCount: Number(row.thread_count ?? 0),
-              lastActiveAt: nullableText(row.last_active_at),
-            },
-          ];
-        }),
+      },
+      (db) =>
+        db
+          .prepare("SELECT id, title, workspace_root, thread_count, last_active_at FROM projects")
+          .all()
+          .flatMap((row) => {
+            const workspaceRoot = nullableText(row.workspace_root);
+            if (workspaceRoot === null) return [];
+            return [
+              {
+                id: text(row.id),
+                title: text(row.title),
+                workspaceRoot,
+                threadCount: Number(row.thread_count ?? 0),
+                lastActiveAt: nullableText(row.last_active_at),
+              },
+            ];
+          }),
+    )
   );
 }
 
@@ -271,11 +274,13 @@ export function readT3CodeThreads(
   databasePath: string,
   projectIds: ReadonlyArray<string>,
 ): T3CodeRead<ReadonlyArray<T3CodeThread>> {
-  return T3CodeHistoryV2.threads(databasePath, projectIds) ?? withSnapshot(
-    databasePath,
-    (db, schema) => {
-      db.prepare(
-        `
+  return (
+    T3CodeHistoryV2.threads(databasePath, projectIds) ??
+    withSnapshot(
+      databasePath,
+      (db, schema) => {
+        db.prepare(
+          `
         CREATE TABLE threads AS
         SELECT
           thread_id AS id,
@@ -289,8 +294,8 @@ export function readT3CodeThreads(
         WHERE deleted_at IS NULL
           AND project_id IN (SELECT value FROM json_each(?))
       `,
-      ).run(JSON.stringify(projectIds));
-      db.exec(`
+        ).run(JSON.stringify(projectIds));
+        db.exec(`
         CREATE TABLE messages AS
         SELECT
           m.rowid AS seq,
@@ -303,8 +308,8 @@ export function readT3CodeThreads(
         WHERE m.thread_id IN (SELECT id FROM main.threads)
           AND m.role IN ('user', 'assistant')
       `);
-      if (schema.runtime !== null) {
-        db.exec(`
+        if (schema.runtime !== null) {
+          db.exec(`
           CREATE TABLE bindings AS
           SELECT
             thread_id AS thread_id,
@@ -314,75 +319,77 @@ export function readT3CodeThreads(
           FROM t3.provider_session_runtime
           WHERE thread_id IN (SELECT id FROM main.threads)
         `);
-      }
-    },
-    (db, schema) => {
-      const messagesByThread = new Map<string, Array<T3CodeThreadMessage>>();
-      for (const row of db
-        .prepare(
-          "SELECT thread_id, role, text, created_at, attachments_json FROM messages ORDER BY created_at, seq",
-        )
-        .iterate()) {
-        const note = attachmentNote(row.attachments_json);
-        const body = text(row.text).trim();
-        const messageText = note === null ? body : body.length === 0 ? note : `${body}\n\n${note}`;
-        if (messageText.length === 0) continue;
-        const threadId = text(row.thread_id);
-        const messages = messagesByThread.get(threadId) ?? [];
-        messages.push({
-          role: row.role === "user" ? "user" : "assistant",
-          text: messageText,
-          createdAt: text(row.created_at),
-        });
-        messagesByThread.set(threadId, messages);
-      }
-      const bindings = new Map<string, NonNullable<T3CodeThread["binding"]>>();
-      if (schema.runtime !== null) {
+        }
+      },
+      (db, schema) => {
+        const messagesByThread = new Map<string, Array<T3CodeThreadMessage>>();
         for (const row of db
           .prepare(
-            "SELECT thread_id, provider_name, provider_instance_id, resume_cursor_json FROM bindings",
+            "SELECT thread_id, role, text, created_at, attachments_json FROM messages ORDER BY created_at, seq",
           )
-          .all()) {
-          const providerName = nullableText(row.provider_name);
-          if (providerName === null) continue;
-          bindings.set(text(row.thread_id), {
-            providerName,
-            providerInstanceId: nullableText(row.provider_instance_id),
-            resumeCursor: parseJson(row.resume_cursor_json),
+          .iterate()) {
+          const note = attachmentNote(row.attachments_json);
+          const body = text(row.text).trim();
+          const messageText =
+            note === null ? body : body.length === 0 ? note : `${body}\n\n${note}`;
+          if (messageText.length === 0) continue;
+          const threadId = text(row.thread_id);
+          const messages = messagesByThread.get(threadId) ?? [];
+          messages.push({
+            role: row.role === "user" ? "user" : "assistant",
+            text: messageText,
+            createdAt: text(row.created_at),
           });
+          messagesByThread.set(threadId, messages);
         }
-      }
-      return db
-        .prepare(
-          "SELECT id, project_id, title, model, created_at, updated_at, parent_thread_id FROM threads",
-        )
-        .all()
-        .flatMap((row): Array<T3CodeThread> => {
-          const id = text(row.id);
-          const messages = messagesByThread.get(id);
-          if (messages === undefined || messages.length === 0) return [];
-          const selection =
-            schema.modelColumn === "model" ? { model: row.model } : parseJson(row.model);
-          const record =
-            typeof selection === "object" && selection !== null
-              ? (selection as Record<string, unknown>)
-              : {};
-          return [
-            {
-              id,
-              projectId: text(row.project_id),
-              title: text(row.title).trim(),
-              instanceId: nullableText(record.instanceId) ?? nullableText(record.provider),
-              model: nullableText(record.model),
-              createdAt: text(row.created_at),
-              updatedAt: text(row.updated_at),
-              parentThreadId: nullableText(row.parent_thread_id),
-              messages,
-              binding: bindings.get(id) ?? null,
-            },
-          ];
-        });
-    },
+        const bindings = new Map<string, NonNullable<T3CodeThread["binding"]>>();
+        if (schema.runtime !== null) {
+          for (const row of db
+            .prepare(
+              "SELECT thread_id, provider_name, provider_instance_id, resume_cursor_json FROM bindings",
+            )
+            .all()) {
+            const providerName = nullableText(row.provider_name);
+            if (providerName === null) continue;
+            bindings.set(text(row.thread_id), {
+              providerName,
+              providerInstanceId: nullableText(row.provider_instance_id),
+              resumeCursor: parseJson(row.resume_cursor_json),
+            });
+          }
+        }
+        return db
+          .prepare(
+            "SELECT id, project_id, title, model, created_at, updated_at, parent_thread_id FROM threads",
+          )
+          .all()
+          .flatMap((row): Array<T3CodeThread> => {
+            const id = text(row.id);
+            const messages = messagesByThread.get(id);
+            if (messages === undefined || messages.length === 0) return [];
+            const selection =
+              schema.modelColumn === "model" ? { model: row.model } : parseJson(row.model);
+            const record =
+              typeof selection === "object" && selection !== null
+                ? (selection as Record<string, unknown>)
+                : {};
+            return [
+              {
+                id,
+                projectId: text(row.project_id),
+                title: text(row.title).trim(),
+                instanceId: nullableText(record.instanceId) ?? nullableText(record.provider),
+                model: nullableText(record.model),
+                createdAt: text(row.created_at),
+                updatedAt: text(row.updated_at),
+                parentThreadId: nullableText(row.parent_thread_id),
+                messages,
+                binding: bindings.get(id) ?? null,
+              },
+            ];
+          });
+      },
+    )
   );
 }
 
