@@ -19,6 +19,9 @@ vi.mock(import("@tanstack/react-router"), async (original) => ({
   ...(await original()),
   useNavigate: (() => vi.fn()) as never,
   useCanGoBack: () => false,
+  // UsagePage's header back button reads the route; these tests mount no router.
+  useLocation: ((options?: { select?: (location: { pathname: string }) => unknown }) =>
+    options?.select ? options.select({ pathname: "/usage" }) : { pathname: "/usage" }) as never,
 }));
 // Real presentations come from live connections; these tests drive them directly.
 vi.mock(import("../../state/presentation"), async (original) => {

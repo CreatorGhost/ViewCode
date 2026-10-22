@@ -38,7 +38,6 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { normalizeRelayOrigin } from "./relayOrigin.ts";
-export { normalizeRelayOrigin } from "./relayOrigin.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { createRelayForwarder, type RelayForwarder } from "./relayForwarder.ts";
 import {
@@ -281,7 +280,7 @@ export const followRelayDesire = (input: {
   );
 
 /** Stored origins are always https; plain http exists so tests can talk to a local workerd. */
-export const relayHostUrl = (origin: string): string => {
+const relayHostUrl = (origin: string): string => {
   const url = new URL(origin);
   return `${url.protocol === "http:" ? "ws" : "wss"}://${url.host}${RELAY_HOST_PATH}`;
 };
@@ -387,7 +386,7 @@ const probeRelayFailure = (
   );
 };
 
-export const dialRelay: RelayDial = (config) =>
+const dialRelay: RelayDial = (config) =>
   openRelaySocket(config).pipe(
     Effect.catch((dialError) => probeRelayFailure(config, dialError).pipe(Effect.flip)),
   );
@@ -479,18 +478,5 @@ export const layer = Layer.effect(
           });
         }).pipe(Effect.scoped),
     });
-  }),
-);
-
-const unconfiguredState: ViewCodeRelayState = { status: "off", configured: false };
-
-/** For tests that stand in for the connector without a relay. */
-export const layerUnconfigured = Layer.succeed(
-  ViewCodeRelayConnector,
-  ViewCodeRelayConnector.of({
-    stateChanges: Stream.make(unconfiguredState),
-    currentState: Effect.succeed(unconfiguredState),
-    networkChanged: Effect.void,
-    run: () => Effect.void,
   }),
 );

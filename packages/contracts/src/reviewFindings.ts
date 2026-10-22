@@ -202,7 +202,7 @@ export type ReviewFindingToFix = typeof ReviewFindingToFix.Type;
  * `PROVIDER_SEND_TURN_MAX_INPUT_CHARS`, with room for the request around them and the review's
  * title, so a fix the schema accepts never fails for being too long.
  */
-export const REVIEW_FIX_MESSAGE_MAX_FINDING_CHARS = 110_000;
+const REVIEW_FIX_MESSAGE_MAX_FINDING_CHARS = 110_000;
 
 /** Its number, severity, confidence, labels and line breaks, beyond the finding's own text. */
 const REVIEW_FIX_MESSAGE_FINDING_OVERHEAD_CHARS = 300;
@@ -212,7 +212,7 @@ const REVIEW_FIX_MESSAGE_FINDING_OVERHEAD_CHARS = 300;
  * its path twice (location and fence language) and the fence around its suggested fix, which
  * outgrows any backtick run inside it.
  */
-export function reviewFixMessageFindingChars(finding: ReviewFinding): number {
+function reviewFixMessageFindingChars(finding: ReviewFinding): number {
   const fix = finding.suggestedFix;
   const longestRun =
     fix === undefined ? 0 : Math.max(0, ...(fix.match(/`+/g) ?? []).map((run) => run.length));

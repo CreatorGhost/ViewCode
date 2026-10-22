@@ -9,9 +9,9 @@
  * does resending cost". It never blocks a send; the UI only informs.
  */
 
-export const CLAUDE_CACHE_WARNING_MIN_TOKENS = 100_000;
+const CLAUDE_CACHE_WARNING_MIN_TOKENS = 100_000;
 export const CLAUDE_DEFAULT_CACHE_TTL_SECONDS = 300;
-export const CLAUDE_EXTENDED_CACHE_TTL_SECONDS = 3_600;
+const CLAUDE_EXTENDED_CACHE_TTL_SECONDS = 3_600;
 
 function tokenCount(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0

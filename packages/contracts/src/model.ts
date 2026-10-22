@@ -145,8 +145,6 @@ export const COMMAND_CODE_DEFAULT_MODEL = "default";
 export const DROID_DEFAULT_MODEL = "default";
 /** Keep the model Devin is configured with. Never passed as `--model`. */
 export const DEVIN_DEFAULT_MODEL = "default";
-/** Keep the model from Pi's own settings. Never sent as `set_model`. */
-export const PI_DEFAULT_MODEL = "default";
 
 /** Let Muse pick the account's default model. Never send this ID to Muse. */
 export const MUSE_DEFAULT_MODEL = "default";

@@ -221,7 +221,7 @@ export function describeQuickConnectStatus(
 }
 
 /** The setup checklist as the person sees it; tool checks count as signing in. */
-export const QUICK_CONNECT_SETUP_STEPS: ReadonlyArray<{
+const QUICK_CONNECT_SETUP_STEPS: ReadonlyArray<{
   readonly label: string;
   readonly steps: ReadonlyArray<ViewCodeRelaySetupStep>;
 }> = [
@@ -271,7 +271,7 @@ const TOOL_STEPS: ReadonlySet<ViewCodeRelaySetupStep> = new Set([
   "deploying",
   "storing-secret",
 ]);
-export const SETUP_STEP_PATIENCE_MINUTES = 2;
+const SETUP_STEP_PATIENCE_MINUTES = 2;
 
 /** Said under a tool step that has run unusually long; null while it has not. */
 export function describeSlowSetupStep(

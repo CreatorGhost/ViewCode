@@ -84,6 +84,8 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version-file: package.json
+          # The sparse checkout has no lockfile and the check needs no packages.
+          package-manager-cache: false
 
       - name: Check what an upstream merge did to ViewCode
         if: github.event_name == 'pull_request'

@@ -185,7 +185,7 @@ export function inlineCodeFilePathCandidate(codeText: string): string | null {
   return candidate;
 }
 
-export function safeDecodeURIComponent(value: string): string {
+function safeDecodeURIComponent(value: string): string {
   try {
     return decodeURIComponent(value);
   } catch {
@@ -199,11 +199,11 @@ export function normalizeMarkdownLinkDestination(value: string): string {
 }
 
 /** Browser URL parsers write `C:/foo` as `/C:/foo` for file URLs. */
-export function stripSlashPrefixedWindowsDrive(path: string): string {
+function stripSlashPrefixedWindowsDrive(path: string): string {
   return SLASH_PREFIXED_WINDOWS_DRIVE_PATTERN.test(path) ? path.slice(1) : path;
 }
 
-export function splitMarkdownLinkSearchAndHash(value: string): {
+function splitMarkdownLinkSearchAndHash(value: string): {
   readonly path: string;
   readonly hash: string;
 } {
@@ -222,9 +222,7 @@ export function splitMarkdownLinkSearchAndHash(value: string): {
  * decode every destination in one place do not decode file URLs twice. A
  * non-localhost authority becomes a UNC share.
  */
-export function parseFileUrlHref(
-  href: string,
-): { readonly path: string; readonly hash: string } | null {
+function parseFileUrlHref(href: string): { readonly path: string; readonly hash: string } | null {
   try {
     const parsed = new URL(href);
     if (parsed.protocol.toLowerCase() !== "file:") return null;
@@ -246,7 +244,7 @@ export interface FilePathPosition {
   readonly column?: number;
 }
 
-export function splitFilePathPosition(path: string, hash = ""): FilePathPosition {
+function splitFilePathPosition(path: string, hash = ""): FilePathPosition {
   const suffixMatch = path.match(POSITION_SUFFIX_CAPTURE_PATTERN);
   const match = suffixMatch ?? hash.match(POSITION_HASH_PATTERN);
   if (!match?.[1]) return { path };
@@ -286,13 +284,6 @@ export function isMarkdownFileLinkLabel(label: string, href: string): boolean {
     destinationPath = destinationPath.toLowerCase();
   }
   return destinationPath === labelPath || destinationPath.endsWith(`/${labelPath}`);
-}
-
-export function isRelativeFilePath(path: string): boolean {
-  return (
-    RELATIVE_PATH_PREFIX_PATTERN.test(path) ||
-    (!path.startsWith("/") && !isWindowsAbsolutePath(path))
-  );
 }
 
 function looksLikePosixFilesystemPath(path: string): boolean {
@@ -349,21 +340,4 @@ export function fileBasename(path: string): string {
   if (trimmed.length === 0) return path;
   const separatorIndex = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
   return separatorIndex >= 0 ? trimmed.slice(separatorIndex + 1) : trimmed;
-}
-
-export function workspaceRelativeFilePath(
-  path: string,
-  workspaceRoot: string | null | undefined,
-): string | null {
-  if (!workspaceRoot) return null;
-  const normalizedPath = stripSlashPrefixedWindowsDrive(path.replaceAll("\\", "/"));
-  const normalizedRoot = stripSlashPrefixedWindowsDrive(
-    workspaceRoot.replaceAll("\\", "/"),
-  ).replace(/\/+$/, "");
-  const caseInsensitive = isWindowsAbsolutePath(stripSlashPrefixedWindowsDrive(workspaceRoot));
-  const pathForCompare = caseInsensitive ? normalizedPath.toLowerCase() : normalizedPath;
-  const rootForCompare = caseInsensitive ? normalizedRoot.toLowerCase() : normalizedRoot;
-  if (pathForCompare.replace(/\/+$/, "") === rootForCompare) return ".";
-  if (!pathForCompare.startsWith(`${rootForCompare}/`)) return null;
-  return normalizedPath.slice(normalizedRoot.length + 1);
 }

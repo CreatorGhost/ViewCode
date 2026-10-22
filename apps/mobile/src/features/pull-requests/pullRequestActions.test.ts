@@ -124,8 +124,12 @@ describe("mobile pull request actions", () => {
 
 describe("reviewSummaryRequired", () => {
   it("asks only Forgejo for a summary, and only when requesting changes", () => {
-    expect(reviewSummaryRequired(SourceControlProviderKind.make("forgejo"), "request-changes")).toBe(true);
+    expect(
+      reviewSummaryRequired(SourceControlProviderKind.make("forgejo"), "request-changes"),
+    ).toBe(true);
     expect(reviewSummaryRequired(SourceControlProviderKind.make("forgejo"), "approve")).toBe(false);
-    expect(reviewSummaryRequired(SourceControlProviderKind.make("github"), "request-changes")).toBe(false);
+    expect(reviewSummaryRequired(SourceControlProviderKind.make("github"), "request-changes")).toBe(
+      false,
+    );
   });
 });

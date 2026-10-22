@@ -1,4 +1,8 @@
-import { AuthOrchestrationOperateScope, EnvironmentAuthorizationError, EnvironmentId } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  EnvironmentAuthorizationError,
+  EnvironmentId,
+} from "@t3tools/contracts";
 import { runAttachmentUploadCycle } from "@t3tools/client-runtime/state/attachments";
 import * as Cause from "effect/Cause";
 import { AsyncResult, AtomRegistry } from "effect/reactivity";

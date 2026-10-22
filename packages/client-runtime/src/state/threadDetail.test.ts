@@ -376,27 +376,69 @@ it("rebuilds checkpoint summaries only when checkpoints or messages change", () 
 
 it("reads streamed ViewCode findings from v2 notices without duplicating visible history", () => {
   const activity = {
-    id: EventId.make("review-findings"), tone: "info" as const,
-    kind: "viewcode.review.findings", summary: "Review so far",
-    payload: { complete: false, findings: [] }, turnId: null, createdAt: "2026-06-20T00:00:00.000Z",
+    id: EventId.make("review-findings"),
+    tone: "info" as const,
+    kind: "viewcode.review.findings",
+    summary: "Review so far",
+    payload: { complete: false, findings: [] },
+    turnId: null,
+    createdAt: "2026-06-20T00:00:00.000Z",
   };
   const notice: OrchestrationV2ThreadProjection["turnItems"][number] = {
-    type: "system_notice", id: TurnItemId.make("review-notice"), threadId: ref.threadId,
-    runId: null, nodeId: null, providerThreadId: null, providerTurnId: null, nativeItemRef: null,
-    parentItemId: null, ordinal: 1, status: "completed", title: null,
-    startedAt: v2Now, completedAt: v2Now, updatedAt: v2Now, message: "Review so far", viewcodeActivity: activity,
+    type: "system_notice",
+    id: TurnItemId.make("review-notice"),
+    threadId: ref.threadId,
+    runId: null,
+    nodeId: null,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal: 1,
+    status: "completed",
+    title: null,
+    startedAt: v2Now,
+    completedAt: v2Now,
+    updatedAt: v2Now,
+    message: "Review so far",
+    viewcodeActivity: activity,
   };
   const projection = { ...v2Projection, turnItems: [notice], visibleTurnItems: [] };
-  const source = Atom.make(AsyncResult.success(threadState({ data: Option.some(projection), status: "live", error: Option.none() })));
+  const source = Atom.make(
+    AsyncResult.success(
+      threadState({ data: Option.some(projection), status: "live", error: Option.none() }),
+    ),
+  );
   const details = createEnvironmentThreadDetailAtoms(() => source);
   const registry = AtomRegistry.make();
   const dispose = registry.mount(details.activitiesAtom(ref));
   const before = registry.get(details.activitiesAtom(ref));
   expect(before).toEqual([activity]);
-  registry.set(source, AsyncResult.success(threadState({ data: Option.some({ ...projection, messages: [...projection.messages] }), status: "live", error: Option.none() })));
+  registry.set(
+    source,
+    AsyncResult.success(
+      threadState({
+        data: Option.some({ ...projection, messages: [...projection.messages] }),
+        status: "live",
+        error: Option.none(),
+      }),
+    ),
+  );
   expect(registry.get(details.activitiesAtom(ref))).toBe(before);
   const completed = { ...activity, payload: { complete: true, findings: [] } };
-  registry.set(source, AsyncResult.success(threadState({ data: Option.some({ ...projection, turnItems: [{ ...notice, viewcodeActivity: completed }] }), status: "live", error: Option.none() })));
+  registry.set(
+    source,
+    AsyncResult.success(
+      threadState({
+        data: Option.some({
+          ...projection,
+          turnItems: [{ ...notice, viewcodeActivity: completed }],
+        }),
+        status: "live",
+        error: Option.none(),
+      }),
+    ),
+  );
   expect(registry.get(details.activitiesAtom(ref))).toEqual([completed]);
   dispose();
   registry.dispose();

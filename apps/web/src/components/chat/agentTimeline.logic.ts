@@ -1,11 +1,5 @@
-import { AGENT_MESSAGE_SENT_ACTIVITY_KIND } from "@t3tools/shared/agentMessages";
 import { normalizeCompactToolLabel } from "@t3tools/client-runtime/work-log/presentation";
 import type { WorkLogEntry } from "../../session-logic";
-
-/** True for the sender-side record of a ViewCode agent-to-agent message. */
-export function isAgentMessageSentActivityKind(kind: string | undefined): boolean {
-  return kind === AGENT_MESSAGE_SENT_ACTIVITY_KIND;
-}
 
 const AGENT_TOOLKIT_LABELS: Readonly<
   Record<string, readonly [action: string, running: string, completed: string]>
@@ -32,7 +26,7 @@ function agentToolkitToolName(value: string | undefined): string | null {
 }
 
 /** The ViewCode agents MCP tool this entry calls, if any. */
-export function resolveAgentToolkitToolName(
+function resolveAgentToolkitToolName(
   entry: Pick<WorkLogEntry, "label" | "toolTitle" | "toolData">,
 ): string | null {
   const data = entry.toolData;

@@ -320,7 +320,7 @@ it.layer(integrationLayer)("Cursor import", (it) => {
       );
 
       const projectId = ProjectId.make("project-from-cursor");
-      yield* harness.createProject({projectId,workspaceRoot:WORKSPACE});
+      yield* harness.createProject({ projectId, workspaceRoot: WORKSPACE });
 
       const listed = yield* importer.listImportableAgentSessions({ projectId });
       expect(listed.warning).toBeUndefined();
@@ -350,7 +350,7 @@ it.layer(integrationLayer)("Cursor import", (it) => {
       });
 
       const threadId = ThreadId.make("import:cursor:chat-main");
-      const thread = (yield* harness.thread(threadId));
+      const thread = yield* harness.thread(threadId);
       expect(thread.messages.map((message) => [message.role, message.text])).toEqual([
         ["user", "Why is the router slow?"],
         ["assistant", "Let me look."],
@@ -358,12 +358,15 @@ it.layer(integrationLayer)("Cursor import", (it) => {
         ["user", "Fix it please."],
       ]);
       expect(thread.modelSelection.instanceId).toBe("cursor");
-      expect(Option.getOrThrow(yield* runtimes.getByThreadId({threadId}))).toMatchObject({
+      expect(Option.getOrThrow(yield* runtimes.getByThreadId({ threadId }))).toMatchObject({
         providerName: "cursor",
         providerInstanceId: "cursor",
         resumeCursor: null,
       });
-      expect((yield* harness.thread(ThreadId.make("import:cursor:editor:comp-main"))).modelSelection.instanceId).toBe("cursor");
+      expect(
+        (yield* harness.thread(ThreadId.make("import:cursor:editor:comp-main"))).modelSelection
+          .instanceId,
+      ).toBe("cursor");
 
       const relisted = yield* importer.listImportableAgentSessions({ projectId });
       expect(relisted.sessions.every((session) => session.alreadyImported)).toBe(true);

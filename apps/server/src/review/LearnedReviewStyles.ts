@@ -54,7 +54,7 @@ const encodeFile = Schema.encodeSync(Schema.fromJsonString(LearnedReviewStyleFil
  * Where an account's samples live: `<stateDir>/review-style/<host>/<login>.json`, both
  * lowercased as hosts compare them. The contract's patterns keep both a single path segment.
  */
-export const learnedReviewStylePath = (
+const learnedReviewStylePath = (
   path: Path.Path,
   stateDir: string,
   account: LearnedReviewStyleAccount,

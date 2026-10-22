@@ -6,7 +6,7 @@
  */
 
 /** Drivers whose accounts ViewCode can create and sign in from Settings. */
-export const ACCOUNT_DRIVERS = ["codex", "claudeAgent"] as const;
+const ACCOUNT_DRIVERS = ["codex", "claudeAgent"] as const;
 export type AccountDriver = (typeof ACCOUNT_DRIVERS)[number];
 
 export function isAccountDriver(driver: string): driver is AccountDriver {
@@ -64,7 +64,7 @@ export function validateAccountInstanceId(
 }
 
 /** Directory (under the server's state dir) holding every managed account home. */
-export const MANAGED_ACCOUNT_HOMES_DIRNAME = "provider-accounts";
+const MANAGED_ACCOUNT_HOMES_DIRNAME = "provider-accounts";
 
 function joinPath(separator: "/" | "\\", ...parts: ReadonlyArray<string>): string {
   const [first = "", ...rest] = parts;

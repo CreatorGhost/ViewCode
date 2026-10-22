@@ -280,7 +280,7 @@ export const DEFAULT_CHAT_DENSITY: ChatDensity = "comfortable";
 /** Maximum width of the chat timeline and composer; "full" fills wide screens. */
 export const ChatWidth = Schema.Literals(["comfortable", "narrow", "normal", "wide", "full"]);
 export type ChatWidth = typeof ChatWidth.Type;
-export const DEFAULT_CHAT_WIDTH: ChatWidth = "normal";
+const DEFAULT_CHAT_WIDTH: ChatWidth = "normal";
 
 // ViewCode read aloud (Settings -> Appearance -> Read aloud). A voice names its
 // engine: the browser's system voices (a null voiceURI is the system default)
@@ -297,12 +297,12 @@ export const ReadAloudVoice = Schema.Union([
   }),
 ]);
 export type ReadAloudVoice = typeof ReadAloudVoice.Type;
-export const MIN_READ_ALOUD_RATE = 0.8;
-export const MAX_READ_ALOUD_RATE = 2;
+const MIN_READ_ALOUD_RATE = 0.8;
+const MAX_READ_ALOUD_RATE = 2;
 export const ReadAloudRate = Schema.Number.check(
   Schema.isBetween({ minimum: MIN_READ_ALOUD_RATE, maximum: MAX_READ_ALOUD_RATE }),
 );
-export const DEFAULT_READ_ALOUD_RATE = 1;
+const DEFAULT_READ_ALOUD_RATE = 1;
 
 export const ModelFavorite = Schema.Struct({
   provider: ProviderInstanceId,

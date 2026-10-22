@@ -1,4 +1,9 @@
-import { ComposerContextId, COMPOSER_CONTEXT_TERMINAL_TEXT_MAX_CHARS, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
+import {
+  ComposerContextId,
+  COMPOSER_CONTEXT_TERMINAL_TEXT_MAX_CHARS,
+  type EnvironmentId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
 import { useState } from "react";
 import { Alert, Modal, Platform, Pressable, ScrollView, View } from "react-native";

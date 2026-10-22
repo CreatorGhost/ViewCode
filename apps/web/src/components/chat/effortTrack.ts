@@ -22,7 +22,7 @@ const BLACK: Rgb = [0, 0, 0];
 
 /** Fast mode's gold: the bolt's yellow, and a deeper one for fills. */
 export const FAST_TITLE: Rgb = [1, 0.84, 0.36];
-export const FAST_FILL: Rgb = [0.93, 0.66, 0.13];
+const FAST_FILL: Rgb = [0.93, 0.66, 0.13];
 
 const GEMINI: ReadonlyArray<Rgb> = [
   [0.26, 0.52, 0.96],

@@ -4,7 +4,14 @@ import {
   reviewFindingIdentity,
   selectReviewFixChat,
 } from "@t3tools/client-runtime/review-findings";
-import { CommandId, type EnvironmentId, MessageId, type ProjectId, type ReviewFindingsTarget, type ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  type EnvironmentId,
+  MessageId,
+  type ProjectId,
+  type ReviewFindingsTarget,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { buildReviewFixMessage } from "@t3tools/shared/reviewFindings";
 import * as Haptics from "expo-haptics";
 import { useCallback, useMemo } from "react";

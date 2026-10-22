@@ -139,10 +139,12 @@ export const layer = HttpApiBuilder.group(
           Effect.andThen(toHttpError(cloudLink.updatePreferences(payload))),
         ),
       )
-      .handle("retryTunnel", () => requireEnvironmentScope(AuthRelayWriteScope).pipe(
-        Effect.andThen(endpointRuntime.withLinkStateLock(endpointRuntime.retryTunnel)),
-        Effect.map((endpointRuntimeStatus) => ({ ok: true as const, endpointRuntimeStatus })),
-      ))
+      .handle("retryTunnel", () =>
+        requireEnvironmentScope(AuthRelayWriteScope).pipe(
+          Effect.andThen(endpointRuntime.withLinkStateLock(endpointRuntime.retryTunnel)),
+          Effect.map((endpointRuntimeStatus) => ({ ok: true as const, endpointRuntimeStatus })),
+        ),
+      )
       .handle("health", ({ payload }) =>
         toHttpError(cloudLink.answerHealthRequest(payload)).pipe(
           Effect.tap(() => appendCloudCredentialResponseHeaders),

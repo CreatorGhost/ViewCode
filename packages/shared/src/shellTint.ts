@@ -83,7 +83,7 @@ export function resolveShellTintAlphas(surfaceLightness: number): ShellTintAlpha
 }
 
 /** CSS custom property for each alpha, as `viewcode-theme.css` and `viewcode-chat.css` read them. */
-export const SHELL_TINT_VARIABLES: Readonly<Record<keyof ShellTintAlphas, string>> = {
+const SHELL_TINT_VARIABLES: Readonly<Record<keyof ShellTintAlphas, string>> = {
   surfaceTop: "--shell-tint-surface-top",
   surfaceBottom: "--shell-tint-surface-bottom",
   border: "--shell-tint-border",

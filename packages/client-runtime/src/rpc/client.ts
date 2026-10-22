@@ -122,7 +122,7 @@ const MESSAGE_TOO_BIG_MAX_HOLD_MS = 15 * 60_000;
  * <tag>"); an older one does not, so `waitingForFirstValue` narrows it to
  * subscriptions still waiting for their opening snapshot or replay.
  */
-export function isMessageTooBigFailure(
+function isMessageTooBigFailure(
   cause: Cause.Cause<unknown>,
   tag: string,
   waitingForFirstValue: boolean,

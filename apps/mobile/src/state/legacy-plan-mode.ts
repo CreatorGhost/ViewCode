@@ -1,4 +1,8 @@
-import { DEFAULT_PROVIDER_INTERACTION_MODE, type ProviderInteractionMode, type ServerProvider } from "@t3tools/contracts";
+import {
+  DEFAULT_PROVIDER_INTERACTION_MODE,
+  type ProviderInteractionMode,
+  type ServerProvider,
+} from "@t3tools/contracts";
 
 type InteractionModeProvider = Pick<ServerProvider, "showInteractionModeToggle">;
 

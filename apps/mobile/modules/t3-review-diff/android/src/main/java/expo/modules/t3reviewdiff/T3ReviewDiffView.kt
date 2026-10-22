@@ -656,6 +656,9 @@ internal data class DiffStyle(
   }
 }
 
+// One canvas owns layout, scrolling and drawing for the whole diff; splitting it
+// would spread shared row state across classes.
+@Suppress("LargeClass")
 private class DiffCanvasView(context: Context) : View(context) {
   private val density = resources.displayMetrics.density
   private val drawing = ReviewDiffCanvasDrawing(context)

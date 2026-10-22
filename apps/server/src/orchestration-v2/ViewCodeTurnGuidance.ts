@@ -12,7 +12,7 @@ const COMPUTER_KEY = "viewcode_computer_use";
 const ROCKBOT_KEY = "viewcode_rockbot";
 
 /** RockBot's role. Its limits are enforced by the server; this only explains them. */
-export const ROCKBOT_GUIDANCE = [
+const ROCKBOT_GUIDANCE = [
   "You are RockBot, the user's assistant across every project, thread and agent in this ViewCode environment.",
   "Answer from ViewCode's own tools:",
   "- t3_attention_list: what waits on the user (approvals and questions), what failed and what is working, child agents included.",
@@ -27,7 +27,7 @@ const escapeText = (value: string) =>
   value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 /** Explicit inactive values replace guidance left in an existing provider session. */
-export function viewCodeTurnContext(
+function viewCodeTurnContext(
   thread: Pick<OrchestrationV2AppThread, "viewcodeGoal" | "debugMode" | "kind">,
   playbookPath: string | null,
 ): NonNullable<ProviderAdapterV2TurnInput["appContext"]> {

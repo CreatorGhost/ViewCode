@@ -6,7 +6,7 @@
  * `ABRUPT_EXIT_LIMIT` abrupt exits within `ABRUPT_EXIT_WINDOW_MS`, the
  * manager stops restarting and reports the reason instead.
  */
-export const ABRUPT_EXIT_LIMIT = 3;
+const ABRUPT_EXIT_LIMIT = 3;
 export const ABRUPT_EXIT_WINDOW_MS = 2 * 60 * 1000;
 
 /** Records abrupt exits; `record` returns true once the limit is reached. */

@@ -389,7 +389,7 @@ function oklabLightness([r, g, b]: Rgb): number {
 }
 
 /** §6.3 derivation of one appearance of a named theme from the ViewCode table. */
-export function deriveViewCodeThemeColors(
+function deriveViewCodeThemeColors(
   base: ThemeColors,
   palette: DroppyPalette,
   appearance: ThemeAppearance,
