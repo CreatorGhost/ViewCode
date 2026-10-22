@@ -1,4 +1,4 @@
-import type { ServerProviderUsageWindow } from "@t3tools/contracts";
+import type { EnvironmentId, ServerProviderUsageWindow } from "@t3tools/contracts";
 import { makeWindow } from "@t3tools/shared/usageFormat";
 
 import { cn } from "~/lib/utils";
@@ -8,6 +8,7 @@ import {
   buildRailUsageCardRows,
   railTokenRows,
   usageProviderForDriver,
+  type RailTokenRow,
   type RailUsageCardRow,
 } from "../rail/railUsageCard.logic";
 
@@ -91,22 +92,32 @@ export function usageWindowRows(windows: ReadonlyArray<ServerProviderUsageWindow
   return buildRailUsageCardRows(windows, now);
 }
 
-/** Tokens and sessions for this provider over 24h, 7d and 30d, from the same report the Usage page reads. */
-export function TokenRows({ driverKind, openedAt }: { driverKind: string; openedAt: number }) {
-  const provider = usageProviderForDriver(driverKind);
+export type TokenUsageWindows = Parameters<typeof railTokenRows>[1];
+
+/**
+ * Usage over 24h, 7d and 30d: three reads, whatever the number of providers. Each
+ * report already carries every provider, so callers share one set across their cards.
+ */
+export function useTokenUsageWindows(
+  openedAt: number,
+  selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null = null,
+): TokenUsageWindows {
   const [day, week, month] = (() => {
     const now = new Date(openedAt);
     return [makeWindow(1, now, "hour"), makeWindow(7, now), makeWindow(30, now)];
   })();
-  const d = useUsage(day).merged.providers;
-  const w = useUsage(week).merged.providers;
-  const m = useUsage(month).merged.providers;
-  if (!provider) return null;
-  const rows = railTokenRows(provider, [
+  const d = useUsage(day, selectedEnvironmentIds).merged.providers;
+  const w = useUsage(week, selectedEnvironmentIds).merged.providers;
+  const m = useUsage(month, selectedEnvironmentIds).merged.providers;
+  return [
     { label: "24h", providers: d },
     { label: "7d", providers: w },
     { label: "30d", providers: m },
-  ]);
+  ];
+}
+
+/** `24h · 439M tokens`, then the session count, one block per window with any usage. */
+export function TokenRowList({ rows }: { rows: ReadonlyArray<RailTokenRow> }) {
   return rows.map((row) => (
     <div key={row.label} className="flex flex-col gap-0.5">
       <div className="flex items-baseline justify-between gap-3">
@@ -116,4 +127,12 @@ export function TokenRows({ driverKind, openedAt }: { driverKind: string; opened
       <span className="text-muted-foreground tabular-nums">{row.sessions}</span>
     </div>
   ));
+}
+
+/** Tokens and sessions for this provider over 24h, 7d and 30d, from the same report the Usage page reads. */
+export function TokenRows({ driverKind, openedAt }: { driverKind: string; openedAt: number }) {
+  const provider = usageProviderForDriver(driverKind);
+  const windows = useTokenUsageWindows(openedAt);
+  if (!provider) return null;
+  return <TokenRowList rows={railTokenRows(provider, windows)} />;
 }
