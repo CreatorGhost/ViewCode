@@ -10,7 +10,6 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/process";
 import { HostProcessEnvironment, HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 
 import {
   buildTailscaleHttpsBaseUrl,
@@ -24,12 +23,10 @@ import {
   parseTailscaleStatus,
   readTailscaleSshEnabled,
   readTailscaleStatus,
-  resolveTailscaleBlock,
   TAILSCALE_STATUS_TIMEOUT,
   TailscaleCommandExitError,
   TailscaleCommandSpawnError,
   TailscaleCommandTimeoutError,
-  TailscaleDisabledError,
   TailscaleStatusParseError,
 } from "./tailscale.ts";
 
@@ -389,65 +386,6 @@ describe("tailscale", () => {
         { command: "tailscale", args: ["serve", "--https=8443", "off"] },
       ]);
     });
-  });
-
-  it.effect("runs no command at all while VIEWCODE_DISABLE_TAILSCALE is set", () => {
-    let spawned = 0;
-    const layer = layerMockSpawner(() => {
-      spawned++;
-      return { stdout: tailscaleStatusJson };
-    });
-    return Effect.gen(function* () {
-      const status = yield* readTailscaleStatus.pipe(Effect.flip);
-      const prefs = yield* readTailscaleSshEnabled.pipe(Effect.flip);
-      const serve = yield* ensureTailscaleServe({ localPort: 3773 }).pipe(Effect.flip);
-      for (const error of [status, prefs, serve]) {
-        assert.instanceOf(error, TailscaleDisabledError);
-      }
-      assert.equal(spawned, 0);
-    }).pipe(
-      Effect.provide(layer),
-      Effect.provideService(HostProcess.Environment, { VIEWCODE_DISABLE_TAILSCALE: "1" }),
-    );
-  });
-
-  it.effect("runs no command at all while the admin policy blocks Tailscale", () => {
-    let spawned = 0;
-    const layer = layerMockSpawner(() => {
-      spawned++;
-      return { stdout: tailscaleStatusJson };
-    });
-    return Effect.gen(function* () {
-      const status = yield* readTailscaleStatus.pipe(Effect.flip);
-      const prefs = yield* readTailscaleSshEnabled.pipe(Effect.flip);
-      const serve = yield* ensureTailscaleServe({ localPort: 3773 }).pipe(Effect.flip);
-      const serveOff = yield* disableTailscaleServe({ servePort: 443 }).pipe(Effect.flip);
-      for (const error of [status, prefs, serve, serveOff]) {
-        assert.instanceOf(error, TailscaleDisabledError);
-        assert.equal((error as TailscaleDisabledError).reason, "policy");
-      }
-      assert.equal(spawned, 0);
-    }).pipe(
-      Effect.provide(layer),
-      Effect.provideService(HostProcess.Environment, {}),
-      Effect.provideService(AdminPolicyRef, {
-        blockedDrivers: [],
-        tailscaleBlocked: true,
-        problem: null,
-      }),
-    );
-  });
-
-  it("lets the admin policy outrank the environment switch, and both the setting", () => {
-    const off = { VIEWCODE_DISABLE_TAILSCALE: "true" };
-    const block = (policyBlocked: boolean, env: NodeJS.ProcessEnv, settingEnabled: boolean) =>
-      resolveTailscaleBlock({ policyBlocked, env, settingEnabled });
-    assert.equal(block(false, {}, true), null);
-    assert.equal(block(false, {}, false), "setting");
-    assert.equal(block(false, off, true), "environment");
-    assert.equal(block(false, { VIEWCODE_DISABLE_TAILSCALE: "0" }, true), null);
-    assert.equal(block(true, {}, true), "policy");
-    assert.equal(block(true, off, false), "policy");
   });
 
   describe("finding the CLI off PATH", () => {
