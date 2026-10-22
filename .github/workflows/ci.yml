@@ -54,6 +54,62 @@ jobs:
         id: detect
         uses: ./.github/actions/ci-changes
 
+  # An upstream T3 Code merge can drop a ViewCode fix with no conflict, taking the
+  # test that guarded it along (docs/operations/upstream-merge.md). For a pull
+  # request that merges upstream, fail when the PR as a whole deletes a ViewCode
+  # test file. It is read-only git, so it runs without installing anything. A PR
+  # merges upstream when one of its merge commits has a second parent on
+  # upstream's main that the base branch does not have yet; any other PR passes
+  # at once. Runs for pushes too, as a no-op, so `check` never sees it skipped.
+  upstream_merge:
+    name: Upstream merge check
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      # Full history, without file contents until git needs them.
+      - name: Checkout
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: |
+            /package.json
+            /scripts/upstream-merge-check.ts
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: package.json
+
+      - name: Check what an upstream merge did to ViewCode
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags --quiet https://github.com/pingdotgg/t3code.git main
+          upstream_main="$(git rev-parse FETCH_HEAD)"
+          merged=""
+          # Newest first, so the latest upstream merge in the PR is the one reported.
+          for merge in $(git rev-list --merges "$BASE..$HEAD"); do
+            second="$(git rev-parse "$merge^2")"
+            if git merge-base --is-ancestor "$second" "$upstream_main" \
+              && ! git merge-base --is-ancestor "$second" "$BASE"; then
+              merged="$second"
+              break
+            fi
+          done
+          if test -z "$merged"; then
+            echo "This pull request merges nothing new from upstream T3 Code."
+            exit 0
+          fi
+          # The whole PR against its base, so tests restored after the merge commit count.
+          node scripts/upstream-merge-check.ts --merge "$HEAD" --viewcode "$BASE" --upstream "$merged"
+
   # Lint and the desktop build each get a runner so they run side by side.
   # Typecheck shares the build's install. Lint always runs: it formats every
   # file, docs included. The `Check` job at the end of this file passes only
@@ -501,6 +557,7 @@ jobs:
     needs:
       [
         changes,
+        upstream_merge,
         lint,
         build,
         test,
