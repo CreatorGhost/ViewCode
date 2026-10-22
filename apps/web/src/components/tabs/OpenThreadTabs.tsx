@@ -219,7 +219,7 @@ const TabItem = memo(function TabItem(props: {
         if (event.button === 1) event.preventDefault();
       }}
       className={cn(
-        "group/tab relative flex h-7 max-w-56 cursor-pointer items-center gap-1.5 rounded-lg pr-1 pl-2 text-xs outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        "group/tab relative flex h-7 max-w-72 cursor-pointer items-center gap-1.5 rounded-lg pr-1 pl-2 text-xs outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         // Tabs give way to their minimum before the strip folds them.
         props.alone ? "min-w-0 shrink" : "min-w-24 shrink",
         props.active

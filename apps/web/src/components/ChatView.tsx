@@ -8082,9 +8082,9 @@ export default function ChatView(props: ChatViewProps) {
             parentThreadLink={parentThreadLink}
             onOpenThread={onOpenRelatedThreadStable}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
-            // Closed, the fixed details and panel toggles sit over the header's own
-            // padding; a count of 0 would write that padding away.
-            {...(inlineRightPanelOwnsTitleBar ? { toolbarControlCount: 1 } : {})}
+            // Only the docked panel puts a fixed control over the header's right edge.
+            // Closed, the toggles sit in the actions, so nothing is reserved.
+            toolbarControlCount={inlineRightPanelOwnsTitleBar ? 1 : 0}
             actions={
               <div data-chat-header-actions className="flex shrink-0 items-center gap-2">
                 <ViewCodeHeaderProjectActions
