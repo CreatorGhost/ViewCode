@@ -962,6 +962,13 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   Cursor (`cursor`, `project/CursorHistory.ts`). Nothing is imported by
   default: sessions are picked one by one. Agents reach the same flow through
   the `history` MCP toolkit.
+- **A bare `AgentSessionScanner.layer` lists only Claude Code and Codex.** The
+  Cursor and T3 Code readers are optional services, so a scanner built without
+  them skips both sources and only logs a warning when it is built. server.ts
+  provides one `project/ViewCodeAgentSessionScanner.ts` layer to the v2
+  importer, the MCP tools and the WebSocket handlers, which also keeps one
+  import read lock; `runtimeLayer.ts` must not build its own
+  (`runtimeLayer.viewcode.test.ts`).
 - **Never open T3's source database read-write.** T3 Code may be running.
   The legacy reader attaches the file with `mode=ro` to a private temp database,
   copies the needed rows in one read transaction, detaches the source, and reads
