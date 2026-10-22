@@ -38,7 +38,11 @@ export interface EnvironmentConnectionLease {
   readonly session: RpcSession.RpcSession;
 }
 
-export type RouteCheck = "answered" | "silent" | "unchecked";
+/**
+ * "elsewhere" means a different environment answered at that address (a saved LAN IP on
+ * another network), so the route is not tried and no credential goes there.
+ */
+export type RouteCheck = "answered" | "silent" | "elsewhere" | "unchecked";
 
 const ROUTE_CHECK_TIMEOUT_MS = 2_500;
 
@@ -92,6 +96,7 @@ export const connectOverRoutes = Effect.fn("ConnectionDriver.connectOverRoutes")
   const silent: Array<ConnectionRoute> = [];
   for (const [index, route] of routes.entries()) {
     const check = checks.length === 0 ? "unchecked" : yield* Fiber.join(checks[index]!);
+    if (check === "elsewhere") continue;
     if (check === "silent") {
       silent.push(route);
       continue;
@@ -132,7 +137,7 @@ export const make = Effect.gen(function* () {
       timeoutMs: ROUTE_CHECK_TIMEOUT_MS,
     }).pipe(
       Effect.map((descriptor): RouteCheck =>
-        descriptor.environmentId === entry.target.environmentId ? "answered" : "silent",
+        descriptor.environmentId === entry.target.environmentId ? "answered" : "elsewhere",
       ),
       Effect.orElseSucceed((): RouteCheck => "silent"),
       Effect.provideService(HttpClient.HttpClient, httpClient),
