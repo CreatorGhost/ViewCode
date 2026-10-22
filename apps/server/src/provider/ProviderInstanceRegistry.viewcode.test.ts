@@ -78,7 +78,7 @@ const openSessionOf = (input: { readonly enabled: boolean; readonly binaryPath: 
     Effect.provideService(HostProcess.HomeDirectory, "/home/guard"),
     Effect.provideService(HostProcess.Environment, {}),
     Effect.provideService(SpawnExecutableResolution, (command) =>
-      command === INSTALLED ? INSTALLED : null,
+      command === INSTALLED ? INSTALLED : undefined,
     ),
   );
 
