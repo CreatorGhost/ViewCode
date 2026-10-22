@@ -606,6 +606,16 @@ the routed providers take its host from the provider context, never a
 github.com default (`GitHubRoutedSourceControlProvider.viewcode.test.ts`). Test both
 accounts with a repository inaccessible to the default account.
 
+Upstream's clients call the API from Node with a token taken from `gh`, but a
+managed machine's corporate CA, proxy or VPN may only be known to `gh`, which
+ViewCode used for every read before v2. So a request to a host other than
+github.com that fails before any HTTP answer is sent again through `gh api` with
+the same token, and that host goes through `gh` for the life of the server
+(`GitHubGhTransport.ts`, wrapped into the REST and GraphQL clients). github.com
+never falls back, an HTTP refusal is an answer rather than a transport failure,
+and the request error names the cause (an untrusted certificate, a refused
+connection) instead of a bare "could not be read".
+
 A fork's repository identity is its upstream (upstream's rule, `docs/internals/remote.md`), so the
 Pull requests list reads the fork's `origin` beside it and flags the upstream rows (`upstream` on
 the entry); clients give them their own group. One project can therefore hold two listed

@@ -9,6 +9,7 @@ import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/h
 
 import { collectUint8StreamText } from "@t3tools/provider-core/server/collectStreamText";
 import * as GitHubCredentials from "./GitHubCredentials.ts";
+import * as GitHubGhTransport from "./GitHubGhTransport.ts";
 import * as GitHubQuota from "./GitHubQuota.ts";
 import * as GitHubRequestPolicy from "./GitHubRequestPolicy.ts";
 import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
@@ -118,7 +119,10 @@ function classify(input: {
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
-  const httpClient = yield* HttpClient.HttpClient;
+  // ViewCode: an Enterprise host Node cannot reach is read through gh (GitHubGhTransport).
+  const httpClient = (yield* GitHubGhTransport.GitHubGhTransport).wrap(
+    yield* HttpClient.HttpClient,
+  );
   const policy = yield* GitHubRequestPolicy.GitHubRequestPolicy;
 
   /**
@@ -237,6 +241,7 @@ export const layer = Layer.effect(GitHubRest, make).pipe(
  * reader shares one view of each quota per host.
  */
 export const layerWithDependencies = layer.pipe(
+  Layer.provideMerge(GitHubGhTransport.layer),
   Layer.provideMerge(GitHubCredentials.layer),
   Layer.provideMerge(GitHubQuota.layer),
   Layer.provideMerge(SourceControlRateLimit.layer),
