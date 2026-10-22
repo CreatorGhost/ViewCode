@@ -2,9 +2,7 @@ import * as UsageResume from "./agents/UsageResume.ts";
 import * as UsageResumeRuntime from "./agents/UsageResumeRuntime.ts";
 import * as ViewCodeRelayLayers from "./server/viewcodeRelayLayers.ts";
 import { resolveLocalTarget } from "./relay/viewCodeRelayHealth.ts";
-import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
-import * as CursorHistory from "./project/CursorHistory.ts";
-import * as T3CodeHistory from "./project/T3CodeHistory.ts";
+import * as ViewCodeAgentSessionScanner from "./project/ViewCodeAgentSessionScanner.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Clock from "effect/Clock";
@@ -486,6 +484,7 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
 );
 
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
+  Layer.provide(ViewCodeAgentSessionScanner.layer),
   Layer.provide(ViewCodeComputerUseLayers.layerRuntimeResponse),
   Layer.provide(layerScheduledTaskWebhookOrigin),
   Layer.provide(ProviderEventIngestor.layerAnalytics),
@@ -737,11 +736,7 @@ const layerMakeRoutes = Layer.mergeAll(
     Ws.layer,
   ),
   McpHttpServer.layer.pipe(
-    Layer.provide(
-      AgentSessionScanner.layer.pipe(
-        Layer.provide(Layer.merge(CursorHistory.layer, T3CodeHistory.layer)),
-      ),
-    ),
+    Layer.provide(ViewCodeAgentSessionScanner.layer),
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
     Layer.provide(RockBotConfirmation.layer),

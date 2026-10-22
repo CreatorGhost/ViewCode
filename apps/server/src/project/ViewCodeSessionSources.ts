@@ -289,6 +289,28 @@ export interface ExternalCandidate {
 export const make = Effect.gen(function* () {
   const cursor = yield* Effect.serviceOption(CursorHistory.CursorHistory);
   const t3 = yield* Effect.serviceOption(T3CodeHistory.T3CodeHistory);
+  // A missing reader skips its source without an error, so say so once here.
+  // The span files the warnings in server.trace.ndjson: the trace logger only
+  // records messages logged inside one.
+  yield* Effect.gen(function* () {
+    if (Option.isNone(cursor)) {
+      yield* Effect.logWarning(
+        "Cursor history reader is not wired; Cursor chats won't appear in Import past sessions",
+      );
+    }
+    if (Option.isNone(t3)) {
+      yield* Effect.logWarning(
+        "T3 Code history reader is not wired; T3 Code chats won't appear in Import past sessions",
+      );
+    }
+  }).pipe(
+    Effect.withSpan("ViewCodeSessionSources.make", {
+      attributes: {
+        "viewcode.history.cursor": Option.isSome(cursor),
+        "viewcode.history.t3code": Option.isSome(t3),
+      },
+    }),
+  );
 const discover = Effect.fn("ViewCodeSessionSources.discover")(function* (sinceMs: number) {
   const candidates: ExternalCandidate[] = [];
   const warnings: string[] = [];
