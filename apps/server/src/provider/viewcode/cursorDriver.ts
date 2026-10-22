@@ -49,6 +49,7 @@ import {
   haveProviderSnapshotSettingsChanged,
   makeProviderSnapshotSettingsSource,
 } from "@t3tools/provider-core/server/snapshotSettings";
+import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ViewCodeAcpCapabilities, type ViewCodeAcpDriverEnv } from "./acpDrivers.ts";
 import { makeAcpTextGeneration } from "./acpTextGeneration.ts";
 import {
@@ -73,6 +74,7 @@ import {
 } from "./cursorAgentStatus.ts";
 import { cursorCliLoginIdentity } from "./cursorCredentialStore.ts";
 import { effectiveCursorRuntime } from "./cursorRuntime.ts";
+import { hostWakes } from "./cursorStatusRecheck.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("cursor");
 const isCursorAgentModelDiscoveryError = Schema.is(CursorAgentModelDiscoveryError);
@@ -81,7 +83,8 @@ const MODEL_CACHE_TTL = Duration.minutes(30);
 export type CursorAgentDriverEnv =
   | ViewCodeAcpDriverEnv
   | HttpClient.HttpClient
-  | CursorKeychain.CursorKeychain;
+  | CursorKeychain.CursorKeychain
+  | BackgroundPolicy.BackgroundPolicy;
 
 /**
  * Full access launches with `--force` only when no explicit approval or sandbox
@@ -103,6 +106,7 @@ const createCursorAgentInstance = (input: ProviderDriverCreateInput<CursorSettin
     const httpClient = yield* HttpClient.HttpClient;
     const keychain = yield* CursorKeychain.CursorKeychain;
     const host = yield* ProviderHost.ProviderHost;
+    const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
     const environment = yield* mergeProviderInstanceEnvironment(input.environment);
     const settings = { ...input.config, enabled: input.enabled } satisfies CursorSettings;
     const continuationIdentity = defaultProviderContinuationIdentity({
@@ -170,6 +174,7 @@ const createCursorAgentInstance = (input: ProviderDriverCreateInput<CursorSettin
           childProcessSpawner: spawner,
           runtimeMode: cursorAgentLaunchRuntimeMode(runtimePolicy),
           promptStallTimeout: CURSOR_AGENT_PROMPT_STALL_TIMEOUT,
+          hostWakes: hostWakes(backgroundPolicy),
         }),
     };
     const orchestrationAdapter = yield* makeAcpAdapterV2({

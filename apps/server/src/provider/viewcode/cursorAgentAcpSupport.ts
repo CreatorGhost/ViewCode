@@ -30,6 +30,7 @@ import * as Crypto from "effect/Crypto";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -85,6 +86,8 @@ export interface CursorAgentAcpRuntimeInput extends Omit<
   readonly runtimeMode?: RuntimeMode | undefined;
   /** Turns only: ends a prompt `cursor-agent` stopped answering (`watchPromptStalls`). */
   readonly promptStallTimeout?: Duration.Input | undefined;
+  /** With `promptStallTimeout`: one element each time the host wakes or unlocks. */
+  readonly hostWakes?: Stream.Stream<void> | undefined;
 }
 
 /**
@@ -94,6 +97,13 @@ export interface CursorAgentAcpRuntimeInput extends Omit<
  * and those pause the watch.
  */
 export const CURSOR_AGENT_PROMPT_STALL_TIMEOUT = Duration.minutes(10);
+
+/**
+ * After a wake the user is looking at the spinner, and an agent that survived
+ * the sleep writes again within seconds: a model stream resumes or its request
+ * fails.
+ */
+export const CURSOR_AGENT_WAKE_STALL_TIMEOUT = Duration.seconds(90);
 
 const CURSOR_AGENT_STALLED_MESSAGE = "Cursor stopped responding; send it again.";
 
@@ -124,22 +134,29 @@ type StallWatchedOptions = Pick<
  * prompt fails with `CursorAgentStalledError` once the agent has written nothing
  * to stdout for `timeout`, unless it is running a tool it reported or waiting on
  * a request we have not answered. The idle time is monotonic, which stops while
- * the machine sleeps, so the sleep itself never counts. On a stall the agent gets
- * `session/cancel` in case it wakes; the caller replaces the process before the
- * next turn and never resends the prompt.
+ * the machine sleeps, so the sleep itself never counts. When the host wakes
+ * mid-prompt, the agent has `CURSOR_AGENT_WAKE_STALL_TIMEOUT` to write again
+ * before the same rule ends the turn. On a stall the agent gets `session/cancel`
+ * in case it wakes; the caller replaces the process before the next turn and
+ * never resends the prompt.
  */
 const watchPromptStalls = Effect.fnUntraced(function* (
   timeout: Duration.Input,
+  hostWakes: Stream.Stream<void>,
   options: StallWatchedOptions,
 ) {
   const timeoutNanos = Duration.toNanosUnsafe(Duration.fromInputUnsafe(timeout));
+  const wakeTimeoutNanos = Duration.toNanosUnsafe(CURSOR_AGENT_WAKE_STALL_TIMEOUT);
   const scope = yield* Effect.scope;
   let lastFrameAt = yield* Clock.monotonicTimeNanos;
+  // A wake during the prompt with no frame since.
+  let wokeAt: bigint | undefined;
   const unanswered = new Set<string>();
   const runningTools = new Set<string>();
   const touch = Clock.clockWith((clock) =>
     Effect.sync(() => {
       lastFrameAt = clock.monotonicTimeNanosUnsafe();
+      wokeAt = undefined;
     }),
   );
   const answered = (requestId: string) =>
@@ -175,15 +192,38 @@ const watchPromptStalls = Effect.fnUntraced(function* (
   } satisfies StallWatchedOptions;
 
   const stalled = Effect.gen(function* () {
+    const woke = yield* Queue.sliding<void>(1);
+    yield* hostWakes.pipe(
+      Stream.runForEach(() =>
+        Clock.monotonicTimeNanos.pipe(
+          Effect.flatMap((now) => {
+            wokeAt = now;
+            return Queue.offer(woke, undefined);
+          }),
+        ),
+      ),
+      Effect.forkScoped,
+    );
     while (true) {
-      const idleNanos = (yield* Clock.monotonicTimeNanos) - lastFrameAt;
+      const now = yield* Clock.monotonicTimeNanos;
+      const window = wokeAt === undefined ? timeoutNanos : wakeTimeoutNanos;
+      const idleDeadline = lastFrameAt + timeoutNanos;
+      const deadline =
+        wokeAt === undefined || idleDeadline < wokeAt + wakeTimeoutNanos
+          ? idleDeadline
+          : wokeAt + wakeTimeoutNanos;
       const busy = unanswered.size > 0 || runningTools.size > 0;
-      if (!busy && idleNanos >= timeoutNanos) {
-        return new CursorAgentStalledError({ idleSeconds: Number(idleNanos / 1_000_000_000n) });
+      if (!busy && now >= deadline) {
+        return new CursorAgentStalledError({
+          idleSeconds: Number((now - lastFrameAt) / 1_000_000_000n),
+        });
       }
-      yield* Effect.sleep(Duration.nanos(busy ? timeoutNanos : timeoutNanos - idleNanos));
+      yield* Effect.raceFirst(
+        Effect.sleep(Duration.nanos(busy ? window : deadline - now)),
+        Queue.take(woke),
+      );
     }
-  });
+  }).pipe(Effect.scoped);
 
   const wrap = (
     runtime: AcpSessionRuntime.AcpSessionRuntime["Service"],
@@ -228,12 +268,13 @@ export const makeCursorAgentAcpRuntime = (
       childProcessSpawner,
       runtimeMode,
       promptStallTimeout,
+      hostWakes,
       ...runtimeOptions
     } = input;
     const stallWatch =
       promptStallTimeout === undefined
         ? undefined
-        : yield* watchPromptStalls(promptStallTimeout, runtimeOptions);
+        : yield* watchPromptStalls(promptStallTimeout, hostWakes ?? Stream.never, runtimeOptions);
     const context = yield* Layer.build(
       AcpSessionRuntime.layer({
         ...runtimeOptions,

@@ -42,7 +42,8 @@ the account the CLI is signed in with.
 
 After the computer sleeps or changes network, a Cursor message can fail because the CLI could not
 read its saved sign-in (for example while the Mac's Keychain is locked) or reach Cursor, or it can
-end with "Cursor stopped responding; send it again" when the CLI went quiet for ten minutes. Send
+end with "Cursor stopped responding; send it again" when the CLI stays quiet for 90 seconds after
+the computer wakes, or for ten minutes at other times. Send
 the message again: ViewCode starts a fresh `cursor-agent` for it. Sign in again only if
 `cursor-agent status` in a terminal says you are signed out. "Couldn't reach Cursor to list models"
 in the settings card clears by itself; ViewCode checks again when the computer wakes, the network

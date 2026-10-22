@@ -13,12 +13,15 @@ import {
   RunAttemptId,
   RunId,
   ThreadId,
+  type BackgroundPolicySnapshot,
+  type HostPowerSnapshot,
   type ModelSelection,
 } from "@t3tools/contracts";
 import type { CursorSettings } from "@t3tools/provider-cursor/settings";
 import * as CursorKeychain from "@t3tools/provider-cursor/server/CursorKeychain";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
+import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
@@ -26,6 +29,7 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import * as HttpClient from "effect/http/HttpClient";
@@ -43,7 +47,10 @@ import * as ServerConfig from "../../config.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as ModelManifest from "../ModelManifest.ts";
 import * as ProviderHostLive from "../ProviderHostLive.ts";
-import { CURSOR_AGENT_PROMPT_STALL_TIMEOUT } from "./cursorAgentAcpSupport.ts";
+import {
+  CURSOR_AGENT_PROMPT_STALL_TIMEOUT,
+  CURSOR_AGENT_WAKE_STALL_TIMEOUT,
+} from "./cursorAgentAcpSupport.ts";
 import { makeViewCodeCursorDriver } from "./cursorDriver.ts";
 
 const windowsHost = HostProcess.Platform.defaultValue() === "win32";
@@ -114,6 +121,44 @@ const turnInput = (input: {
   };
 };
 
+const hostPower = (suspended: boolean): BackgroundPolicySnapshot => {
+  const now = DateTime.makeUnsafe("2026-10-22T09:00:00.000Z");
+  const power: HostPowerSnapshot = {
+    source: "electron-main",
+    idle: "false",
+    idleSeconds: 0,
+    locked: "false",
+    suspended,
+    onBattery: "false",
+    lowPowerMode: "false",
+    thermalState: "nominal",
+    stale: false,
+    updatedAt: now,
+  };
+  return {
+    hostPower: power,
+    leases: [],
+    activeForegroundLeaseCount: 0,
+    activeScopeKeys: [],
+    shouldRunOpportunisticWork: false,
+    updatedAt: now,
+  };
+};
+
+class PolicyChanges extends Context.Service<PolicyChanges, Queue.Queue<BackgroundPolicySnapshot>>()(
+  "t3/provider/viewcode/cursorDriver.viewcode.test/PolicyChanges",
+) {}
+
+// Room for one: an offer returns once the snapshot before it was taken, so the
+// two trailing offers return only after the prompt's watch handled the wake.
+const layerPolicyChanges = Layer.effect(PolicyChanges, Queue.bounded<BackgroundPolicySnapshot>(1));
+const hostWakes = Effect.gen(function* () {
+  const changes = yield* PolicyChanges;
+  for (const suspended of [true, false, false, false]) {
+    yield* Queue.offer(changes, hostPower(suspended));
+  }
+});
+
 const layerTest = ProviderHostLive.layer.pipe(
   Layer.provideMerge(ServerSecretStore.layer),
   Layer.provideMerge(
@@ -127,10 +172,19 @@ const layerTest = ProviderHostLive.layer.pipe(
       ),
       Layer.provideMerge(ServerSettings.layerTest()),
       Layer.provideMerge(
-        // No client is asking for background work, as when the page is closed or paused.
-        Layer.mock(BackgroundPolicy.BackgroundPolicy)({
-          shouldRunScopeWork: () => Effect.succeed(false),
-        }),
+        Layer.unwrap(
+          Effect.gen(function* () {
+            const changes = yield* PolicyChanges;
+            // No client is asking for background work, as when the page is closed or paused.
+            return Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+              shouldRunScopeWork: () => Effect.succeed(false),
+              subscribe: Effect.succeed({
+                latest: hostPower(false),
+                changes: Stream.fromQueue(changes),
+              }),
+            });
+          }),
+        ).pipe(Layer.provideMerge(layerPolicyChanges)),
       ),
       Layer.provideMerge(
         Layer.succeed(
@@ -380,6 +434,108 @@ it.layer(layerTest)("ViewCode Cursor CLI after sleep", (it) => {
             ),
         );
         assert.deepEqual(promptsPerProcess, [1, 1]);
+      }).pipe(Effect.scoped),
+    30_000,
+  );
+
+  it.effect.skipIf(windowsHost)(
+    "ends a turn that stays silent after the host wakes and replaces the process",
+    () =>
+      Effect.gen(function* () {
+        const acpProcesses: Array<"stalled" | "fresh"> = [];
+        let nextAcpStalls = false;
+        const spawner = yield* cursorAgentSpawner({
+          onAbout: Effect.void,
+          acpEnv: () => {
+            const stalls = nextAcpStalls;
+            nextAcpStalls = false;
+            acpProcesses.push(stalls ? "stalled" : "fresh");
+            return stalls ? { T3_ACP_EMIT_CONTENT_THEN_HANG: "1" } : {};
+          },
+        });
+        const partialArrived = yield* Deferred.make<void>();
+        const { runTurn } = yield* openCursorCliThread(spawner, "wake", {
+          beforeSession: () => {
+            nextAcpStalls = true;
+            acpProcesses.length = 0;
+          },
+          onEvent: (event) =>
+            event.type === "message.updated" && event.message.role === "assistant"
+              ? Deferred.succeed(partialArrived, undefined).pipe(Effect.asVoid)
+              : Effect.void,
+        });
+
+        const stalledTurn = yield* runTurn(1).pipe(Effect.forkScoped);
+        yield* Deferred.await(partialArrived);
+        // The lid closes and opens while the prompt is in flight.
+        yield* hostWakes;
+        yield* TestClock.adjust(CURSOR_AGENT_WAKE_STALL_TIMEOUT);
+        const stalled = yield* Fiber.join(stalledTurn);
+        assert.equal(
+          stalled.status === "failed" ? stalled.failure?.message : undefined,
+          "Cursor stopped responding; send it again.",
+        );
+
+        const next = yield* runTurn(2);
+        assert.equal(next.status, "completed");
+        assert.deepEqual(acpProcesses, ["stalled", "fresh"]);
+      }).pipe(Effect.scoped),
+    30_000,
+  );
+
+  it.effect.skipIf(windowsHost)(
+    "keeps the usual bound once cursor-agent writes again after the host wakes",
+    () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const triggerDirectory = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-cursor-agent-wake-",
+        });
+        const writeAgain = NodePath.join(triggerDirectory, "write-again");
+        let nextAcpWritesAgain = false;
+        const spawner = yield* cursorAgentSpawner({
+          onAbout: Effect.void,
+          acpEnv: () => {
+            const writesAgain = nextAcpWritesAgain;
+            nextAcpWritesAgain = false;
+            return writesAgain
+              ? {
+                  T3_ACP_EMIT_CONTENT_THEN_HANG: "1",
+                  T3_ACP_CONTENT_AGAIN_TRIGGER_PATH: writeAgain,
+                }
+              : {};
+          },
+        });
+        const partialArrived = yield* Deferred.make<void>();
+        const wroteAgain = yield* Deferred.make<void>();
+        let ended = false;
+        const { runTurn } = yield* openCursorCliThread(spawner, "wake-alive", {
+          beforeSession: () => {
+            nextAcpWritesAgain = true;
+          },
+          onEvent: (event) =>
+            Effect.sync(() => {
+              if (event.type === "turn.terminal") ended = true;
+            }).pipe(
+              Effect.andThen(
+                event.type === "message.updated" && event.message.role === "assistant"
+                  ? Deferred.succeed(
+                      event.message.text.includes("and more") ? wroteAgain : partialArrived,
+                      undefined,
+                    )
+                  : Effect.void,
+              ),
+            ),
+        });
+
+        const turn = yield* runTurn(1).pipe(Effect.forkScoped);
+        yield* Deferred.await(partialArrived);
+        yield* hostWakes;
+        yield* fileSystem.writeFileString(writeAgain, "");
+        yield* Deferred.await(wroteAgain);
+        yield* TestClock.adjust(Duration.times(CURSOR_AGENT_WAKE_STALL_TIMEOUT, 3));
+        assert.isFalse(ended);
+        yield* Fiber.interrupt(turn);
       }).pipe(Effect.scoped),
     30_000,
   );

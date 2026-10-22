@@ -12,7 +12,11 @@
  *
  * @module CursorStatusRecheck
  */
-import type { BackgroundPolicySnapshot, ServerProvider } from "@t3tools/contracts";
+import type {
+  BackgroundPolicySnapshot,
+  HostPowerSnapshot,
+  ServerProvider,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -22,16 +26,28 @@ import * as ProviderRegistry from "../ProviderRegistry.ts";
 
 type CursorRecheckTrigger = "wake" | "foreground" | "network";
 
+const hostWoke = (before: HostPowerSnapshot, after: HostPowerSnapshot) =>
+  (before.suspended && !after.suspended) || (before.locked === "true" && after.locked === "false");
+
+/** One element each time the host wakes or unlocks after the stream starts. */
+export const hostWakes = (policy: BackgroundPolicy.BackgroundPolicy["Service"]) =>
+  Stream.unwrap(
+    Effect.map(policy.subscribe, ({ latest, changes }) =>
+      changes.pipe(
+        Stream.mapAccum(
+          () => latest.hostPower,
+          (previous, next) =>
+            [next.hostPower, hostWoke(previous, next.hostPower) ? [undefined] : []] as const,
+        ),
+      ),
+    ),
+  );
+
 export function cursorRecheckTrigger(
   previous: BackgroundPolicySnapshot,
   next: BackgroundPolicySnapshot,
 ): CursorRecheckTrigger | undefined {
-  const before = previous.hostPower;
-  const after = next.hostPower;
-  if (
-    (before.suspended && !after.suspended) ||
-    (before.locked === "true" && after.locked === "false")
-  ) {
+  if (hostWoke(previous.hostPower, next.hostPower)) {
     return "wake";
   }
   if (previous.activeForegroundLeaseCount === 0 && next.activeForegroundLeaseCount > 0) {

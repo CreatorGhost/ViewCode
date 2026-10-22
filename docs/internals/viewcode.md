@@ -528,8 +528,10 @@ closes any left from a restart.
   and re-checks status. A process can also leave `session/prompt` unanswered for good: only the
   Cursor CLI runtime watches for that (`watchPromptStalls` in `cursorAgentAcpSupport.ts`, not
   the shared ACP adapter). Ten minutes of awake time with no stdout from the agent ends the
-  turn and takes the same restart; a running tool call or a request we have not answered
-  pauses it, because `delegate_task` waits and builds are silent far longer. The prompt is
+  turn and takes the same restart, or 90 seconds when the host woke or unlocked mid-prompt and
+  the agent has not written since (the wake reaches the runtime from the `BackgroundPolicy`
+  edge in `cursorStatusRecheck.ts`). A running tool call or a request we have not answered
+  pauses both, because `delegate_task` waits and builds are silent far longer. The prompt is
   never resent. `about` says "Not logged in" when it cannot read its Keychain token
   too; with `authInfo` still in `~/.cursor/cli-config.json` that is reported as unconfirmed,
   not signed out. A status that is not ready is re-checked on wake or unlock, on a client
