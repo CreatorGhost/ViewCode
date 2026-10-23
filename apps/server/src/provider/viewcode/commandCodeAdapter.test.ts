@@ -14,6 +14,7 @@ import {
   RunAttemptId,
   RunId,
   ThreadId,
+  TurnItemId,
   type OrchestrationV2AppThread,
   type OrchestrationV2ProviderThread,
 } from "@t3tools/contracts";
@@ -268,7 +269,18 @@ describe("Command Code v2 adapter", () => {
         const h = yield* makeHarness;
         yield* h.runtime.injectHistory!({
           providerThread: h.providerThread,
-          messages: [],
+          messages: [
+            {
+              role: "user",
+              text: "Forked user message from the source thread",
+              threadId: ThreadId.make("source-thread"),
+              runId: null,
+              itemId: TurnItemId.make("item-1"),
+              providerThreadId: null,
+              status: "completed",
+              kind: "message",
+            },
+          ],
           context: "Earlier conversation context",
         });
         const first = yield* h.start();
@@ -277,6 +289,7 @@ describe("Command Code v2 adapter", () => {
         assert.include(first.env?.PATH ?? "", "/tmp/review-shim");
         const prompt = yield* Deferred.await(first.input);
         assert.include(prompt, "Earlier conversation context");
+        assert.include(prompt, "Forked user message from the source thread");
         assert.include(prompt, "secret prompt goes on stdin");
         assert.isFalse(first.args.some((arg) => arg.includes("secret prompt")));
         assert.include(first.args, "--yolo");

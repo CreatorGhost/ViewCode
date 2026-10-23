@@ -23,6 +23,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import { renderHistory } from "@t3tools/provider-core/server/handoffBudget";
 import {
   browserCliAvailable,
   withAgentDeviceEnvironment,
@@ -205,8 +206,17 @@ export const makeCommandCodeAdapterV2 = Effect.fn("makeCommandCodeAdapterV2")(fu
               let stderr = "";
               const done = yield* Deferred.make<void>();
               const history = histories.get(turn.providerThread.id);
+              // The CLI has no MCP, so the selected messages must ride the prompt itself:
+              // the coverage text alone only points at t3_thread_read, which this provider lacks.
               const context = [
-                ...(history ? [{ key: "portable-history", text: history.context }] : []),
+                ...(history
+                  ? [
+                      {
+                        key: "portable-history",
+                        text: renderHistory(history.messages, history.context),
+                      },
+                    ]
+                  : []),
                 ...(turn.appContext ?? []),
               ];
               const mcpSession = Option.isSome(providerMcpSessions)
@@ -218,7 +228,7 @@ export const makeCommandCodeAdapterV2 = Effect.fn("makeCommandCodeAdapterV2")(fu
                   model: turn.modelSelection.model,
                   browserCli: browserCliAvailable(mcpSession),
                 }) +
-                  "\n\nViewCode MCP tools are unavailable in this provider. Do not claim to call them.",
+                  "\n\nViewCode MCP tools are unavailable in this provider. Do not claim to call them. Omitted history cannot be recovered with t3_thread_read here; work from the portable history provided and ask the user when something is missing.",
                 ...context.map((entry) => entry.text),
                 providerMessageTextWithAttachmentPaths({
                   text: turn.message.text,
