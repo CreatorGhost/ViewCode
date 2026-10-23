@@ -103,7 +103,7 @@ import { useReviewDiff } from "./useReviewDiff";
 const SEVERITY_DOTS: Record<ReviewFindingSeverity, string> = {
   blocker: "bg-destructive",
   important: "bg-warning",
-  nit: "bg-muted-foreground/50",
+  nit: "bg-muted-foreground",
   question: "bg-info",
 };
 

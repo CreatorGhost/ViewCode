@@ -135,7 +135,7 @@ function ReviewFindingsPreview() {
             retrying={false}
           />
         ) : null}
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 px-3 pt-2 pb-3">
           <ReviewFindingsView
             environmentId={environmentId}
             threadRef={null}
