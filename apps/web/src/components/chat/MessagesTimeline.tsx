@@ -467,6 +467,12 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH = {
   ...TIMELINE_MAINTAIN_SCROLL_AT_END,
   animated: true,
 } as const satisfies MaintainScrollAtEndOptions;
+// Rows only exist inside the draw distance, and LegendList places them from
+// React renders. The browser keeps scrolling while the main thread is busy
+// with agent events, so a fling past the drawn rows shows an empty list until
+// JS catches up. Legend's 250px default is a fraction of one wheel flick; about
+// a viewport of drawn rows rides out a few hundred milliseconds of lag.
+const TIMELINE_DRAW_DISTANCE = 1000;
 
 export interface MessagesTimelineHistoryControls {
   readonly hasMoreHistory: boolean;
@@ -1506,6 +1512,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
             getItemType={getItemType}
             renderItem={renderItem}
             estimatedItemSize={90}
+            drawDistance={TIMELINE_DRAW_DISTANCE}
             initialScrollAtEnd={
               !findActive && citationRequest === null && rememberedPosition?.atEnd !== false
             }
