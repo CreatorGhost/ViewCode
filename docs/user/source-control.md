@@ -253,9 +253,11 @@ asking agent's child and changes nothing.
 
 The **Review** panel beside a chat (web and desktop) shows the change at once, while the review
 works, with how long it has run and what it is doing. Findings appear on the diff as the reviewer
-verifies them, marked **Still reviewing…** until its last set arrives. The issues are listed first;
-the panel goes to the first one, and a row or the arrows go to the next, with each finding under the
-lines it is about (findings without a place in the diff are listed under **General**). Files
+verifies them, marked **Still reviewing…** until its last set arrives. While a newer review runs,
+the findings still shown are marked **Earlier review** until its own arrive. The issues are listed
+first, grouped by severity and naming only the file (the full path shows on hover); the panel goes
+to the first one, and a row or the arrows go to the next, with each finding under the lines it is
+about (findings without a place in the diff are listed under **General**). Files
 without findings stay folded; **Show all files** opens them. A review that fails says why, with
 **Try again** to start it again as it was asked; one that ends without findings says so, with
 **Try again** too, and a running review has **Stop**. **Fix with agent** sends your chat a message

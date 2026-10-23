@@ -28,6 +28,7 @@ import type {
   ProjectId,
   PullRequestReviewVerdict,
   ReviewFindingRating,
+  ReviewFindingSeverity,
   ReviewVerdict,
   ScopedThreadRef,
 } from "@t3tools/contracts";
@@ -63,11 +64,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import {
-  REVIEW_SEVERITY_BADGES,
-  type ReviewFindingAction,
-  ReviewFindingCard,
-} from "./ReviewFindingCard";
+import { type ReviewFindingAction, ReviewFindingCard } from "./ReviewFindingCard";
 import { ReviewFixAllDialog } from "./ReviewFixAllDialog";
 import {
   type ReviewFixChat,
@@ -77,6 +74,7 @@ import {
   useSendReviewFixToChat,
 } from "./reviewFixChat";
 import { ReviewPostDialog } from "./ReviewPostDialog";
+import { groupIssuesBySeverity, issueFileLabel } from "./reviewIssueGroups";
 import { FindIssuesButton, type ReviewStartTarget } from "./ReviewStart";
 import {
   firstFindingToReveal,
@@ -93,6 +91,14 @@ import {
   useReviewFixSentStore,
 } from "./reviewFixSentStore";
 import { useReviewDiff } from "./useReviewDiff";
+
+/** A severity's mark on the issue list's headings: the badge's tone, as a dot. */
+const SEVERITY_DOTS: Record<ReviewFindingSeverity, string> = {
+  blocker: "bg-destructive",
+  important: "bg-warning",
+  nit: "bg-muted-foreground/50",
+  question: "bg-info",
+};
 
 const REVIEW_VERDICT_BADGES: Record<ReviewVerdict, "success" | "info" | "warning"> = {
   approve: "success",
@@ -158,6 +164,8 @@ interface ReviewFindingsViewProps {
   readonly startReview: ReviewStartTarget | null;
   /** These are the findings so far of a review still at work; a later set replaces them. */
   readonly stillReviewing: boolean;
+  /** A newer review is at work: these are an earlier one's findings, which its own replace. */
+  readonly superseded: boolean;
   /**
    * Whether the reader has scrolled the review surface themselves, in which case opening does not
    * jump to the first finding.
@@ -183,6 +191,7 @@ export const ReviewFindingsView = memo(
     previous.onFixInChat === next.onFixInChat &&
     previous.startReview === next.startReview &&
     previous.stillReviewing === next.stillReviewing &&
+    previous.superseded === next.superseded &&
     previous.readerScrolled === next.readerScrolled &&
     previous.source.activityId === next.source.activityId &&
     previous.source.threadTitle === next.source.threadTitle &&
@@ -201,6 +210,7 @@ function ReviewFindingsViewContent({
   onFixInChat,
   startReview,
   stillReviewing,
+  superseded,
   readerScrolled,
 }: ReviewFindingsViewProps) {
   const { findings } = source;
@@ -672,6 +682,8 @@ function ReviewFindingsViewContent({
       <header className="flex min-w-0 flex-wrap items-center gap-1.5 border-b border-border/60 px-3 py-1.5">
         {stillReviewing ? (
           <Badge variant="info">Still reviewing…</Badge>
+        ) : superseded ? (
+          <Badge variant="warning">Earlier review</Badge>
         ) : (
           <Badge variant="outline">Latest</Badge>
         )}
@@ -762,57 +774,87 @@ function ReviewFindingsViewContent({
           {postAllWaits ? "Post all after the review" : primary.label}
         </Button>
       </header>
-      <div className="flex min-w-0 flex-wrap items-center gap-1 border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs">
-        <Badge size="sm" variant={REVIEW_VERDICT_BADGES[findings.verdict]}>
-          {REVIEW_VERDICT_LABELS[findings.verdict]}
-        </Badge>
-        <span>
+      <div className="flex min-w-0 flex-col gap-0.5 border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs">
+        {/* Whose findings these are comes first: with another review running, it is the question. */}
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Badge size="sm" variant={REVIEW_VERDICT_BADGES[findings.verdict]}>
+            {REVIEW_VERDICT_LABELS[findings.verdict]}
+          </Badge>
+          {source.threadId === threadRef?.threadId ? (
+            <span className="min-w-0 flex-1 truncate text-foreground">{source.threadTitle}</span>
+          ) : (
+            <Link
+              to="/$environmentId/$threadId"
+              params={{ environmentId, threadId: source.threadId }}
+              className="min-w-0 flex-1 truncate text-foreground hover:underline"
+            >
+              {source.threadTitle}
+            </Link>
+          )}
+          <span className="shrink-0">{formatRelativeTimeLabel(source.createdAt)}</span>
+        </div>
+        <span className="truncate">
           Merge confidence {findings.mergeConfidence}/5 · Review effort {findings.reviewEffort}/5 ·{" "}
-          {reviewedChangeLabel(findings.target, source.scope, diff.base)} · Reviewed by
+          {reviewedChangeLabel(findings.target, source.scope, diff.base)}
         </span>
-        {source.threadId === threadRef?.threadId ? (
-          <span className="min-w-0 truncate text-foreground">{source.threadTitle}</span>
-        ) : (
-          <Link
-            to="/$environmentId/$threadId"
-            params={{ environmentId, threadId: source.threadId }}
-            className="min-w-0 truncate text-foreground hover:underline"
-          >
-            {source.threadTitle}
-          </Link>
-        )}
-        <span>· {formatRelativeTimeLabel(source.createdAt)}</span>
       </div>
       {order.length > 0 ? (
         <ol
           aria-label="Issues"
-          className="max-h-36 shrink-0 overflow-y-auto border-b border-border/60 py-1"
+          className="max-h-40 shrink-0 overflow-y-auto border-b border-border/60 py-1"
         >
-          {order.map((key, index) => {
-            const entry = shownByKey.get(key);
-            if (entry === undefined) return null;
-            const { finding } = entry;
-            return (
-              <li key={key}>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex w-full min-w-0 items-center gap-2 px-3 py-0.5 text-start text-xs hover:bg-accent/40 focus-visible:outline-2 focus-visible:outline-ring",
-                    key === currentKey && "bg-accent/60",
-                  )}
-                  onClick={() => goTo(index)}
-                >
-                  <Badge size="sm" variant={REVIEW_SEVERITY_BADGES[finding.severity]}>
-                    {REVIEW_FINDING_SEVERITY_LABELS[finding.severity]}
-                  </Badge>
-                  <span className="min-w-0 flex-1 truncate text-foreground">{finding.title}</span>
-                  <span className="max-w-[45%] shrink-0 truncate text-muted-foreground">
-                    {finding.line === undefined ? finding.path : `${finding.path}:${finding.line}`}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
+          {groupIssuesBySeverity(
+            order.flatMap((key, index) => {
+              const entry = shownByKey.get(key);
+              return entry === undefined ? [] : [{ key, index, finding: entry.finding }];
+            }),
+            (issue) => issue.finding.severity,
+          ).map((group) => (
+            <li key={group.severity}>
+              <h4 className="flex items-center gap-1.5 px-3 pt-1 pb-0.5 font-medium text-2xs text-muted-foreground uppercase tracking-wide">
+                <span
+                  aria-hidden
+                  className={cn("size-1.5 rounded-full", SEVERITY_DOTS[group.severity])}
+                />
+                {REVIEW_FINDING_SEVERITY_LABELS[group.severity]} · {group.items.length}
+              </h4>
+              <ol>
+                {group.items.map(({ key, index, finding }) => (
+                  <li key={key}>
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex w-full min-w-0 items-center gap-2 px-3 py-0.5 text-start text-xs hover:bg-accent/40 focus-visible:outline-2 focus-visible:outline-ring",
+                        key === currentKey && "bg-accent/60",
+                      )}
+                      onClick={() => goTo(index)}
+                    >
+                      <span className="w-4 shrink-0 text-end text-muted-foreground tabular-nums">
+                        {index + 1}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-foreground">
+                        {finding.title}
+                      </span>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <span className="max-w-40 shrink-0 truncate text-muted-foreground" />
+                          }
+                        >
+                          {issueFileLabel(finding.path, finding.line)}
+                        </TooltipTrigger>
+                        <TooltipPopup side="top">
+                          {finding.line === undefined
+                            ? finding.path
+                            : `${finding.path}:${finding.line}`}
+                        </TooltipPopup>
+                      </Tooltip>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </li>
+          ))}
         </ol>
       ) : null}
       {diff.partial || diff.error !== null || noDiff ? (

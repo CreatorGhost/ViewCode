@@ -177,7 +177,11 @@ export function ReviewStatusBar({
       mode={newer && running ? `New ${mode.toLowerCase()}` : mode}
       model={model}
       title={review.title}
-      note={newer && running ? "The findings below are the earlier review's." : null}
+      note={
+        newer && running
+          ? "The issues below are the earlier review's; this one's take their place when it finishes."
+          : null
+      }
       startedAt={review.startedAt}
       state={
         running

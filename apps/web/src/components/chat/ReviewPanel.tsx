@@ -203,6 +203,7 @@ export function ReviewSurface({
             onFixInChat={onFixInChat}
             startReview={startReview}
             stillReviewing={ownFindings && progress?.kind === "running"}
+            superseded={!ownFindings && progress?.kind === "running"}
             readerScrolled={readerScrolled}
           />
         ) : progress?.kind === "running" && change !== null ? (

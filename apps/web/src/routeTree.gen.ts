@@ -34,6 +34,7 @@ import { Route as SettingsAppearanceRouteImport } from './routes/settings.appear
 import { Route as ProjectsProjectKeyRouteImport } from './routes/projects.$projectKey'
 import { Route as DevUsageLimitsRouteImport } from './routes/dev.usage-limits'
 import { Route as DevUsageCardRouteImport } from './routes/dev.usage-card'
+import { Route as DevReviewFindingsRouteImport } from './routes/dev.review-findings'
 import { Route as DevReviewRouteImport } from './routes/dev.review'
 import { Route as DevPrFlowRouteImport } from './routes/dev.pr-flow'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
@@ -166,6 +167,11 @@ const DevUsageCardRoute = DevUsageCardRouteImport.update({
   path: '/dev/usage-card',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DevReviewFindingsRoute = DevReviewFindingsRouteImport.update({
+  id: '/dev/review-findings',
+  path: '/dev/review-findings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DevReviewRoute = DevReviewRouteImport.update({
   id: '/dev/review',
   path: '/dev/review',
@@ -210,6 +216,7 @@ export interface FileRoutesByFullPath {
   '/pull-requests': typeof ChatPullRequestsRoute
   '/dev/pr-flow': typeof DevPrFlowRoute
   '/dev/review': typeof DevReviewRoute
+  '/dev/review-findings': typeof DevReviewFindingsRoute
   '/dev/usage-card': typeof DevUsageCardRoute
   '/dev/usage-limits': typeof DevUsageLimitsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
@@ -241,6 +248,7 @@ export interface FileRoutesByTo {
   '/pull-requests': typeof ChatPullRequestsRoute
   '/dev/pr-flow': typeof DevPrFlowRoute
   '/dev/review': typeof DevReviewRoute
+  '/dev/review-findings': typeof DevReviewFindingsRoute
   '/dev/usage-card': typeof DevUsageCardRoute
   '/dev/usage-limits': typeof DevUsageLimitsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
@@ -275,6 +283,7 @@ export interface FileRoutesById {
   '/_chat/pull-requests': typeof ChatPullRequestsRoute
   '/dev/pr-flow': typeof DevPrFlowRoute
   '/dev/review': typeof DevReviewRoute
+  '/dev/review-findings': typeof DevReviewFindingsRoute
   '/dev/usage-card': typeof DevUsageCardRoute
   '/dev/usage-limits': typeof DevUsageLimitsRoute
   '/projects/$projectKey': typeof ProjectsProjectKeyRoute
@@ -310,6 +319,7 @@ export interface FileRouteTypes {
     | '/pull-requests'
     | '/dev/pr-flow'
     | '/dev/review'
+    | '/dev/review-findings'
     | '/dev/usage-card'
     | '/dev/usage-limits'
     | '/projects/$projectKey'
@@ -341,6 +351,7 @@ export interface FileRouteTypes {
     | '/pull-requests'
     | '/dev/pr-flow'
     | '/dev/review'
+    | '/dev/review-findings'
     | '/dev/usage-card'
     | '/dev/usage-limits'
     | '/projects/$projectKey'
@@ -374,6 +385,7 @@ export interface FileRouteTypes {
     | '/_chat/pull-requests'
     | '/dev/pr-flow'
     | '/dev/review'
+    | '/dev/review-findings'
     | '/dev/usage-card'
     | '/dev/usage-limits'
     | '/projects/$projectKey'
@@ -406,6 +418,7 @@ export interface RootRouteChildren {
   WelcomeRoute: typeof WelcomeRoute
   DevPrFlowRoute: typeof DevPrFlowRoute
   DevReviewRoute: typeof DevReviewRoute
+  DevReviewFindingsRoute: typeof DevReviewFindingsRoute
   DevUsageCardRoute: typeof DevUsageCardRoute
   DevUsageLimitsRoute: typeof DevUsageLimitsRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
@@ -588,6 +601,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DevUsageCardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dev/review-findings': {
+      id: '/dev/review-findings'
+      path: '/dev/review-findings'
+      fullPath: '/dev/review-findings'
+      preLoaderRoute: typeof DevReviewFindingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dev/review': {
       id: '/dev/review'
       path: '/dev/review'
@@ -699,6 +719,7 @@ const rootRouteChildren: RootRouteChildren = {
   WelcomeRoute: WelcomeRoute,
   DevPrFlowRoute: DevPrFlowRoute,
   DevReviewRoute: DevReviewRoute,
+  DevReviewFindingsRoute: DevReviewFindingsRoute,
   DevUsageCardRoute: DevUsageCardRoute,
   DevUsageLimitsRoute: DevUsageLimitsRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,
