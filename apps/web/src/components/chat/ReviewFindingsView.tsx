@@ -241,6 +241,14 @@ function ReviewFindingsViewContent({
   const [currentIdentity, setCurrentIdentity] = useState<string | null>(null);
   const [toggledFiles, setToggledFiles] = useState<ReadonlySet<string>>(() => new Set());
   const [fixing, setFixing] = useState<ReadonlyArray<ReviewFindingEntry> | null>(null);
+  // Folded to its header row while a newer review runs; a click opens the findings, another folds
+  // them. A review starting later folds it again.
+  const [open, setOpen] = useState(!superseded);
+  const [foldedFor, setFoldedFor] = useState(superseded);
+  if (foldedFor !== superseded) {
+    setFoldedFor(superseded);
+    setOpen(!superseded);
+  }
   // The view lives as long as its review, so a newer set of the same review (sent while it
   // works) keeps the scroll position but not choices made about the earlier set's findings,
   // whose keys now name other findings.
@@ -700,12 +708,20 @@ function ReviewFindingsViewContent({
   const allFilesOpen = diff.files.every((file) => !fileCollapsed(file.fileKey));
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div
+      className={cn(
+        "flex min-h-0 flex-col rounded-xl border bg-card",
+        open ? "h-full overflow-hidden" : "shrink-0",
+      )}
+    >
+      {/* The row folds and opens on a click anywhere but its own controls. */}
       <div
-        className={cn(
-          "flex min-w-0 flex-col gap-1 border-b border-border/60 px-3 py-2",
-          superseded && "bg-warning/4",
-        )}
+        className={cn("cursor-pointer px-3 py-2", open && "border-b border-border/60")}
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest("a, button") === null) {
+            setOpen((value) => !value);
+          }
+        }}
       >
         <ReviewIdentity
           kicker={
@@ -715,7 +731,7 @@ function ReviewFindingsViewContent({
           heading={heading}
           trailing={
             <>
-              <span className="shrink-0 text-muted-foreground text-xs">
+              <span className="text-muted-foreground text-xs">
                 {formatRelativeTimeLabel(source.createdAt)}
               </span>
               {source.threadId === threadRef?.threadId ? null : (
@@ -742,10 +758,30 @@ function ReviewFindingsViewContent({
                   </TooltipPopup>
                 </Tooltip>
               )}
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost-muted"
+                aria-expanded={open}
+                aria-label={open ? "Fold the findings" : "Open the findings"}
+                onClick={() => setOpen((value) => !value)}
+              >
+                {open
+                  ? null
+                  : openEntries.length === 0
+                    ? "No issues"
+                    : `See ${openEntries.length} ${openEntries.length === 1 ? "issue" : "issues"}`}
+                <ChevronDownIcon
+                  aria-hidden
+                  className={cn("motion-safe:transition-transform", open && "rotate-180")}
+                />
+              </Button>
             </>
           }
         />
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-muted-foreground text-xs">
+      </div>
+      {open ? (
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs">
           <Badge size="sm" variant={REVIEW_VERDICT_BADGES[findings.verdict]}>
             {REVIEW_VERDICT_LABELS[findings.verdict]}
           </Badge>
@@ -756,202 +792,205 @@ function ReviewFindingsViewContent({
               : null}
           </span>
         </div>
-        {superseded ? (
-          <p className="text-warning-foreground text-xs">
-            A newer review is running above; its findings replace these when it finishes.
-          </p>
-        ) : null}
-      </div>
-      <header className="flex min-w-0 flex-wrap items-center gap-1.5 border-b border-border/60 px-3 py-1.5">
-        <span className="text-muted-foreground text-xs">
-          {openEntries.length === 0
-            ? "No issues"
-            : `${openEntries.length} ${openEntries.length === 1 ? "issue" : "issues"}`}
-        </span>
-        {rereviewSummary !== null ? (
-          <span className="text-muted-foreground text-xs">· {rereviewSummary}</span>
-        ) : null}
-        {dismissedCount > 0 ? (
-          <Button
-            type="button"
-            size="xs"
-            variant="ghost"
-            aria-pressed={showDismissed}
-            onClick={() => setShowDismissed((value) => !value)}
-          >
-            {dismissedCount} dismissed · {showDismissed ? "hide" : "show"}
-          </Button>
-        ) : null}
-        {order.length > 0 ? (
-          <span className="ml-auto flex items-center gap-0.5">
-            <Button
-              type="button"
-              size="icon-xs"
-              variant="ghost"
-              aria-label="Previous issue"
-              disabled={order.length === 0}
-              onClick={() => goTo(shownIndex === 0 ? order.length - 1 : shownIndex - 1)}
-            >
-              <ChevronLeftIcon aria-hidden />
-            </Button>
-            <span className="text-muted-foreground text-xs tabular-nums">
-              Issue {order.length === 0 ? 0 : shownIndex + 1}/{order.length}
+      ) : null}
+      {open ? (
+        <>
+          <header className="flex min-w-0 flex-wrap items-center gap-1.5 border-b border-border/60 px-3 py-1.5">
+            <span className="text-muted-foreground text-xs">
+              {openEntries.length === 0
+                ? "No issues"
+                : `${openEntries.length} ${openEntries.length === 1 ? "issue" : "issues"}`}
             </span>
-            <Button
-              type="button"
-              size="icon-xs"
-              variant="ghost"
-              aria-label="Next issue"
-              disabled={order.length === 0}
-              onClick={() => goTo((shownIndex + 1) % order.length)}
-            >
-              <ChevronRightIcon aria-hidden />
-            </Button>
-          </span>
-        ) : (
-          <span className="ml-auto" />
-        )}
-        {filesWithoutFindings.length > 0 ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
+            {rereviewSummary !== null ? (
+              <span className="text-muted-foreground text-xs">· {rereviewSummary}</span>
+            ) : null}
+            {dismissedCount > 0 ? (
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                aria-pressed={showDismissed}
+                onClick={() => setShowDismissed((value) => !value)}
+              >
+                {dismissedCount} dismissed · {showDismissed ? "hide" : "show"}
+              </Button>
+            ) : null}
+            {order.length > 0 ? (
+              <span className="ml-auto flex items-center gap-0.5">
                 <Button
                   type="button"
                   size="icon-xs"
                   variant="ghost"
-                  aria-pressed={allFilesOpen}
-                  aria-label={allFilesOpen ? "Fold files without issues" : "Show all files"}
-                  onClick={() =>
-                    setToggledFiles(
-                      allFilesOpen
-                        ? new Set()
-                        : new Set(filesWithoutFindings.map((file) => file.fileKey)),
-                    )
-                  }
-                />
-              }
-            >
-              {allFilesOpen ? <FoldVerticalIcon aria-hidden /> : <UnfoldVerticalIcon aria-hidden />}
-            </TooltipTrigger>
-            <TooltipPopup side="top">
-              {allFilesOpen ? "Fold files without issues" : "Show all files"}
-            </TooltipPopup>
-          </Tooltip>
-        ) : null}
-        {startReview ? <FindIssuesButton target={startReview} rereview={rereview} /> : null}
-        <Button
-          type="button"
-          size="xs"
-          disabled={primaryDisabled}
-          title={postAllWaits ? "Wait for the review to finish" : undefined}
-          onClick={primary.run}
-        >
-          {commentMode ? <MessageSquarePlusIcon aria-hidden /> : <WrenchIcon aria-hidden />}
-          {postAllWaits ? "Post all after the review" : primary.label}
-        </Button>
-      </header>
-      {order.length > 0 ? (
-        <ol
-          aria-label="Issues"
-          className="max-h-40 shrink-0 overflow-y-auto border-b border-border/60 py-1"
-        >
-          {groupIssuesBySeverity(
-            order.flatMap((key, index) => {
-              const entry = shownByKey.get(key);
-              return entry === undefined ? [] : [{ key, index, finding: entry.finding }];
-            }),
-            (issue) => issue.finding.severity,
-          ).map((group) => (
-            <li key={group.severity}>
-              <h4 className="flex items-center gap-1.5 px-3 pt-1 pb-0.5 font-medium text-2xs text-muted-foreground uppercase tracking-wide">
-                <span
-                  aria-hidden
-                  className={cn("size-1.5 rounded-full", SEVERITY_DOTS[group.severity])}
-                />
-                {REVIEW_FINDING_SEVERITY_LABELS[group.severity]} · {group.items.length}
-              </h4>
-              <ol>
-                {group.items.map(({ key, index, finding }) => (
-                  <li key={key}>
-                    <button
+                  aria-label="Previous issue"
+                  disabled={order.length === 0}
+                  onClick={() => goTo(shownIndex === 0 ? order.length - 1 : shownIndex - 1)}
+                >
+                  <ChevronLeftIcon aria-hidden />
+                </Button>
+                <span className="text-muted-foreground text-xs tabular-nums">
+                  Issue {order.length === 0 ? 0 : shownIndex + 1}/{order.length}
+                </span>
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label="Next issue"
+                  disabled={order.length === 0}
+                  onClick={() => goTo((shownIndex + 1) % order.length)}
+                >
+                  <ChevronRightIcon aria-hidden />
+                </Button>
+              </span>
+            ) : (
+              <span className="ml-auto" />
+            )}
+            {filesWithoutFindings.length > 0 ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
                       type="button"
-                      className={cn(
-                        "flex w-full min-w-0 items-center gap-2 px-3 py-0.5 text-start text-xs hover:bg-accent/40 focus-visible:outline-2 focus-visible:outline-ring",
-                        key === currentKey && "bg-accent/60",
-                      )}
-                      onClick={() => goTo(index)}
-                    >
-                      <span className="w-4 shrink-0 text-end text-muted-foreground tabular-nums">
-                        {index + 1}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-foreground">
-                        {finding.title}
-                      </span>
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <span className="max-w-40 shrink-0 truncate text-muted-foreground" />
-                          }
+                      size="icon-xs"
+                      variant="ghost"
+                      aria-pressed={allFilesOpen}
+                      aria-label={allFilesOpen ? "Fold files without issues" : "Show all files"}
+                      onClick={() =>
+                        setToggledFiles(
+                          allFilesOpen
+                            ? new Set()
+                            : new Set(filesWithoutFindings.map((file) => file.fileKey)),
+                        )
+                      }
+                    />
+                  }
+                >
+                  {allFilesOpen ? (
+                    <FoldVerticalIcon aria-hidden />
+                  ) : (
+                    <UnfoldVerticalIcon aria-hidden />
+                  )}
+                </TooltipTrigger>
+                <TooltipPopup side="top">
+                  {allFilesOpen ? "Fold files without issues" : "Show all files"}
+                </TooltipPopup>
+              </Tooltip>
+            ) : null}
+            {startReview ? <FindIssuesButton target={startReview} rereview={rereview} /> : null}
+            <Button
+              type="button"
+              size="xs"
+              disabled={primaryDisabled}
+              title={postAllWaits ? "Wait for the review to finish" : undefined}
+              onClick={primary.run}
+            >
+              {commentMode ? <MessageSquarePlusIcon aria-hidden /> : <WrenchIcon aria-hidden />}
+              {postAllWaits ? "Post all after the review" : primary.label}
+            </Button>
+          </header>
+          {order.length > 0 ? (
+            <ol
+              aria-label="Issues"
+              className="max-h-40 shrink-0 overflow-y-auto border-b border-border/60 py-1"
+            >
+              {groupIssuesBySeverity(
+                order.flatMap((key, index) => {
+                  const entry = shownByKey.get(key);
+                  return entry === undefined ? [] : [{ key, index, finding: entry.finding }];
+                }),
+                (issue) => issue.finding.severity,
+              ).map((group) => (
+                <li key={group.severity}>
+                  <h4 className="flex items-center gap-1.5 px-3 pt-1 pb-0.5 font-medium text-2xs text-muted-foreground uppercase tracking-wide">
+                    <span
+                      aria-hidden
+                      className={cn("size-1.5 rounded-full", SEVERITY_DOTS[group.severity])}
+                    />
+                    {REVIEW_FINDING_SEVERITY_LABELS[group.severity]} · {group.items.length}
+                  </h4>
+                  <ol>
+                    {group.items.map(({ key, index, finding }) => (
+                      <li key={key}>
+                        <button
+                          type="button"
+                          className={cn(
+                            "flex w-full min-w-0 items-center gap-2 px-3 py-0.5 text-start text-xs hover:bg-accent/40 focus-visible:outline-2 focus-visible:outline-ring",
+                            key === currentKey && "bg-accent/60",
+                          )}
+                          onClick={() => goTo(index)}
                         >
-                          {issueFileLabel(finding.path, finding.line)}
-                        </TooltipTrigger>
-                        <TooltipPopup side="top">
-                          {finding.line === undefined
-                            ? finding.path
-                            : `${finding.path}:${finding.line}`}
-                        </TooltipPopup>
-                      </Tooltip>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            </li>
-          ))}
-        </ol>
+                          <span className="w-4 shrink-0 text-end text-muted-foreground tabular-nums">
+                            {index + 1}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-foreground">
+                            {finding.title}
+                          </span>
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <span className="max-w-40 shrink-0 truncate text-muted-foreground" />
+                              }
+                            >
+                              {issueFileLabel(finding.path, finding.line)}
+                            </TooltipTrigger>
+                            <TooltipPopup side="top">
+                              {finding.line === undefined
+                                ? finding.path
+                                : `${finding.path}:${finding.line}`}
+                            </TooltipPopup>
+                          </Tooltip>
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+          {diff.partial || diff.error !== null || noDiff ? (
+            <p className="border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs">
+              {diff.error !== null
+                ? `The change could not be loaded: ${diff.error}`
+                : noDiff
+                  ? `${reviewNoChangesText(findings.target, source.scope, diff.base)}${general.length > 0 ? " The issues are listed without their diff." : ""}`
+                  : "Part of the change is not shown here. Issues in it are listed above the diff."}
+            </p>
+          ) : null}
+          {general.length > 0 ? (
+            <section
+              aria-label={noDiff ? "Issues" : "Not in the diff"}
+              className={cn(
+                "overflow-y-auto py-1",
+                noDiff ? "min-h-0 flex-1" : "max-h-[40%] shrink-0 border-b border-border/60",
+              )}
+            >
+              {noDiff ? null : (
+                <h4 className="px-3 pt-1 text-muted-foreground text-xs">
+                  Not in the diff ({general.length})
+                </h4>
+              )}
+              {general.map((entry) => renderCard(entry, true))}
+            </section>
+          ) : null}
+          <div className={cn("flex min-h-0 flex-col", noDiff ? "hidden" : "flex-1")}>
+            {diff.files.length > 0 ? (
+              <StyledDiffCodeView<FindingAnnotationGroup>
+                className="@container h-full overflow-auto [scrollbar-gutter:stable]"
+                viewerRef={setViewer}
+                items={items}
+                selectedLines={selectedLines}
+                onSelectedLinesChange={() => undefined}
+                options={diffViewOptions}
+                renderHeaderPrefix={renderHeaderPrefix}
+                renderAnnotation={renderAnnotation}
+              />
+            ) : diff.pending ? (
+              <p className="px-3 py-2 text-muted-foreground text-sm" role="status">
+                Loading the change...
+              </p>
+            ) : null}
+          </div>
+        </>
       ) : null}
-      {diff.partial || diff.error !== null || noDiff ? (
-        <p className="border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs">
-          {diff.error !== null
-            ? `The change could not be loaded: ${diff.error}`
-            : noDiff
-              ? `${reviewNoChangesText(findings.target, source.scope, diff.base)}${general.length > 0 ? " The issues are listed without their diff." : ""}`
-              : "Part of the change is not shown here. Issues in it are listed above the diff."}
-        </p>
-      ) : null}
-      {general.length > 0 ? (
-        <section
-          aria-label={noDiff ? "Issues" : "Not in the diff"}
-          className={cn(
-            "overflow-y-auto py-1",
-            noDiff ? "min-h-0 flex-1" : "max-h-[40%] shrink-0 border-b border-border/60",
-          )}
-        >
-          {noDiff ? null : (
-            <h4 className="px-3 pt-1 text-muted-foreground text-xs">
-              Not in the diff ({general.length})
-            </h4>
-          )}
-          {general.map((entry) => renderCard(entry, true))}
-        </section>
-      ) : null}
-      <div className={cn("flex min-h-0 flex-col", noDiff ? "hidden" : "flex-1")}>
-        {diff.files.length > 0 ? (
-          <StyledDiffCodeView<FindingAnnotationGroup>
-            className="@container h-full overflow-auto [scrollbar-gutter:stable]"
-            viewerRef={setViewer}
-            items={items}
-            selectedLines={selectedLines}
-            onSelectedLinesChange={() => undefined}
-            options={diffViewOptions}
-            renderHeaderPrefix={renderHeaderPrefix}
-            renderAnnotation={renderAnnotation}
-          />
-        ) : diff.pending ? (
-          <p className="px-3 py-2 text-muted-foreground text-sm" role="status">
-            Loading the change...
-          </p>
-        ) : null}
-      </div>
       {fixing !== null ? (
         <ReviewFixAllDialog
           entries={fixing}

@@ -204,7 +204,6 @@ export function ReviewStatusBar({
       mode={mode}
       model={model}
       title={review.title}
-      note={null}
       startedAt={review.startedAt}
       state={
         running
@@ -256,7 +255,6 @@ export function ReviewCard({
   mode,
   model,
   title,
-  note,
   startedAt,
   state,
   tree,
@@ -276,8 +274,6 @@ export function ReviewCard({
   model: string;
   /** The review's own name ("Deep review: #1615 …"), named by the View agent tooltip. */
   title: string;
-  /** A line under the header, when the card has to say more than its state. */
-  note: string | null;
   startedAt: string;
   state: ReviewCardState;
   /** The reviewer and its agents while the review runs (ReviewTree). */
@@ -349,7 +345,6 @@ export function ReviewCard({
             {mode} · {model}
           </span>
         </div>
-        {note !== null ? <p className="px-0.5 text-muted-foreground text-xs">{note}</p> : null}
         {running ? (
           tree
         ) : (

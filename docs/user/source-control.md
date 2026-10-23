@@ -256,7 +256,8 @@ works, with how long it has run and what it is doing. Findings appear on the dif
 verifies them, marked **Still reviewing** until its last set arrives. Every review block opens with
 what it reviewed, the pull request's number and title or this chat's changes, under a label saying
 what the block is: **Reviewing now**, **Latest review**, or **Earlier review** while a newer review
-runs and its own findings have not arrived. The issues are listed
+runs and its own findings have not arrived. An earlier review folds to that row; click it to open
+its findings, and again to fold them. The issues are listed
 first, grouped by severity and naming only the file (the full path shows on hover); the panel goes
 to the first one, and a row or the arrows go to the next, with each finding under the lines it is
 about (findings without a place in the diff are listed under **General**). Files

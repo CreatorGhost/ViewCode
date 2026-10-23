@@ -191,21 +191,23 @@ export function ReviewSurface({
         {source !== null ? (
           // Keyed by review rather than by set, so findings arriving as the review goes on fill
           // the same view instead of resetting where the reader is.
-          <ReviewFindingsView
-            key={source.threadId}
-            environmentId={environmentId}
-            threadRef={threadRef}
-            source={source}
-            projectId={projectId}
-            cwd={cwd}
-            posted={posted}
-            ratings={ratings}
-            onFixInChat={onFixInChat}
-            startReview={startReview}
-            stillReviewing={ownFindings && progress?.kind === "running"}
-            superseded={!ownFindings && progress?.kind === "running"}
-            readerScrolled={readerScrolled}
-          />
+          <div className="h-full px-3 pt-2 pb-3">
+            <ReviewFindingsView
+              key={source.threadId}
+              environmentId={environmentId}
+              threadRef={threadRef}
+              source={source}
+              projectId={projectId}
+              cwd={cwd}
+              posted={posted}
+              ratings={ratings}
+              onFixInChat={onFixInChat}
+              startReview={startReview}
+              stillReviewing={ownFindings && progress?.kind === "running"}
+              superseded={!ownFindings && progress?.kind === "running"}
+              readerScrolled={readerScrolled}
+            />
+          </div>
         ) : progress?.kind === "running" && change !== null ? (
           <ReviewChangeView
             environmentId={environmentId}

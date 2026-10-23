@@ -68,16 +68,16 @@ export function ReviewIdentity({
 }) {
   const text = reviewHeadingText(heading);
   return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <div className="flex min-w-0 items-center gap-2">
+    <span className="flex min-w-0 flex-col gap-1">
+      <span className="flex min-w-0 items-center gap-2">
         <Badge size="sm" variant={kickerVariant}>
           {kicker}
         </Badge>
         <span className="min-w-0 flex-1" />
         {trailing}
-      </div>
+      </span>
       <Tooltip>
-        <TooltipTrigger render={<p className="min-w-0 truncate font-medium text-sm" />}>
+        <TooltipTrigger render={<span className="block min-w-0 truncate font-medium text-sm" />}>
           {heading.kind === "local" ? (
             text
           ) : (
@@ -94,6 +94,6 @@ export function ReviewIdentity({
         </TooltipTrigger>
         <TooltipPopup side="top">{text}</TooltipPopup>
       </Tooltip>
-    </div>
+    </span>
   );
 }

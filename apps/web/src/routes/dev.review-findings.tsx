@@ -125,7 +125,6 @@ function ReviewFindingsPreview() {
             startedAt={startedAt}
             state={{ kind: "running" }}
             title="Deep review: #1810 feat(playbooks): validate run and preview bodies"
-            note={null}
             tree={
               <p className="px-0.5 text-muted-foreground text-xs">Running tests in frontend…</p>
             }

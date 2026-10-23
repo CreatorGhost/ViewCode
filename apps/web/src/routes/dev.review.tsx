@@ -118,7 +118,6 @@ function ReviewPreview() {
               : { kind: "running" }
           }
           title="Deep review: #1615 feat(playbooks): MGAI-1120"
-          note={null}
           tree={
             <ReviewTree
               step={
