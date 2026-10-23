@@ -44,7 +44,13 @@ const source: ReviewFindingsSource = {
     verdict: "request-changes",
     mergeConfidence: 3,
     reviewEffort: 4,
-    target: { kind: "local" },
+    target: {
+      kind: "pull-request",
+      host: "github.com",
+      repository: "example/agents",
+      number: 1615,
+      url: "https://github.com/example/agents/pull/1615",
+    },
     mode: "fix",
     needsChecking: [],
     findings: [
@@ -107,12 +113,19 @@ function ReviewFindingsPreview() {
         {superseded ? (
           <ReviewCard
             icon={null}
-            mode="New deep review"
+            kicker="Reviewing now"
+            kickerVariant="info"
+            heading={{
+              kind: "pull-request",
+              number: 1810,
+              title: "feat(playbooks): validate run and preview bodies against a shared schema",
+            }}
+            mode="Deep review"
             model="Claude Sonnet 5.5"
             startedAt={startedAt}
             state={{ kind: "running" }}
             title="Deep review: #1810 feat(playbooks): validate run and preview bodies"
-            note="The issues below are the earlier review's; this one's take their place when it finishes."
+            note={null}
             tree={
               <p className="px-0.5 text-muted-foreground text-xs">Running tests in frontend…</p>
             }

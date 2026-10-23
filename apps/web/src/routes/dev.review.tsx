@@ -103,6 +103,9 @@ function ReviewPreview() {
         </div>
         <ReviewCard
           icon={null}
+          kicker={failed ? "Review failed" : "Reviewing now"}
+          kickerVariant={failed ? "error" : "info"}
+          heading={{ kind: "pull-request", number: 1615, title: flow.title }}
           mode="Deep review"
           model="Grok 4.7"
           startedAt={startedAt}

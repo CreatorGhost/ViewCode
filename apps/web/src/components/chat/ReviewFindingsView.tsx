@@ -40,6 +40,7 @@ import {
 } from "@t3tools/shared/reviewFindings";
 import { Link } from "@tanstack/react-router";
 import {
+  ArrowUpRightIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -74,6 +75,12 @@ import {
   useSendReviewFixToChat,
 } from "./reviewFixChat";
 import { ReviewPostDialog } from "./ReviewPostDialog";
+import {
+  pullRequestTitleFromReviewTitle,
+  type ReviewHeading,
+  ReviewIdentity,
+  useLinkedPullRequestTitle,
+} from "./reviewIdentity";
 import { groupIssuesBySeverity, issueFileLabel } from "./reviewIssueGroups";
 import { FindIssuesButton, type ReviewStartTarget } from "./ReviewStart";
 import {
@@ -255,6 +262,21 @@ function ReviewFindingsViewContent({
       ? reviewRereviewBasis(source, startReview.request)
       : null;
   const rereviewSummary = reviewRereviewSummary(findings);
+  const linkedTitle = useLinkedPullRequestTitle(
+    environmentId,
+    source.threadId,
+    findings.target.kind === "pull-request" ? findings.target.number : null,
+  );
+  const heading: ReviewHeading =
+    findings.target.kind === "pull-request"
+      ? {
+          kind: "pull-request",
+          number: findings.target.number,
+          title:
+            linkedTitle ??
+            pullRequestTitleFromReviewTitle(source.threadTitle, findings.target.number),
+        }
+      : { kind: "local" };
 
   const diff = useReviewDiff({
     environmentId,
@@ -679,14 +701,68 @@ function ReviewFindingsViewContent({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex min-w-0 flex-wrap items-center gap-1.5 border-b border-border/60 px-3 py-1.5">
-        {stillReviewing ? (
-          <Badge variant="info">Still reviewing…</Badge>
-        ) : superseded ? (
-          <Badge variant="warning">Earlier review</Badge>
-        ) : (
-          <Badge variant="outline">Latest</Badge>
+      <div
+        className={cn(
+          "flex min-w-0 flex-col gap-1 border-b border-border/60 px-3 py-2",
+          superseded && "bg-warning/4",
         )}
+      >
+        <ReviewIdentity
+          kicker={
+            stillReviewing ? "Still reviewing" : superseded ? "Earlier review" : "Latest review"
+          }
+          kickerVariant={stillReviewing ? "info" : superseded ? "warning" : "success"}
+          heading={heading}
+          trailing={
+            <>
+              <span className="shrink-0 text-muted-foreground text-xs">
+                {formatRelativeTimeLabel(source.createdAt)}
+              </span>
+              {source.threadId === threadRef?.threadId ? null : (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="icon-xs"
+                        variant="ghost-muted"
+                        aria-label="View reviewer"
+                        render={
+                          <Link
+                            to="/$environmentId/$threadId"
+                            params={{ environmentId, threadId: source.threadId }}
+                          />
+                        }
+                      />
+                    }
+                  >
+                    <ArrowUpRightIcon aria-hidden />
+                  </TooltipTrigger>
+                  <TooltipPopup side="top">
+                    Open the reviewer's chat: {source.threadTitle}
+                  </TooltipPopup>
+                </Tooltip>
+              )}
+            </>
+          }
+        />
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-muted-foreground text-xs">
+          <Badge size="sm" variant={REVIEW_VERDICT_BADGES[findings.verdict]}>
+            {REVIEW_VERDICT_LABELS[findings.verdict]}
+          </Badge>
+          <span className="min-w-0 truncate">
+            Merge confidence {findings.mergeConfidence}/5 · Review effort {findings.reviewEffort}/5
+            {findings.target.kind === "local"
+              ? ` · ${reviewedChangeLabel(findings.target, source.scope, diff.base)}`
+              : null}
+          </span>
+        </div>
+        {superseded ? (
+          <p className="text-warning-foreground text-xs">
+            A newer review is running above; its findings replace these when it finishes.
+          </p>
+        ) : null}
+      </div>
+      <header className="flex min-w-0 flex-wrap items-center gap-1.5 border-b border-border/60 px-3 py-1.5">
         <span className="text-muted-foreground text-xs">
           {openEntries.length === 0
             ? "No issues"
@@ -774,30 +850,6 @@ function ReviewFindingsViewContent({
           {postAllWaits ? "Post all after the review" : primary.label}
         </Button>
       </header>
-      <div className="flex min-w-0 flex-col gap-0.5 border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs">
-        {/* Whose findings these are comes first: with another review running, it is the question. */}
-        <div className="flex min-w-0 items-center gap-1.5">
-          <Badge size="sm" variant={REVIEW_VERDICT_BADGES[findings.verdict]}>
-            {REVIEW_VERDICT_LABELS[findings.verdict]}
-          </Badge>
-          {source.threadId === threadRef?.threadId ? (
-            <span className="min-w-0 flex-1 truncate text-foreground">{source.threadTitle}</span>
-          ) : (
-            <Link
-              to="/$environmentId/$threadId"
-              params={{ environmentId, threadId: source.threadId }}
-              className="min-w-0 flex-1 truncate text-foreground hover:underline"
-            >
-              {source.threadTitle}
-            </Link>
-          )}
-          <span className="shrink-0">{formatRelativeTimeLabel(source.createdAt)}</span>
-        </div>
-        <span className="truncate">
-          Merge confidence {findings.mergeConfidence}/5 · Review effort {findings.reviewEffort}/5 ·{" "}
-          {reviewedChangeLabel(findings.target, source.scope, diff.base)}
-        </span>
-      </div>
       {order.length > 0 ? (
         <ol
           aria-label="Issues"

@@ -13,13 +13,17 @@ import {
   type SpawnedAgentRowStatus,
 } from "@t3tools/client-runtime/state/child-agents";
 import { AGENT_REVIEW_MODES, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
+import {
+  resolveThreadCurrentPullRequestLink,
+  visibleThreadPullRequests,
+} from "@t3tools/shared/threadPullRequests";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowUpRightIcon, ListChecksIcon } from "lucide-react";
 import { memo, type ReactNode, useState } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { cn } from "~/lib/utils";
-import { readThreadShells } from "../../state/entities";
+import { readThreadShells, useThreadShell } from "../../state/entities";
 import { scopeThreadShell } from "@t3tools/client-runtime/viewcodeThread";
 import { useViewCodeThreadShells as useThreadShells } from "../../state/viewcodeThreadShells";
 import { useEnvironmentProviders } from "../../state/environments";
@@ -40,6 +44,7 @@ import {
   ROW_HEIGHT,
 } from "./prFlow/prFlowGraph";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
+import { type ReviewHeading, ReviewIdentity, useLinkedPullRequestTitle } from "./reviewIdentity";
 import { reviewWorkLine } from "./reviewProgress.logic";
 import type { LatestReviewStatus } from "./useReviewFindingsSource";
 
@@ -138,6 +143,23 @@ export function ReviewStatusBar({
 }) {
   const { progress } = review;
   const { mode, model, provider } = useReviewParts(environmentId, review);
+  // A review of a pull request runs in a thread linked to it; a local review has a scope.
+  const reviewerShell = useThreadShell(scopeThreadRef(environmentId, review.threadId));
+  const reviewedLink =
+    review.scope === null
+      ? resolveThreadCurrentPullRequestLink(
+          visibleThreadPullRequests(reviewerShell?.pullRequests ?? []),
+        )
+      : null;
+  const linkedTitle = useLinkedPullRequestTitle(
+    environmentId,
+    review.threadId,
+    reviewedLink?.number ?? null,
+  );
+  const heading: ReviewHeading =
+    reviewedLink === null
+      ? { kind: "local" }
+      : { kind: "pull-request", number: reviewedLink.number, title: linkedTitle };
   const navigate = useNavigate();
   const actions = useAgentControlActions();
   const [stopping, setStopping] = useState(false);
@@ -174,14 +196,15 @@ export function ReviewStatusBar({
           />
         ) : null
       }
-      mode={newer && running ? `New ${mode.toLowerCase()}` : mode}
+      kicker={
+        running ? "Reviewing now" : progress.kind === "failed" ? "Review failed" : "Review ended"
+      }
+      kickerVariant={running ? "info" : progress.kind === "failed" ? "error" : "outline"}
+      heading={heading}
+      mode={mode}
       model={model}
       title={review.title}
-      note={
-        newer && running
-          ? "The issues below are the earlier review's; this one's take their place when it finishes."
-          : null
-      }
+      note={null}
       startedAt={review.startedAt}
       state={
         running
@@ -227,6 +250,9 @@ export type ReviewCardState =
 /** The review card drawn from what it shows; ReviewStatusBar reads the thread for it. */
 export function ReviewCard({
   icon,
+  kicker,
+  kickerVariant,
+  heading,
   mode,
   model,
   title,
@@ -241,6 +267,11 @@ export function ReviewCard({
   retrying,
 }: {
   icon: ReactNode;
+  /** What this block is, in two words: "Reviewing now", "Review failed". */
+  kicker: string;
+  kickerVariant: "info" | "error" | "outline";
+  /** What the review reads. */
+  heading: ReviewHeading;
   mode: string;
   model: string;
   /** The review's own name ("Deep review: #1615 …"), named by the View agent tooltip. */
@@ -261,51 +292,61 @@ export function ReviewCard({
   return (
     <div role="status" className="shrink-0 px-3 pt-2">
       <div className="blur-swap flex flex-col gap-1.5 rounded-xl border bg-card p-3 text-sm">
-        <div className="flex items-center gap-2 px-0.5">
-          {icon ?? <ListChecksIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />}
-          <span className="min-w-0 flex-1 truncate">
-            <span className="font-medium">{mode}</span>
-            <span className="text-muted-foreground"> · {model}</span>
-          </span>
-          {running ? <ReviewElapsed startedAt={startedAt} endMs={null} /> : null}
-          <span className="flex shrink-0 items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    size="icon-xs"
-                    variant="ghost-muted"
-                    aria-label="View agent"
-                    onClick={onViewAgent}
-                  />
-                }
-              >
-                <ArrowUpRightIcon aria-hidden="true" />
-              </TooltipTrigger>
-              <TooltipPopup side="top">Open the reviewer's chat: {title}</TooltipPopup>
-            </Tooltip>
-            {running ? (
-              <Button
-                type="button"
-                size="xs"
-                variant="outline"
-                disabled={stopping}
-                onClick={onStop}
-              >
-                {stopping ? "Stopping..." : "Stop"}
-              </Button>
-            ) : onRetry !== null ? (
-              <Button
-                type="button"
-                size="xs"
-                variant="outline"
-                disabled={retrying}
-                onClick={onRetry}
-              >
-                {retrying ? "Starting..." : "Try again"}
-              </Button>
-            ) : null}
+        <div className="px-0.5">
+          <ReviewIdentity
+            kicker={kicker}
+            kickerVariant={kickerVariant}
+            heading={heading}
+            trailing={
+              <>
+                {running ? <ReviewElapsed startedAt={startedAt} endMs={null} /> : null}
+                <span className="flex shrink-0 items-center gap-1">
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          type="button"
+                          size="icon-xs"
+                          variant="ghost-muted"
+                          aria-label="View agent"
+                          onClick={onViewAgent}
+                        />
+                      }
+                    >
+                      <ArrowUpRightIcon aria-hidden="true" />
+                    </TooltipTrigger>
+                    <TooltipPopup side="top">Open the reviewer's chat: {title}</TooltipPopup>
+                  </Tooltip>
+                  {running ? (
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      disabled={stopping}
+                      onClick={onStop}
+                    >
+                      {stopping ? "Stopping..." : "Stop"}
+                    </Button>
+                  ) : onRetry !== null ? (
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      disabled={retrying}
+                      onClick={onRetry}
+                    >
+                      {retrying ? "Starting..." : "Try again"}
+                    </Button>
+                  ) : null}
+                </span>
+              </>
+            }
+          />
+        </div>
+        <div className="flex items-center gap-1.5 px-0.5 text-muted-foreground text-xs">
+          {icon ?? <ListChecksIcon aria-hidden className="size-3.5 shrink-0" />}
+          <span className="min-w-0 truncate">
+            {mode} · {model}
           </span>
         </div>
         {note !== null ? <p className="px-0.5 text-muted-foreground text-xs">{note}</p> : null}
