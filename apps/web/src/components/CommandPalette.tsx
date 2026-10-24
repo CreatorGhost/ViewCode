@@ -1312,7 +1312,12 @@ function OpenCommandPaletteDialog(props: {
         null;
       return (
         <ThreadCommandSubtitle
-          project={projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null}
+          project={
+            // RockBot chats are titled RockBot, not by the scratch folder they run in.
+            thread.kind === "orchestrator"
+              ? null
+              : (projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null)
+          }
           projectTitle={projectTitle ?? null}
           environmentLabel={
             projectEnvironmentLocationById.get(thread.environmentId)?.label ?? "Remote"

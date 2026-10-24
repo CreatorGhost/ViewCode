@@ -8,6 +8,7 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environmen
 import { useProjects, useThreadShells } from "../../state/entities";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../../uiStateStore";
 import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "../Sidebar.logic";
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
 
 /**
  * The sidebar's project folders with their names and members, not yet in sidebar order. For
@@ -53,5 +54,12 @@ export function useSidebarProjectGroups(): ReadonlyArray<SidebarProjectSnapshot>
   const unsortedGroups = useSidebarProjectSnapshots();
   const threads = useThreadShells();
   const sortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
-  return (() => sortLogicalProjectsForSidebar(unsortedGroups, threads, sortOrder))();
+  // RockBot chats live in No project only as storage; chatting with RockBot must not
+  // move that folder up.
+  return (() =>
+    sortLogicalProjectsForSidebar(
+      unsortedGroups,
+      threads.filter((thread) => !isRockBot(thread.source)),
+      sortOrder,
+    ))();
 }
