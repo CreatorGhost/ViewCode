@@ -618,6 +618,14 @@ never falls back, an HTTP refusal is an answer rather than a transport failure,
 and the request error names the cause (an untrusted certificate, a refused
 connection) instead of a bare "could not be read".
 
+Enterprise Server has no pull request stacks, and it validates every field
+against its schema before `@include` is applied, so `stack @include(if: false)`
+still fails ("Field 'stack' doesn't exist on type 'PullRequest'"). Hosts other
+than github.com get the stack-free `Enterprise*` documents in
+`pullRequestEnterprise.graphql` and report `stacks`/`stackActions` false through
+`capabilitiesForHost` (`GitHubPullRequestApi.enterprise.viewcode.test.ts`). A new
+read that names a github.com-only field needs an Enterprise variant the same way.
+
 A fork's repository identity is its upstream (upstream's rule, `docs/internals/remote.md`), so the
 Pull requests list reads the fork's `origin` beside it and flags the upstream rows (`upstream` on
 the entry); clients give them their own group. One project can therefore hold two listed

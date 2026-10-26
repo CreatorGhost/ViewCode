@@ -46,6 +46,7 @@ import * as GitHubRest from "./GitHubRest.ts";
 import * as GitHubRequestPolicy from "./GitHubRequestPolicy.ts";
 import * as GitHubGraphQlClient from "./gitHubGraphQlClient.ts";
 import { PullRequestBatchesGraphQLGroup } from "./pullRequestBatches.graphql.ts";
+import { EnterprisePullRequestSummary } from "./pullRequestEnterprise.graphql.ts";
 import { PullRequestMutationsGraphQLGroup } from "./pullRequestMutations.graphql.ts";
 import { PullRequestReadsGraphQLGroup } from "./pullRequestReads.graphql.ts";
 import { PullRequestReviewsGraphQLGroup } from "./pullRequestReviews.graphql.ts";
@@ -60,6 +61,8 @@ import {
   type GitHubPullRequestCore,
   type GitHubPullRequestWatchFingerprint,
   isSubjectOfPullRequest,
+  LenientEnterprisePullRequestList,
+  LenientEnterprisePullRequestSearch,
   LenientPullRequestList,
   LenientPullRequestSearch,
   pageRows,
@@ -866,11 +869,26 @@ const GRAPHQL_MERGE_METHODS = {
 /** Every GraphQL read and write this module makes, through GitHub's auth and rate limits. */
 const PullRequestGraphQLGroup = GraphQLGroup.merge(
   PullRequestBatchesGraphQLGroup,
-  GraphQLGroup.make(LenientPullRequestSearch, LenientPullRequestList),
+  GraphQLGroup.make(
+    LenientPullRequestSearch,
+    LenientPullRequestList,
+    LenientEnterprisePullRequestSearch,
+    LenientEnterprisePullRequestList,
+    EnterprisePullRequestSummary,
+  ),
   PullRequestReadsGraphQLGroup,
   PullRequestReviewsGraphQLGroup,
   PullRequestMutationsGraphQLGroup,
 ).middleware(GitHubGraphQlClient.GitHubGraphQlAuth);
+
+/**
+ * ViewCode: pull request stacks exist on github.com only. GitHub Enterprise Server rejects a
+ * document that names `stack` or `stackEntry` even under `@include(if: false)`, because it
+ * validates fields before directives, so other hosts get the `Enterprise*` documents.
+ */
+export function hostHasPullRequestStacks(host: string): boolean {
+  return host.toLowerCase() === "github.com";
+}
 
 /** States in which `gh pr merge --auto` merges at once instead of arming auto-merge. */
 const IMMEDIATELY_MERGEABLE = new Set(["CLEAN", "HAS_HOOKS", "UNSTABLE"]);
@@ -1591,6 +1609,12 @@ export const make = Effect.gen(function* () {
     RequestResolver.setDelay(SUMMARY_BATCH_WINDOW),
     RequestResolver.batchN(STAT_ALIASES_PER_REQUEST),
   );
+  const enterpriseSummaryResolver = GraphQLResolver.aliased(client.EnterprisePullRequestSummary, {
+    batchKey: GitHubGraphQlClient.batchKey,
+  }).pipe(
+    RequestResolver.setDelay(SUMMARY_BATCH_WINDOW),
+    RequestResolver.batchN(STAT_ALIASES_PER_REQUEST),
+  );
   const getPullRequestSummary: GitHubPullRequestApi["Service"]["getPullRequestSummary"] = (input) =>
     Effect.gen(function* () {
       const lookup = pullRequestLookup(input);
@@ -1600,10 +1624,9 @@ export const make = Effect.gen(function* () {
           operation: "getPullRequestSummary",
         });
       }
-      const result = yield* GraphQLResolver.request(
-        { ...lookup, stacks: input.host.toLowerCase() === "github.com" },
-        summaryResolver,
-      );
+      const result = hostHasPullRequestStacks(input.host)
+        ? yield* GraphQLResolver.request({ ...lookup, stacks: true }, summaryResolver)
+        : yield* GraphQLResolver.request(lookup, enterpriseSummaryResolver);
       const pullRequest = result.repository?.pullRequest;
       if (pullRequest == null) {
         return yield* new GitHubRequestPolicy.GitHubApiNotFoundError({
@@ -1715,41 +1738,53 @@ export const make = Effect.gen(function* () {
             truncated,
           };
         });
-      const stacks = input.host.toLowerCase() === "github.com";
+      const stacks = hostHasPullRequestStacks(input.host);
       const read = (
         continues: boolean,
         requestedRows = input.limit + 1,
       ): Effect.Effect<GitHubPullRequestListBatch, GitHubPullRequestApiError> =>
         collect(requestedRows, (after, rows) =>
           (continues
-            ? client
-                .PullRequestSearch({
-                  // The reader's own words are in the query.
-                  q: query,
-                  first: pageRows(rows),
-                  after,
-                  // Stack badges come from their own batched read below, for the rows that stay.
-                  stacks: false,
-                  stats: true,
-                })
-                .pipe(Effect.map((result) => toPage(toPullRequestRows(result.search))))
-            : client
-                .PullRequestList({
-                  owner,
-                  name,
-                  states: LIST_STATES[input.state],
-                  first: pageRows(rows),
-                  after,
-                  stacks: false,
-                  stats: true,
-                })
-                .pipe(
-                  // A repository the viewer cannot see answers as an empty page, which is what
-                  // `gh pr list` printed for it too.
-                  Effect.map((result) =>
-                    toPage(toPullRequestRows(result.repository?.pullRequests)),
-                  ),
-                )
+            ? (stacks
+                ? client.PullRequestSearch({
+                    // The reader's own words are in the query.
+                    q: query,
+                    first: pageRows(rows),
+                    after,
+                    // Stack badges come from their own batched read below, for the rows that stay.
+                    stacks: false,
+                    stats: true,
+                  })
+                : client.EnterprisePullRequestSearch({
+                    q: query,
+                    first: pageRows(rows),
+                    after,
+                    stats: true,
+                  })
+              ).pipe(Effect.map((result) => toPage(toPullRequestRows(result.search))))
+            : (stacks
+                ? client.PullRequestList({
+                    owner,
+                    name,
+                    states: LIST_STATES[input.state],
+                    first: pageRows(rows),
+                    after,
+                    stacks: false,
+                    stats: true,
+                  })
+                : client.EnterprisePullRequestList({
+                    owner,
+                    name,
+                    states: LIST_STATES[input.state],
+                    first: pageRows(rows),
+                    after,
+                    stats: true,
+                  })
+              ).pipe(
+                // A repository the viewer cannot see answers as an empty page, which is what
+                // `gh pr list` printed for it too.
+                Effect.map((result) => toPage(toPullRequestRows(result.repository?.pullRequests))),
+              )
           ).pipe(graphql(target)),
         ).pipe(
           Effect.flatMap(({ items: rawItems, rawCount, truncated: cutShort }) => {
@@ -1837,27 +1872,24 @@ export const make = Effect.gen(function* () {
         );
       }
       const rows = Math.min(input.limit + 1, PULL_REQUEST_SEARCH_MAX_ROWS);
-      return client
-        .PullRequestSearch({
-          q: query,
-          first: rows,
-          stacks: input.host.toLowerCase() === "github.com",
-          stats: false,
-        })
-        .pipe(
-          graphql({ ...input, operation: "searchPullRequests" }),
-          Effect.map(({ search }) => {
-            const page = toPullRequestRows(search);
-            // A search row names its repository; one that does not cannot be placed on a page.
-            const items = page.rows.flatMap(({ item, repository }) =>
-              repository === null ? [] : [{ ...item, repository }],
-            );
-            return {
-              items: items.slice(0, input.limit),
-              truncated: page.rawCount > input.limit || page.hasNextPage,
-            };
-          }),
-        );
+      return (
+        hostHasPullRequestStacks(input.host)
+          ? client.PullRequestSearch({ q: query, first: rows, stacks: true, stats: false })
+          : client.EnterprisePullRequestSearch({ q: query, first: rows, stats: false })
+      ).pipe(
+        graphql({ ...input, operation: "searchPullRequests" }),
+        Effect.map(({ search }) => {
+          const page = toPullRequestRows(search);
+          // A search row names its repository; one that does not cannot be placed on a page.
+          const items = page.rows.flatMap(({ item, repository }) =>
+            repository === null ? [] : [{ ...item, repository }],
+          );
+          return {
+            items: items.slice(0, input.limit),
+            truncated: page.rawCount > input.limit || page.hasNextPage,
+          };
+        }),
+      );
     },
 
     listPullRequestStats: (input) =>
