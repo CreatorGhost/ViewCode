@@ -3196,7 +3196,10 @@ layer("GitHubPullRequestApi.layer", (it) => {
     Effect.gen(function* () {
       mockedExecute.mockImplementation((call) =>
         Effect.succeed(
-          call.kind === "graphql" && call.operationName === "PullRequestList"
+          // An Enterprise host is read with the stack-free `Enterprise*` documents.
+          call.kind === "graphql" &&
+            (call.operationName === "PullRequestList" ||
+              call.operationName === "EnterprisePullRequestList")
             ? emptyList()
             : emptySearch(),
         ),

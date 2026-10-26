@@ -264,6 +264,8 @@ export interface PullRequestProviderApi {
   >;
   readonly kind: SourceControlProviderKind;
   readonly capabilities: PullRequestCapabilities;
+  /** ViewCode: what one host supports, when that differs from `capabilities` (GitHub Enterprise has no stacks). */
+  readonly capabilitiesForHost?: (host: string) => PullRequestCapabilities;
   readonly mergeMessageRewrite?: (message: string) => string;
   /**
    * Absent means `owner/name` on the host identifies it, and any checkout on the host can serve a

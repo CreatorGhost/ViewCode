@@ -513,7 +513,10 @@ function withRateLimitBackoff(
 
   const wrapped = {
     kind: api.kind,
-    capabilities: api.capabilities,
+    capabilities: api.capabilitiesForHost?.(host) ?? api.capabilities,
+    ...(api.capabilitiesForHost === undefined
+      ? {}
+      : { capabilitiesForHost: api.capabilitiesForHost }),
     ...(api.mergeMessageRewrite === undefined
       ? {}
       : { mergeMessageRewrite: api.mergeMessageRewrite }),

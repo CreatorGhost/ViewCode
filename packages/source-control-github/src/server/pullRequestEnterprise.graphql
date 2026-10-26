@@ -1,0 +1,154 @@
+# ViewCode: the listing and summary reads for a GitHub host other than github.com.
+#
+# GitHub Enterprise Server (3.18 at least) has no `PullRequest.stack` or `stackEntry`, and a
+# server validates every field against its schema before `@include(if: false)` is applied, so the
+# github.com documents fail there even with `$stacks: false`. These are those documents without
+# the stack fields or the `$stacks` variable. Keep them in step with `PullRequestRow`
+# (pullRequestListings.graphql) and `PullRequestSummary` (pullRequestBatches.graphql).
+# Guarded by GitHubPullRequestApi.enterprise.viewcode.test.ts.
+
+fragment EnterprisePullRequestRow on PullRequest {
+  number
+  title
+  url
+  author {
+    login
+    avatarUrl
+    ... on User {
+      name
+    }
+  }
+  headRefName
+  baseRefName
+  state
+  isDraft
+  mergeable
+  reviewDecision
+  latestReviews(first: 20) {
+    nodes {
+      state
+      author {
+        login
+      }
+    }
+  }
+  additions @include(if: $stats)
+  deletions @include(if: $stats)
+  createdAt
+  updatedAt
+  mergedAt
+  repository {
+    nameWithOwner
+  }
+  reviewRequests(first: 20) {
+    nodes {
+      requestedReviewer {
+        ... on User {
+          login
+        }
+        ... on Team {
+          slug
+        }
+      }
+    }
+  }
+  labels(first: 20) {
+    nodes {
+      name
+      color
+    }
+  }
+  commits(last: 1) {
+    nodes {
+      commit {
+        statusCheckRollup {
+          state
+        }
+      }
+    }
+  }
+}
+
+query EnterprisePullRequestSearch($q: String!, $first: Int!, $after: String, $stats: Boolean!) {
+  search(query: $q, type: ISSUE, first: $first, after: $after) {
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      ...EnterprisePullRequestRow
+    }
+  }
+}
+
+query EnterprisePullRequestList(
+  $owner: String!
+  $name: String!
+  $states: [PullRequestState!]
+  $first: Int!
+  $after: String
+  $stats: Boolean!
+) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(
+      first: $first
+      after: $after
+      states: $states
+      orderBy: { field: CREATED_AT, direction: DESC }
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        ...EnterprisePullRequestRow
+      }
+    }
+  }
+}
+
+query EnterprisePullRequestSummary($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      number
+      title
+      url
+      state
+      isDraft
+      mergeable
+      reviewDecision
+      additions
+      deletions
+      changedFiles
+      updatedAt
+      mergedAt
+      closedAt
+      headRefName
+      baseRefName
+      author {
+        login
+        avatarUrl
+        ... on User {
+          name
+        }
+      }
+      latestReviews(first: 20) {
+        nodes {
+          state
+          author {
+            login
+          }
+        }
+      }
+      commits(last: 1) {
+        nodes {
+          commit {
+            statusCheckRollup {
+              state
+            }
+          }
+        }
+      }
+    }
+  }
+}
