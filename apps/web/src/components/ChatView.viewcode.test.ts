@@ -60,3 +60,22 @@ describe("chat header right reserve", () => {
     );
   });
 });
+
+// Upstream compacts a stale Claude thread before the next send unless the chip is switched to
+// Full. ViewCode reverses it (user decision): the chip offers compaction, and a send keeps the
+// full history until it is pressed. An upstream merge brings the default back without conflict.
+describe("compaction before a send is opt-in", () => {
+  it("keeps the full history unless the chip was pressed for the thread", () => {
+    const chatView = read("ChatView.tsx");
+    expect(chatView).toContain(
+      "const keepFullHistory = !compactBeforeSendThreadKeys.has(routeThreadKey);",
+    );
+    expect(chatView).toContain("setKeepFullHistory(routeThreadKey, true);");
+  });
+
+  it("offers compaction on the chip in both states", () => {
+    const actions = read("chat/ComposerPrimaryActions.tsx");
+    expect(actions).not.toContain('{keepFullHistory ? "Full" : "Compact"}');
+    expect(actions).toContain("Click to compact first");
+  });
+});
