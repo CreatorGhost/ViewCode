@@ -41,7 +41,7 @@ the whole PR with its base, so a test restored in a later commit counts, and fai
   top of the list. Treat a large missing count on a file upstream rewrote as a lost
   fix until shown otherwise.
 - A fix you restore gets a guard in a `*.viewcode.test.ts(x)` file beside the code.
-- Keep GitHub Enterprise host routing and the `gh` transport fallback (`GitHubGhTransport.ts`, wrapped in `GitHubRest.ts` and `gitHubGraphQlClient.ts`), and run their guards: `GitHubGhTransport`, `GitHubRoutedSourceControlProvider` and `PullRequestService` `.viewcode.test.ts`.
+- Keep GitHub Enterprise host routing and the `gh` transport fallback (`GitHubGhTransport.ts`, wrapped in `GitHubRest.ts` and `gitHubGraphQlClient.ts`), and run their guards: `GitHubGhTransport`, `GitHubRoutedSourceControlProvider`, `GitHubPullRequestApi.enterprise` and `PullRequestService` `.viewcode.test.ts`. A merge that changes `PullRequestRow` or `PullRequestSummary` changes `pullRequestEnterprise.graphql` the same way, without stack fields.
 
 ## Test
 

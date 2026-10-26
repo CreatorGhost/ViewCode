@@ -44,7 +44,9 @@ describe.skipIf(hostPlatform !== "linux")("bundled libsecret helper", () => {
       ],
       { stdio: "pipe" },
     );
-  });
+    // A real C compile and link: on a shared CI runner busy with every other suite it has run
+    // past the default 10 s hook timeout.
+  }, 60_000);
   afterAll(() => {
     if (directory) NodeFS.rmSync(directory, { recursive: true, force: true });
   });

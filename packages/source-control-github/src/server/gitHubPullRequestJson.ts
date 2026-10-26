@@ -48,6 +48,10 @@ import {
   PullRequestRow,
   PullRequestSearch,
 } from "./pullRequestListings.graphql.ts";
+import {
+  EnterprisePullRequestList,
+  EnterprisePullRequestSearch,
+} from "./pullRequestEnterprise.graphql.ts";
 import type {
   ActorAvatars,
   CheckContext,
@@ -876,6 +880,22 @@ export const LenientPullRequestSearch = GraphQL.query(PullRequestSearch.name, {
 export const LenientPullRequestList = GraphQL.query(PullRequestList.name, {
   document: PullRequestList.document,
   variables: PullRequestList.variables,
+  result: Schema.Struct({
+    repository: Schema.NullOr(Schema.Struct({ pullRequests: LenientRows })),
+  }),
+});
+
+/** `LenientPullRequestSearch` for a host without pull request stacks (pullRequestEnterprise.graphql). */
+export const LenientEnterprisePullRequestSearch = GraphQL.query(EnterprisePullRequestSearch.name, {
+  document: EnterprisePullRequestSearch.document,
+  variables: EnterprisePullRequestSearch.variables,
+  result: Schema.Struct({ search: LenientRows }),
+});
+
+/** `LenientPullRequestList` for a host without pull request stacks (pullRequestEnterprise.graphql). */
+export const LenientEnterprisePullRequestList = GraphQL.query(EnterprisePullRequestList.name, {
+  document: EnterprisePullRequestList.document,
+  variables: EnterprisePullRequestList.variables,
   result: Schema.Struct({
     repository: Schema.NullOr(Schema.Struct({ pullRequests: LenientRows })),
   }),
