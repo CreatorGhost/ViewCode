@@ -1,10 +1,17 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { ClientSettingsPatch, ClientSettingsSchema } from "./settings.ts";
+import {
+  ClientSettingsPatch,
+  ClientSettingsSchema,
+  ServerSettings,
+  ServerSettingsPatch,
+} from "./settings.ts";
 
 const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
 const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
+const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
+const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 
 // ViewCode's panels slide for 300 ms by default (Synara's duration, on the same
 // curve) under the setting `panelAnimationMs`; upstream's `panelAnimationDurationMs`
@@ -21,5 +28,20 @@ describe("panel animation default", () => {
       panelAnimationMs: 400,
     });
     expect(() => decodeClientSettingsPatch({ panelAnimationMs: 401 })).toThrow();
+  });
+});
+
+// Speak mode is a server setting so the server knows to write spoken summaries,
+// and every client of the environment shares it. Nothing speaks until a user
+// turns it on.
+describe("speak mode", () => {
+  it("is off when nothing is saved", () => {
+    expect(decodeServerSettings({}).speakMode).toBe("off");
+  });
+
+  it("is set through the server settings patch", () => {
+    expect(decodeServerSettingsPatch({ speakMode: "summary" })).toEqual({ speakMode: "summary" });
+    expect(decodeServerSettingsPatch({ speakMode: "full" })).toEqual({ speakMode: "full" });
+    expect(() => decodeServerSettingsPatch({ speakMode: "loud" })).toThrow();
   });
 });

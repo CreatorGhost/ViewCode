@@ -1104,6 +1104,8 @@ export const OrchestrationV2ConversationMessage = Schema.Struct({
    * the workflow's opening instead and keep the script behind a disclosure.
    */
   workflowScript: Schema.optional(Schema.Boolean),
+  /** ViewCode speak mode: a short plain-prose summary of the turn's final reply, for reading aloud. */
+  spokenSummary: Schema.optional(Schema.String),
   id: MessageId,
   threadId: ThreadId,
   runId: Schema.NullOr(RunId),

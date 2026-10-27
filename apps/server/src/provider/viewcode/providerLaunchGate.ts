@@ -187,6 +187,8 @@ export function guardProviderInstance(
         textGuard("generateThreadTitle", instance.textGeneration.generateThreadTitle(input)),
       generateReviewGuide: (input) =>
         textGuard("generateReviewGuide", instance.textGeneration.generateReviewGuide(input)),
+      generateSpokenSummary: (input) =>
+        textGuard("generateSpokenSummary", instance.textGeneration.generateSpokenSummary(input)),
     },
     ...(auth
       ? {
