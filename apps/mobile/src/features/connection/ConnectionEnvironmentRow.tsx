@@ -78,58 +78,62 @@ export function ConnectionEnvironmentRow(props: {
 
   return (
     <Animated.View layout={LinearTransition.duration(250)} className="bg-grouped-card">
-      <Pressable
-        className="flex-row items-center gap-3 px-4 py-3.5 active:opacity-70"
-        accessibilityRole="button"
-        accessibilityLabel={
-          props.opensDetails ? `Manage ${props.environment.environmentLabel}` : undefined
-        }
-        onPress={props.onToggle}
-      >
-        <View className="flex-1 gap-0.5">
-          <View className="flex-row items-center gap-1.5">
-            <ConnectionStatusDot
-              state={enabled || unsupported ? props.environment.connectionState : "available"}
-              pulse={isRetrying}
-              size={8}
-            />
-            <EnvironmentMachineSymbol
-              kind={resolveEnvironmentMachineKind(serverConfig)}
-              size={14}
-              tintColorClassName="accent-foreground-muted"
-            />
-            <Text
-              className="min-w-0 flex-shrink text-base font-t3-bold leading-snug text-foreground"
-              numberOfLines={1}
-            >
-              {props.environment.environmentLabel}
-            </Text>
+      {/* The switch must not sit inside the Pressable: on Android, once a Pressable is the JS
+          responder its native view intercepts move events, cancelling the Compose switch's tap. */}
+      <View className="flex-row items-center">
+        <Pressable
+          className="flex-1 py-3.5 pl-4 pr-3 active:opacity-70"
+          accessibilityRole="button"
+          accessibilityLabel={
+            props.opensDetails ? `Manage ${props.environment.environmentLabel}` : undefined
+          }
+          onPress={props.onToggle}
+        >
+          <View className="flex-1 gap-0.5">
+            <View className="flex-row items-center gap-1.5">
+              <ConnectionStatusDot
+                state={enabled || unsupported ? props.environment.connectionState : "available"}
+                pulse={isRetrying}
+                size={8}
+              />
+              <EnvironmentMachineSymbol
+                kind={resolveEnvironmentMachineKind(serverConfig)}
+                size={14}
+                tintColorClassName="accent-foreground-muted"
+              />
+              <Text
+                className="min-w-0 flex-shrink text-base font-t3-bold leading-snug text-foreground"
+                numberOfLines={1}
+              >
+                {props.environment.environmentLabel}
+              </Text>
+            </View>
+            {props.environment.displayUrl.trim() ? (
+              <Text className="text-xs text-foreground-muted" numberOfLines={1}>
+                {props.environment.displayUrl}
+              </Text>
+            ) : null}
+            {statusLabel ? (
+              <Text
+                className={cn(
+                  "text-xs",
+                  hasConnectionFailure ? "text-danger-foreground" : "text-foreground-muted",
+                )}
+                numberOfLines={props.expanded ? undefined : 2}
+                selectable={props.expanded}
+              >
+                {statusLabel}
+                {statusTraceId ? (
+                  <ConnectionTraceId
+                    traceId={statusTraceId}
+                    tone={hasConnectionFailure ? "danger" : "muted"}
+                    activation="longPress"
+                  />
+                ) : null}
+              </Text>
+            ) : null}
           </View>
-          {props.environment.displayUrl.trim() ? (
-            <Text className="text-xs text-foreground-muted" numberOfLines={1}>
-              {props.environment.displayUrl}
-            </Text>
-          ) : null}
-          {statusLabel ? (
-            <Text
-              className={cn(
-                "text-xs",
-                hasConnectionFailure ? "text-danger-foreground" : "text-foreground-muted",
-              )}
-              numberOfLines={props.expanded ? undefined : 2}
-              selectable={props.expanded}
-            >
-              {statusLabel}
-              {statusTraceId ? (
-                <ConnectionTraceId
-                  traceId={statusTraceId}
-                  tone={hasConnectionFailure ? "danger" : "muted"}
-                  activation="longPress"
-                />
-              ) : null}
-            </Text>
-          ) : null}
-        </View>
+        </Pressable>
 
         <ThemedSwitch
           style={{ alignSelf: "center" }}
@@ -137,16 +141,23 @@ export function ConnectionEnvironmentRow(props: {
           onValueChange={(next) => props.onSetEnabled(props.environment.environmentId, next)}
           value={enabled}
         />
-        {/* Swap the glyph instead of rotating: a rotated Android SVG symbol leaves its box. */}
-        <SymbolView
-          name={
-            props.opensDetails ? "chevron.right" : props.expanded ? "chevron.up" : "chevron.down"
-          }
-          size={12}
-          tintColorClassName="accent-icon-subtle"
-          type="monochrome"
-        />
-      </Pressable>
+        <Pressable
+          className="self-stretch justify-center pl-3 pr-4 active:opacity-70"
+          importantForAccessibility="no-hide-descendants"
+          accessibilityElementsHidden
+          onPress={props.onToggle}
+        >
+          {/* Swap the glyph instead of rotating: a rotated Android SVG symbol leaves its box. */}
+          <SymbolView
+            name={
+              props.opensDetails ? "chevron.right" : props.expanded ? "chevron.up" : "chevron.down"
+            }
+            size={12}
+            tintColorClassName="accent-icon-subtle"
+            type="monochrome"
+          />
+        </Pressable>
+      </View>
 
       {props.expanded ? (
         <Animated.View
