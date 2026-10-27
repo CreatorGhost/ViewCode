@@ -15,17 +15,20 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
 }: ComposerPendingApprovalPanelProps) {
   const prose = approval.requestKind === "mcp-elicitation" || approval.rockbotConfirm === true;
   const Detail = prose ? "span" : "code";
-  const fallbackLabel = approval.rockbotConfirm
-    ? "RockBot"
-    : approval.requestKind === "mcp-elicitation"
-      ? "App access approval"
-      : approval.requestKind === "command"
-        ? "Command approval"
-        : approval.requestKind === "file-read"
-          ? "File read approval"
-          : approval.requestKind === "permission"
-            ? "App permission approval"
-            : "File change approval";
+  // An ordinary chat asks the same way RockBot does, before it reaches a separate chat.
+  const fallbackLabel = approval.peerExchange
+    ? "Another chat"
+    : approval.rockbotConfirm
+      ? "RockBot"
+      : approval.requestKind === "mcp-elicitation"
+        ? "App access approval"
+        : approval.requestKind === "command"
+          ? "Command approval"
+          : approval.requestKind === "file-read"
+            ? "File read approval"
+            : approval.requestKind === "permission"
+              ? "App permission approval"
+              : "File change approval";
   const detailAriaLabel = approval.rockbotConfirm
     ? "Message"
     : approval.requestKind === "mcp-elicitation"

@@ -34,7 +34,11 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
     <View className="gap-2.5 rounded-[20px] border border-border bg-card-alt p-4">
       <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-foreground-secondary">
         {/* RockBot's own question is not an approval: it only asks before sending. */}
-        {props.approval.rockbotConfirm ? "RockBot asks before sending" : "Approval needed"}
+        {props.approval.peerExchange
+          ? "Asks before reaching another chat"
+          : props.approval.rockbotConfirm
+            ? "RockBot asks before sending"
+            : "Approval needed"}
       </Text>
       <Text className="font-t3-bold text-lg text-foreground">
         {props.approval.appName ?? props.approval.requestKind}

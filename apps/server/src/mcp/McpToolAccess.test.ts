@@ -27,6 +27,7 @@ const backgroundThreadId = ThreadId.make("thread:background");
 const oldProviderThreadId = ThreadId.make("thread:old-provider-background");
 const archivedThreadId = ThreadId.make("thread:archived-background");
 const unknownOwnerThreadId = ThreadId.make("thread:unknown-background-owner");
+const separateThreadId = ThreadId.make("thread:separate-chat");
 
 const backgroundShell = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) => ({
   ...liveThreadShell(threadId, { activeRunId: null }),
@@ -60,6 +61,13 @@ const shells = new Map([
     },
   ],
 ]);
+
+// One agent tree, so the cases below test mode limits between its threads. A separate chat
+// the user started is ViewCode's peer boundary (peerExchange.ts), not a mode limit.
+for (const [id, shell] of shells) {
+  shells.set(id, { ...shell, lineage: { ...shell.lineage, rootThreadId: supervisedThreadId } });
+}
+shells.set(separateThreadId, liveThreadShell(separateThreadId));
 
 const threadCaller = (threadId: ThreadId): McpInvocationContext.McpInvocationScope => ({
   environmentId: EnvironmentId.make("environment"),
@@ -282,6 +290,7 @@ it.effect.each([
     "runtime_mode_escalation_denied",
   ],
   ["writes_threads", supervised, { threadId: "thread:missing" }, "ran"],
+  ["writes_threads", fullAccess, { threadId: separateThreadId }, "capability_denied"],
 
   ["starts_threads", supervised, {}, "approval-required/default"],
   ["starts_threads", supervised, { runtimeMode: "full-access" }, "runtime_mode_escalation_denied"],
@@ -305,6 +314,8 @@ it.effect.each([
       probeServer(
         Layer.mock(ThreadManagement.ThreadManagementService)({
           getThreadShell: (threadId) => Effect.succeed(shells.get(threadId) ?? null),
+          getThreadRecords: (threadId) =>
+            Effect.succeed({ thread: shells.get(threadId), messages: [] } as never),
         }),
       ),
     ),

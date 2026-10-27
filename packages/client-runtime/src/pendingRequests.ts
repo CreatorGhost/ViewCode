@@ -18,6 +18,8 @@ export interface PendingApproval {
   readonly options?: ReadonlyArray<ProviderApprovalOption>;
   /** RockBot asking before it sends to another thread: `appName` says where, `detail` what. */
   readonly rockbotConfirm?: true;
+  /** With `rockbotConfirm`: an ordinary chat asking before it reaches a separate chat. */
+  readonly peerExchange?: true;
 }
 
 export interface PendingUserInput {

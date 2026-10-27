@@ -122,7 +122,7 @@ const handlers = {
       return yield* service.readThread(scope, input);
     }),
   ),
-  t3_thread_update: McpToolAccess.writesThreads(
+  t3_thread_update: McpToolAccess.writesThreadMetadata(
     (input) => [input.threadId],
     (input) =>
       Effect.gen(function* () {

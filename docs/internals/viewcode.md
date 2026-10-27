@@ -146,11 +146,28 @@ of the old database only after a verified upgrade and separate backup.
   that happens to report running. A failed child yields a useful failure reply,
   and a stopped/interrupted run does not produce a spurious completion reply.
 - Agents can reach only their own tree (root thread and all descendants). A hop
-  limit (24) stops ping-pong loops; spawning counts as a hop too. `t3_thread_send`
-  reaches any thread, so it enforces the same 24 from durable messages instead:
-  sends from other threads since the user last wrote in the caller. V2 uses native
+  limit (24) stops ping-pong loops; spawning counts as a hop too. V2 uses native
   `lineage.rootThreadId` and rejects missing, ambiguous or archived destinations.
   Do not infer tree authority from an optional legacy parent alias alone.
+- Upstream's `t3_thread_send`, `t3_thread_read` and thread-control tools reach
+  any thread. Two chats the user started separately once negotiated a shared
+  Docker VM for 30 messages with no one asking, so ViewCode bounds that path
+  (`mcp/peerExchange.ts`). Chats are related when they share a root or one tree
+  launched the other: an agent created the launched root and its opening message
+  names the launcher. A separate chat gets one exchange: the first message waits
+  for the user's Send in the sender's chat (the RockBot confirmation, flagged
+  `viewcodePeerExchange`), the receiver may answer it once without asking, and
+  anything further (thanks, status, an unchanged resend) asks again or is
+  refused. Request and reply are read from the durable messages themselves; the
+  reply carries `in-reply-to`, so no exchange table exists to drift.
+  The message travels in the agent envelope with a footer saying it is a peer,
+  not the user, so the provider does not treat it as instructions and clients draw
+  an agent card. Reading a separate chat asks once per caller run (in-memory
+  grant). `writesThreads` refuses separate chats outright; `writesThreadMetadata`
+  (rename, pin, settle, snooze) stays open; answering another chat's question is
+  refused. The 24-message hop guard still applies to related chats.
+  Resource scheduling between chats is not solved here: a shared Docker VM is
+  still contended, and a managed job queue would be the place for it.
 - Child creation and its own worktree use upstream delegated tasks. Their native
   preparation, cancellation and completion wake-up remain authoritative.
   A request accepted through client command intake must also schedule
