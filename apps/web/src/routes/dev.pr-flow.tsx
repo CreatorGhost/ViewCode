@@ -2,7 +2,7 @@ import type { GitGraphCommit, GitPullRequestGraph, PullRequestCheck } from "@t3t
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
-import { PrFlowCard } from "~/components/chat/prFlow/PrFlowCard";
+import { PrFlowCard, PrFlowCollapsedRow } from "~/components/chat/prFlow/PrFlowCard";
 import { PrFlowStatusChip } from "~/components/chat/prFlow/PrFlowStatusChip";
 import {
   type PrFlow,
@@ -307,7 +307,7 @@ function PrFlowPreview() {
   const flow = STEPS[index]?.flow() ?? null;
 
   return (
-    <div className="flex h-dvh flex-col bg-background text-foreground">
+    <div className="flex h-dvh w-full min-w-0 flex-col bg-background text-foreground">
       <div className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2">
         <span className="mr-2 text-sm font-medium">PR flow preview</span>
         <Button
@@ -344,6 +344,28 @@ function PrFlowPreview() {
               onOpen={(url) => window.open(url, "_blank", "noopener")}
             />
           ) : null}
+          {/* The folded rows an older pull request shows, for checking them at any width. */}
+          <PrFlowCollapsedRow
+            number={121}
+            state="merged"
+            title="Add the usage banner"
+            base="main"
+            additions={482}
+            deletions={37}
+            url="https://github.com/example/app/pull/121"
+            onOpen={() => {}}
+            onExpand={() => {}}
+          />
+          <PrFlowCollapsedRow
+            number={117}
+            state="closed"
+            title="Try a second provider when the first one times out"
+            base="main"
+            additions={null}
+            deletions={null}
+            url="https://git.example.invalid/app/pull/117"
+            onOpen={() => {}}
+          />
         </div>
       </div>
       <div className="px-6 pb-5">
