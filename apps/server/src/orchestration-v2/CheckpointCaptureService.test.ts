@@ -30,10 +30,12 @@ import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as EventSink from "./EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import * as ServerSettings from "../serverSettings.ts";
 
 const layerProjectionStoreTest = Layer.mergeAll(
   ProjectionStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)),
   SqlitePersistence.layerMemory,
+  ServerSettings.layerTest(),
 );
 
 const threadId = ThreadId.make("thread:checkpoint-capture-delegated");

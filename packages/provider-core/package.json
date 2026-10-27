@@ -147,6 +147,10 @@
       "types": "./src/server/snapshotSettings.ts",
       "import": "./src/server/snapshotSettings.ts"
     },
+    "./server/spokenSummary": {
+      "types": "./src/server/spokenSummary.ts",
+      "import": "./src/server/spokenSummary.ts"
+    },
     "./server/subagentProjection": {
       "types": "./src/server/subagentProjection.ts",
       "import": "./src/server/subagentProjection.ts"
