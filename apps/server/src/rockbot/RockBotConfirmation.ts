@@ -34,6 +34,13 @@ export interface RockBotConfirmationRequest {
   readonly title: string;
   /** What exactly would be sent. */
   readonly detail: string;
+  /**
+   * An ordinary chat asking before it reaches another chat the user started separately
+   * (`mcp/peerExchange.ts`), rather than RockBot. Clients label it accordingly.
+   */
+  readonly peer?: boolean | undefined;
+  readonly acceptLabel?: string | undefined;
+  readonly declineLabel?: string | undefined;
 }
 
 /**
@@ -187,6 +194,7 @@ const make = Effect.gen(function* () {
                 status: "pending",
                 responseCapability: { type: "live", providerSessionId },
                 viewcodeRockBotConfirm: true,
+                ...(request.peer === true ? { viewcodePeerExchange: true } : {}),
                 createdAt: now,
                 resolvedAt: null,
               },
@@ -216,8 +224,8 @@ const make = Effect.gen(function* () {
                 prompt: request.detail,
                 appName: request.title,
                 options: [
-                  { decision: "decline", label: "Don't send" },
-                  { decision: "accept", label: "Send" },
+                  { decision: "decline", label: request.declineLabel ?? "Don't send" },
+                  { decision: "accept", label: request.acceptLabel ?? "Send" },
                 ],
               },
             },
@@ -294,6 +302,31 @@ export const confirmIfRockBot = (
       return yield* failure(
         "user_declined",
         "The user chose not to send this. Do not retry it unless they ask again.",
+      );
+    }
+  });
+
+/**
+ * The gate a chat passes before it reaches another chat the user started separately: the user
+ * sees the request in this chat and decides. Fails with `user_declined` unless they accept.
+ */
+export const confirmPeer = (
+  callerId: ThreadId,
+  request: Omit<RockBotConfirmationRequest, "threadId" | "peer">,
+) =>
+  Effect.gen(function* () {
+    const service = yield* Effect.serviceOption(RockBotConfirmation);
+    if (Option.isNone(service)) {
+      return yield* failure(
+        "capability_denied",
+        "This server cannot ask the user to confirm, so this chat cannot reach another chat.",
+      );
+    }
+    const confirmed = yield* service.value.confirm({ threadId: callerId, peer: true, ...request });
+    if (!confirmed) {
+      return yield* failure(
+        "user_declined",
+        "The user said no. Do not ask again unless they bring it up; carry on without it, or tell them what you need.",
       );
     }
   });

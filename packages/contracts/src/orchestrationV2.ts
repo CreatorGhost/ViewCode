@@ -1016,6 +1016,8 @@ export const OrchestrationV2RuntimeRequest = Schema.Struct({
   viewcodeComputerUse: Schema.optional(Schema.Boolean),
   /** RockBot asks its user before a send; the server answers it, never a provider. */
   viewcodeRockBotConfirm: Schema.optional(Schema.Boolean),
+  /** A server-answered confirmation from an ordinary chat about to reach a separate chat. */
+  viewcodePeerExchange: Schema.optional(Schema.Boolean),
   id: RuntimeRequestId,
   nodeId: NodeId,
   providerTurnId: Schema.NullOr(ProviderTurnId),
