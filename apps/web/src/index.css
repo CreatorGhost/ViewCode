@@ -612,16 +612,19 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 }
 
 /* PR flow (components/chat/prFlow), per the motion spec: states cut in with a blur swap, new
-   commit rows open on grid rows (never height), checks draw their stroke, progress moves on
-   scaleX, and a merge turns the branch's rows purple one row after another, 67ms apart. Only
-   the footer's spinner loops. Reduced motion gets the end states at once. */
+   commit rows open on grid rows (never height), 40ms apart when several arrive together,
+   checks draw their stroke, progress moves on scaleX, and a merge turns the branch's rows
+   purple one row after another, 67ms apart. Only the footer's spinner loops. Reduced motion
+   gets the end states at once. */
 @media (prefers-reduced-motion: no-preference) {
   .pr-flow-open {
     display: grid;
     animation: pr-flow-open var(--dur-row) var(--ease-out-expo) both;
+    animation-delay: calc(var(--pr-arrive, 0) * 40ms);
   }
   .pr-flow-open > * > * {
-    animation: blur-swap var(--dur-swap) var(--ease-out-soft) 200ms backwards;
+    animation: blur-swap var(--dur-swap) var(--ease-out-soft) backwards;
+    animation-delay: calc(200ms + var(--pr-arrive, 0) * 40ms);
   }
   .pr-flow-draw {
     stroke-dasharray: 1;
@@ -656,10 +659,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     animation: blur-swap var(--dur-swap) var(--ease-out-soft) 120ms backwards;
   }
   .pr-flow-appear .pr-flow-open {
-    animation-delay: calc(120ms + var(--pr-row, 0) * 40ms);
+    animation-delay: calc(120ms + var(--pr-arrive, 0) * 40ms);
   }
   .pr-flow-appear .pr-flow-open > * > * {
-    animation-delay: calc(280ms + var(--pr-row, 0) * 40ms);
+    animation-delay: calc(280ms + var(--pr-arrive, 0) * 40ms);
   }
 }
 @keyframes pr-flow-appear {
