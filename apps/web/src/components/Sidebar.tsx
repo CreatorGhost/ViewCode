@@ -2252,6 +2252,16 @@ export default function Sidebar() {
     });
   const attentionCounts = (() =>
     countSidebarAttention(visibleThreads, isThreadUnseen, agentRecordOf))();
+  // A RockBot chat sits in the scratch folder only to keep its agent out of every
+  // repository, so rows name RockBot rather than "No project".
+  const projectOfThread = (thread: SidebarThreadSummary) =>
+    thread.kind === "orchestrator"
+      ? null
+      : (projectByKey.get(physicalProjectKeyOf(thread)) ?? null);
+  const projectNameOfThread = (thread: SidebarThreadSummary) =>
+    thread.kind === "orchestrator"
+      ? "RockBot"
+      : (projectDisplayNameByKey.get(physicalProjectKeyOf(thread)) ?? null);
   // RockBot's chats stand in for the project tree while one of them is open.
   const rockBotChats = (() => rockBotChatsForRoute(threads, routeThreadRef))();
   const openRockBot = useOpenRockBot(rockBotChats?.[0]?.environmentId ?? null);
@@ -3701,8 +3711,8 @@ export default function Sidebar() {
         currentEnvironmentId={primaryEnvironmentId}
         environmentLabel={environmentLabelById.get(thread.environmentId) ?? null}
         environmentMachine={environmentMachineById.get(thread.environmentId) ?? "server"}
-        project={projectByKey.get(physicalProjectKeyOf(thread)) ?? null}
-        projectDisplayName={projectDisplayNameByKey.get(physicalProjectKeyOf(thread)) ?? null}
+        project={projectOfThread(thread)}
+        projectDisplayName={projectNameOfThread(thread)}
         providerEntryByInstanceId={
           providerEntriesByEnvironment.get(thread.environmentId) ?? EMPTY_PROVIDER_ENTRIES
         }
@@ -3985,10 +3995,8 @@ export default function Sidebar() {
                         key={threadKey}
                         thread={thread}
                         nowMinute={nowMinute}
-                        project={projectByKey.get(physicalProjectKeyOf(thread)) ?? null}
-                        projectDisplayName={
-                          projectDisplayNameByKey.get(physicalProjectKeyOf(thread)) ?? null
-                        }
+                        project={projectOfThread(thread)}
+                        projectDisplayName={projectNameOfThread(thread)}
                         environmentLabel={environmentLabelById.get(thread.environmentId) ?? null}
                         environmentMachine={
                           environmentMachineById.get(thread.environmentId) ?? "server"
