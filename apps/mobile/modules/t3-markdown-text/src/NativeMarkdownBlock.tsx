@@ -14,6 +14,7 @@ import { NativeMarkdownSelectableText } from "./NativeMarkdownSelectableText";
 import type {
   MarkdownCodeHighlighter,
   MarkdownHighlightedToken,
+  MarkdownCodeBlockRenderer,
   MarkdownImageRenderer,
   NativeMarkdownTextStyle,
   SelectableMarkdownSkill,
@@ -22,6 +23,10 @@ import { useHighlightedCode, type HighlightedCode } from "./useHighlightedCode";
 
 /** Set by SelectableMarkdownText so images anywhere in the block tree can use it. */
 export const MarkdownImageRendererContext = createContext<MarkdownImageRenderer | null>(null);
+/** Null while the block may still be streaming, so it shows as plain code until it closes. */
+export const MarkdownCodeBlockRendererContext = createContext<MarkdownCodeBlockRenderer | null>(
+  null,
+);
 
 const MONO_FONT_FAMILY = Platform.select({
   ios: "ui-monospace",
@@ -156,8 +161,9 @@ function NativeCodeBlock(props: {
   const colorScheme = useColorScheme();
   const theme = colorScheme === "dark" ? "dark" : "light";
   const highlighted = useHighlightedCode(content, props.node.language, theme, props.highlightCode);
+  const renderCodeBlock = useContext(MarkdownCodeBlockRendererContext);
   const languageLabel = props.node.language?.toUpperCase() ?? "CODE";
-  return (
+  const block = (
     <View
       style={{
         backgroundColor: props.textStyle.codeBlockBackgroundColor,
@@ -220,6 +226,9 @@ function NativeCodeBlock(props: {
       </ScrollView>
     </View>
   );
+  return renderCodeBlock && props.node.language
+    ? renderCodeBlock({ language: props.node.language, code: content }, block)
+    : block;
 }
 
 function collectTableRows(node: MarkdownNode): MarkdownNode[] {

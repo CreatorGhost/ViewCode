@@ -105,6 +105,7 @@ import { SettingsProjectOverviewRouteScreen } from "./features/settings/Settings
 import { UsageLimitAccountScreen } from "./features/usage/UsageLimitsPooled";
 import { UsageRouteScreen } from "./features/usage/UsageRouteScreen";
 import { SettingsAboutRouteScreen } from "./features/settings/SettingsAboutRouteScreen";
+import { ImportSessionsRouteScreen } from "./features/agentSessions/ImportSessionsRouteScreen";
 import { SettingsNotificationsRouteScreen } from "./features/settings/SettingsNotificationsRouteScreen";
 import { SettingsRouteScreen } from "./features/settings/SettingsRouteScreen";
 import { SettingsThreadsRouteScreen } from "./features/settings/SettingsThreadsRouteScreen";
@@ -268,6 +269,11 @@ const SettingsContentStack = createNativeStackNavigator({
       options: {
         title: "Archived Threads",
       },
+    }),
+    SettingsImportSessions: createNativeStackScreen({
+      screen: ImportSessionsRouteScreen,
+      linking: "import-sessions",
+      options: { title: "Import past sessions" },
     }),
     SettingsAppearance: createNativeStackScreen({
       screen: SettingsAppearanceRouteScreen,
@@ -899,6 +905,11 @@ const RootStackConfig = createNativeStackNavigator({
               sheetGrabberVisible: true,
             }),
       },
+    }),
+    ImportSessions: createNativeStackScreen({
+      screen: ImportSessionsRouteScreen,
+      linking: "import-sessions/:environmentId/:projectId",
+      options: { title: "Import past sessions" },
     }),
     ConnectionsNew: createNativeStackScreen({
       screen: ConnectionsNewRouteScreen,

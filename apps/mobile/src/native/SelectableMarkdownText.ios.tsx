@@ -4,8 +4,12 @@ import {
 } from "@t3tools/mobile-markdown-text/renderer";
 
 import { highlightCodeSnippet } from "../features/review/shikiReviewHighlighter";
+import { renderMarkdownCodeBlock } from "../features/threads/MermaidCodeBlock";
 
-type MobileSelectableMarkdownTextProps = Omit<SelectableMarkdownTextProps, "highlightCode">;
+type MobileSelectableMarkdownTextProps = Omit<
+  SelectableMarkdownTextProps,
+  "highlightCode" | "renderCodeBlock"
+>;
 
 export type {
   MarkdownFileContextMenu,
@@ -21,5 +25,11 @@ export function hasNativeSelectableMarkdownText(): boolean {
 }
 
 export function SelectableMarkdownText(props: MobileSelectableMarkdownTextProps) {
-  return <T3SelectableMarkdownText {...props} highlightCode={highlightCodeSnippet} />;
+  return (
+    <T3SelectableMarkdownText
+      {...props}
+      highlightCode={highlightCodeSnippet}
+      renderCodeBlock={renderMarkdownCodeBlock}
+    />
+  );
 }

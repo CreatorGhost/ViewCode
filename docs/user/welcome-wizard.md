@@ -75,7 +75,9 @@ from the sidebar.
 ## Import past sessions
 
 Open a project's menu in the sidebar and select **Import past sessions…**. This
-is the same list **Choose sessions…** opens:
+is the same list **Choose sessions…** opens. On the phone, long-press a project
+on Home and choose **Import past sessions…**, or use **Settings → Import past
+sessions** and pick the project:
 
 - **Claude Code, Codex and Cursor**: sessions from the last 60 days in that
   folder, from both the Cursor editor and the Cursor CLI.
