@@ -437,6 +437,8 @@ import {
   resolveScrollToEndClearance,
 } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
+import { useSpeakModeAutoplay } from "~/hooks/useSpeakMode";
+import { SpeakModeMenu } from "./chat/SpeakModeMenu";
 import { ActiveAgentsBar } from "./agents/ActiveAgentsBar";
 import { SidechatHost } from "./chat/SidechatHost";
 import { useRemoteOpenState } from "~/remoteOpen";
@@ -1172,6 +1174,11 @@ export default function ChatView(props: ChatViewProps) {
   });
   const serverThreadProjection = useThreadProjection(routeThreadDetailRef);
   const serverProjection = serverThreadProjection?.projection ?? null;
+  useSpeakModeAutoplay({
+    environmentId,
+    threadKey: serverThreadProjection === null ? null : scopedThreadKey(routeThreadRef),
+    projection: serverThreadProjection,
+  });
   const promptRef = useRef("");
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
@@ -8144,6 +8151,7 @@ export default function ChatView(props: ChatViewProps) {
                   disabled={!canOperateThread}
                   disabledReason="You do not have permission to operate this thread"
                 />
+                <SpeakModeMenu environmentId={environmentId} />
                 {!inlineRightPanelOwnsTitleBar ? panelToggleControls : null}
               </div>
             }

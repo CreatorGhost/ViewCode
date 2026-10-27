@@ -1,5 +1,6 @@
 import {
   DEFAULT_CLIENT_SETTINGS,
+  DEFAULT_SERVER_SETTINGS,
   type EnvironmentId,
   type VoiceModelTier,
   type VoiceModelTierState,
@@ -22,6 +23,7 @@ import {
   useSystemVoices,
 } from "~/lib/readAloudPlayer";
 import { isKokoroSupported } from "~/lib/readAloudKokoro";
+import { SPEAK_MODE_OPTIONS, speakModeLabel } from "~/lib/speakMode.logic";
 import {
   type AtomCommandResult,
   isAtomCommandInterrupted,
@@ -248,6 +250,38 @@ function ReadAloudSettingsSection() {
               {RATE_OPTIONS.map((rate) => (
                 <SelectItem hideIndicator key={rate} value={String(rate)}>
                   {rateLabel(rate)}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        }
+      />
+      <SettingsRow
+        {...searchableSetting("read-aloud-speak-mode")}
+        description="Reads each reply aloud when its turn finishes in the chat you have open. Summary reads a short spoken version; Full reads the whole reply. Saved on the server, so every device connected to it does the same."
+        resetAction={
+          settings.speakMode !== DEFAULT_SERVER_SETTINGS.speakMode ? (
+            <SettingResetButton
+              label="speak replies"
+              onClick={() => updateSettings({ speakMode: DEFAULT_SERVER_SETTINGS.speakMode })}
+            />
+          ) : null
+        }
+        control={
+          <Select
+            value={settings.speakMode}
+            onValueChange={(value) => {
+              const option = SPEAK_MODE_OPTIONS.find((each) => each.mode === value);
+              if (option !== undefined) updateSettings({ speakMode: option.mode });
+            }}
+          >
+            <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Speak replies">
+              <SelectValue>{speakModeLabel(settings.speakMode)}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup align="end" alignItemWithTrigger={false}>
+              {SPEAK_MODE_OPTIONS.map((option) => (
+                <SelectItem hideIndicator key={option.mode} value={option.mode}>
+                  {option.label}
                 </SelectItem>
               ))}
             </SelectPopup>

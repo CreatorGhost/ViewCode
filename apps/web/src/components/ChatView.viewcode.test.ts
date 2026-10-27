@@ -79,3 +79,20 @@ describe("compaction before a send is opt-in", () => {
     expect(actions).toContain("Click to compact first");
   });
 });
+
+// Speak mode reads each finished turn of the open thread aloud. Its logic lives in
+// speakMode.logic.ts with its own tests; it only runs through these call sites in upstream's
+// ChatView and CommandPalette, which a merge can rewrite without a conflict.
+describe("speak mode entry points", () => {
+  it("speaks finished turns of the open thread and offers the header toggle", () => {
+    const chatView = read("ChatView.tsx");
+    expect(chatView).toContain("useSpeakModeAutoplay({");
+    expect(chatView).toContain("<SpeakModeMenu environmentId={environmentId} />");
+  });
+
+  it("offers Speak mode in the command palette", () => {
+    const palette = read("CommandPalette.tsx");
+    expect(palette).toContain('value: "action:speak-mode"');
+    expect(palette).toContain("speakMode.setMode(mode)");
+  });
+});
