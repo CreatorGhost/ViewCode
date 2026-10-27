@@ -916,7 +916,8 @@ const RootStackConfig = createNativeStackNavigator({
       linking: "connections/new",
       options: {
         ...FORM_SHEET_PRESENTATION_OPTIONS,
-        sheetAllowedDetents: [0.55, 0.7],
+        // Tall enough for the Scan QR button and the manual fields below it.
+        sheetAllowedDetents: [0.92],
         sheetGrabberVisible: true,
       },
     }),
