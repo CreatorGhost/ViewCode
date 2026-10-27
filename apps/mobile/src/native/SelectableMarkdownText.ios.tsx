@@ -4,7 +4,7 @@ import {
 } from "@t3tools/mobile-markdown-text/renderer";
 
 import { highlightCodeSnippet } from "../features/review/shikiReviewHighlighter";
-import { renderMarkdownCodeBlock } from "../features/threads/MermaidCodeBlock";
+import { renderMarkdownCodeBlock } from "../components/MermaidCodeBlock";
 
 type MobileSelectableMarkdownTextProps = Omit<
   SelectableMarkdownTextProps,

@@ -1101,7 +1101,7 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   be a class: with SVG labels only a class's `tspan` rule reaches subgraph
   titles and beats an author's own low-contrast `color`.
 
-- Mobile draws diagrams in a WebView (`apps/mobile/src/features/threads/MermaidCodeBlock.tsx`)
+- Mobile draws diagrams in a WebView (`apps/mobile/src/components/MermaidCodeBlock.tsx`)
   with Mermaid from jsDelivr, pinned to the web app's version by URL and SRI hash in
   `mermaidDiagram.ts`. Bumping `mermaid` in `apps/web` means updating both there; the
   hash is `openssl dgst -sha384 -binary dist/mermaid.min.js | openssl base64 -A`. The

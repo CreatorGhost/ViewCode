@@ -3,15 +3,15 @@ import { Modal, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 
-import { SymbolView } from "../../components/AppSymbol";
-import { AppText as Text } from "../../components/AppText";
-import { useAppearancePreferences } from "../../lib/appearancePreferencesContext";
+import { SymbolView } from "./AppSymbol";
+import { AppText as Text } from "./AppText";
+import { useAppearancePreferences } from "../lib/appearancePreferencesContext";
 import {
   mermaidRenderHtml,
   mermaidStaticHtml,
   readMermaidMessage,
   type MermaidColors,
-} from "./mermaidDiagram";
+} from "../lib/mermaidDiagram";
 
 // Mermaid loads as a subresource; no page, nor a link inside a diagram, ever navigates.
 const staysOnPage = (request: { readonly url: string }) => /^(about|data):/.test(request.url);

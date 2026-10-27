@@ -5,7 +5,7 @@ import {
 import { useMemo } from "react";
 
 import { highlightCodeSnippet } from "../features/review/shikiReviewHighlighter";
-import { renderMarkdownCodeBlock } from "../features/threads/MermaidCodeBlock";
+import { renderMarkdownCodeBlock } from "../components/MermaidCodeBlock";
 import { themeColorWithAlpha } from "../lib/mobileTheme";
 import { useUniwindTheme } from "../lib/useUniwindTheme";
 
