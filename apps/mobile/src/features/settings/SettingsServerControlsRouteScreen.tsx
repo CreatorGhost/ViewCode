@@ -8,6 +8,7 @@ import {
   type ComputerUseScreen,
   type ComputerUseMode,
   type ResponseStreamingMode,
+  type SpeakMode,
   type ServerSettings,
   type ServerSettingsPatch,
   type ThreadEnvMode,
@@ -112,6 +113,24 @@ const STREAMING_CHOICES: ReadonlyArray<{
     mode: "paragraph",
     label: "Finished paragraphs",
     description: "Show each paragraph or code block as it completes.",
+  },
+];
+
+const SPEAK_CHOICES: ReadonlyArray<{
+  readonly mode: SpeakMode;
+  readonly label: string;
+  readonly description: string;
+}> = [
+  { mode: "off", label: "Off", description: "Replies are read only when you tap Read aloud." },
+  {
+    mode: "summary",
+    label: "Summary",
+    description: "Read a short spoken summary when a reply finishes in the open thread.",
+  },
+  {
+    mode: "full",
+    label: "Full reply",
+    description: "Read the whole reply when it finishes in the open thread, skipping code.",
   },
 ];
 
@@ -452,6 +471,32 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       />
                     ))}
                   </SettingsSection>
+                  <View className="gap-2">
+                    <SettingsSection
+                      title="Speak replies"
+                      trailing={
+                        pendingWrites === 0 && uniform("speakMode") === null ? (
+                          <MixedValuesLabel projectSelected={projectSelected} />
+                        ) : null
+                      }
+                    >
+                      {SPEAK_CHOICES.map((choice, index) => (
+                        <ChoiceRow
+                          key={choice.mode}
+                          label={choice.label}
+                          description={choice.description}
+                          selected={uniform("speakMode") === choice.mode}
+                          separated={index > 0}
+                          disabled={disabledFor("speakMode")}
+                          onPress={() => write({ speakMode: choice.mode })}
+                        />
+                      ))}
+                    </SettingsSection>
+                    <Text className="px-2 text-sm text-foreground-muted">
+                      Shared by every device on this environment. Each device speaks with its own
+                      voice, and only while the app is open on that thread.
+                    </Text>
+                  </View>
                   <SettingsSection title="Preview browser">
                     <FanoutSwitchRow
                       icon="globe"

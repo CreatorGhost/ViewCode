@@ -32,13 +32,13 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { ConnectionSheetButton } from "../connection/ConnectionSheetButton";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import {
-  HIDDEN_REASON_LABELS,
   importSelection,
   partitionImportableSessions,
   sessionKey,
   toggleSelectAll,
   type SelectAllState,
-} from "./agentSessionImport";
+} from "@t3tools/client-runtime/agent-session-import";
+import { HIDDEN_REASON_LABELS } from "./agentSessionImport";
 
 const agentSessionList = createEnvironmentRpcCommand(connectionAtomRuntime, {
   label: "mobile:agent-sessions:list",

@@ -1152,6 +1152,12 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   title model. The summary is stripped of markdown and capped at 60 words in
   `provider-core/server/spokenSummary.ts`, because small models ignore format
   rules and a voice reads every symbol.
+- Mobile reads with the system voice (`expo-speech`, `apps/mobile/src/features/speech`).
+  Speak mode speaks only a reply that settles while its thread is open and the app is
+  in front: replies already there when the thread opens are never read, a summary is
+  read when it arrives after the turn, and leaving the thread or backgrounding the
+  app stops speech. Android caps one utterance near 4,000 characters, so text is
+  queued in chunks under that.
 
 ## Dictation (web and desktop)
 
