@@ -21,7 +21,14 @@ import type {
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import * as Option from "effect/Option";
-import { type MouseEvent, useEffect, useEffectEvent, useRef, useState } from "react";
+import {
+  type MouseEvent,
+  type ReactNode,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import {
   CheckIcon,
@@ -122,8 +129,20 @@ import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
 import { useOpenLink } from "~/browser/useOpenLink";
 import { BlurSwap } from "./ui/blur-swap";
 
+/** What the composer's "Create PR" chip needs: the git menu's own action, with its prompts. */
+interface GitComposerChipAction {
+  readonly label: string;
+  readonly disabled: boolean;
+  readonly run: () => void;
+}
+
 interface GitActionsControlProps {
-  presentation?: "toolbar" | "menu";
+  presentation?: "toolbar" | "menu" | "composer-chip";
+  /**
+   * With presentation "composer-chip": draws the chip, only while the quick action would open a
+   * pull request. The look belongs to the composer; the action and its dialogs stay here.
+   */
+  renderComposerChip?: ((action: GitComposerChipAction) => ReactNode) | undefined;
   gitCwd: string | null;
   activeThreadRef: ScopedThreadRef | null;
   draftId?: DraftId;
@@ -975,6 +994,7 @@ export default function GitActionsControl({
   displayMode = "toolbar",
   compact = false,
   onOpenChanges,
+  renderComposerChip,
 }: GitActionsControlProps) {
   const isPanel = displayMode === "panel";
   const ActionGroup = isPanel ? "div" : Group;
@@ -1647,7 +1667,17 @@ export default function GitActionsControl({
 
   return (
     <>
-      {presentation === "menu" ? (
+      {presentation === "composer-chip" ? (
+        isRepo &&
+        quickAction.kind === "run_action" &&
+        (quickAction.action === "create_pr" || quickAction.action === "commit_push_pr") ? (
+          renderComposerChip?.({
+            label: `Create ${changeRequestTerminology.shortLabel}`,
+            disabled: !canWriteSourceControl || isGitActionRunning,
+            run: runQuickAction,
+          })
+        ) : null
+      ) : presentation === "menu" ? (
         !isRepo ? (
           <MenuItem
             density={presentation === "menu" ? "touch" : "default"}

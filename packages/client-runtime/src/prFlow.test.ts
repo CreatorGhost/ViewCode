@@ -128,6 +128,70 @@ describe("prFlowCreating", () => {
     expect(creating("Pushing to origin...", null).label).toBe("Pushing to origin");
     expect(creating("Creating pull request...", 3).label).toBe("Opening the pull request");
   });
+
+  it("shows the branch while it opens one: the changes being committed, then its commits", () => {
+    const flow = (stepLabel: string) =>
+      prFlowCreating({
+        title: "t",
+        head: "feat/session-refresh",
+        stepLabel,
+        commitsToPush: 2,
+        graph: GRAPH,
+        base: "main",
+        uncommittedFiles: 4,
+      });
+    const committing = flow("Committing...");
+    expect(committing.base).toBe("main");
+    expect(committing.rows[0]).toEqual({
+      kind: "uncommitted",
+      key: "uncommitted",
+      files: 4,
+      parents: ["tests"],
+    });
+    expect(committing.rows.slice(1).map((row) => row.key)).toEqual([
+      "tests",
+      "keys",
+      "rotate",
+      "near",
+      "fork:fork",
+    ]);
+    // Once committed, the changes are the branch's newest commit.
+    expect(flow("Pushing to origin...").rows.map((row) => row.kind)).not.toContain("uncommitted");
+    // No graph yet: nothing to draw, as before.
+    expect(
+      prFlowCreating({ title: "t", head: "h", stepLabel: null, commitsToPush: null }).rows,
+    ).toEqual([]);
+  });
+});
+
+describe("checking it merges cleanly", () => {
+  const unknown = { ...OPEN, mergeability: "unknown" } as const;
+
+  it("checks while a just-opened pull request has no answer from the host or the checkout", () => {
+    const flow = prFlowFromPullRequest(unknown, { ...IDLE, justOpened: true });
+    expect(flow?.phase).toBe("checking");
+    expect(flow === null ? null : prFlowStatus(flow)).toMatchObject({
+      tone: "busy",
+      label: "Checking it merges cleanly",
+      target: "checking",
+    });
+    expect(flow === null ? "none" : prFlowFooterAction(flow)).toBeNull();
+  });
+
+  it("stops checking once either side answers, and never lingers on an old pull request", () => {
+    const clean = { ...GRAPH, conflicts: { truncated: false, files: [] } };
+    expect(prFlowFromPullRequest(unknown, { ...IDLE, justOpened: true, graph: clean })?.phase).toBe(
+      "ready",
+    );
+    expect(prFlowFromPullRequest(unknown, { ...IDLE, justOpened: true, graph: GRAPH })?.phase).toBe(
+      "conflicts",
+    );
+    expect(
+      prFlowFromPullRequest({ ...OPEN, mergeability: "mergeable" }, { ...IDLE, justOpened: true })
+        ?.phase,
+    ).toBe("ready");
+    expect(prFlowFromPullRequest(unknown, IDLE)?.phase).toBe("ready");
+  });
 });
 
 describe("prFlowFromPullRequest", () => {

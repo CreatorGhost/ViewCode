@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { PrFlowCard, PrFlowCollapsedRow } from "~/components/chat/prFlow/PrFlowCard";
 import { PrFlowStatusChip } from "~/components/chat/prFlow/PrFlowStatusChip";
+import { CreatePrChip, DiffChip } from "~/components/chat/prFlow/ThreadPrFlowCard";
 import {
   type PrFlow,
   type PrFlowPullRequest,
@@ -167,36 +168,40 @@ const RESOLVED_GRAPH: GitPullRequestGraph = {
   conflicts: { files: [], truncated: false },
 };
 
+// What the checkout knows while the git menu opens the pull request: its last commit is still
+// being made, and its copy of main predates Mira's newest commit.
+const BEFORE_COMMIT: GitPullRequestGraph = {
+  ...GRAPH,
+  head: HEAD.slice(1).map((row, index) =>
+    index === 0 ? { ...row, refs: ["fix/provider-handoff"] } : row,
+  ),
+  base: BASE.slice(1),
+  conflicts: null,
+};
+const BEFORE_FETCH: GitPullRequestGraph = { ...GRAPH, base: BASE.slice(1), conflicts: null };
+const creating = (stepLabel: string, graph: GitPullRequestGraph) =>
+  prFlowCreating({
+    title: PR.title,
+    head: PR.headBranch,
+    stepLabel,
+    commitsToPush: 3,
+    graph,
+    base: PR.baseBranch,
+    uncommittedFiles: 4,
+  });
+
 const STEPS: ReadonlyArray<{ readonly name: string; readonly flow: () => PrFlow | null }> = [
+  { name: "create", flow: () => null },
+  { name: "committing", flow: () => creating("Committing...", BEFORE_COMMIT) },
+  { name: "pushing", flow: () => creating("Pushing to origin...", BEFORE_FETCH) },
+  { name: "opening", flow: () => creating("Creating pull request...", BEFORE_FETCH) },
   {
-    name: "committing",
+    name: "checking",
     flow: () =>
-      prFlowCreating({
-        title: PR.title,
-        head: PR.headBranch,
-        stepLabel: "Committing...",
-        commitsToPush: null,
-      }),
-  },
-  {
-    name: "pushing",
-    flow: () =>
-      prFlowCreating({
-        title: PR.title,
-        head: PR.headBranch,
-        stepLabel: "Pushing to origin...",
-        commitsToPush: 3,
-      }),
-  },
-  {
-    name: "opening",
-    flow: () =>
-      prFlowCreating({
-        title: PR.title,
-        head: PR.headBranch,
-        stepLabel: "Creating pull request...",
-        commitsToPush: 3,
-      }),
+      prFlowFromPullRequest(
+        { ...PR, mergeability: "unknown" },
+        { ...IDLE, graph: { ...GRAPH, conflicts: null }, justOpened: true },
+      ),
   },
   {
     name: "conflicts",
@@ -339,7 +344,10 @@ function PrFlowPreview() {
           {flow ? (
             <PrFlowCard
               flow={flow}
-              onResolveConflicts={() => setIndex(4)}
+              appear
+              onResolveConflicts={() =>
+                setIndex(STEPS.findIndex((step) => step.name === "fetching"))
+              }
               onMerge={() => setIndex(STEPS.length - 2)}
               onOpen={(url) => window.open(url, "_blank", "noopener")}
             />
@@ -371,11 +379,16 @@ function PrFlowPreview() {
       <div className="px-6 pb-5">
         <div className="mx-auto flex w-full max-w-170 flex-col gap-2">
           <div ref={observeChipGlide} className="relative flex gap-1.5">
-            {flow ? <PrFlowStatusChip flow={flow} /> : null}
-            <span className="flex h-6.5 items-center gap-1.5 rounded-full border bg-card px-2.5 font-mono text-xs">
-              <span className="text-diff-addition-foreground">+{PR.additions}</span>
-              <span className="text-diff-deletion-foreground">−{PR.deletions}</span>
-            </span>
+            {flow ? (
+              <PrFlowStatusChip flow={flow} />
+            ) : (
+              <CreatePrChip label="Create PR" onClick={() => setIndex(1)} />
+            )}
+            <DiffChip
+              additions={PR.additions ?? 0}
+              deletions={PR.deletions ?? 0}
+              onOpen={() => {}}
+            />
           </div>
           <div className="rounded-2xl border bg-card px-3 py-3 text-muted-foreground">
             Ask anything, or type / for skills

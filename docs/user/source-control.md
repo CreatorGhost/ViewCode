@@ -148,8 +148,9 @@ make your first commit before pushing.
 
 ## Create a pull request
 
-Use a thread's Git actions to commit, push, and create a pull request. ViewCode can generate commit
-messages, review titles, and descriptions from your changes.
+Use a thread's Git actions, or **Create PR** above the composer, to commit, push, and create a
+pull request. ViewCode can generate commit messages, review titles, and descriptions from your
+changes. The size of your branch's changes sits beside it; select it to open the diff.
 
 The thread's pull request then shows as a card in the chat, at the point where the thread got it,
 with its state beside the composer and a short version at the top of the Review panel. The card

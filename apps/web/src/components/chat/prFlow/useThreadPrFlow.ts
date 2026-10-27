@@ -11,6 +11,8 @@ import {
 import { Atom } from "effect/reactivity";
 import { useEffect, useRef } from "react";
 
+import { useNowMinute } from "~/hooks/useNowMinute";
+
 import { useProject, useThreadProjectionSelector, useThreadShell } from "../../../state/entities";
 import { pullRequestEnvironment } from "../../../state/pullRequests";
 import { useEnvironmentQuery } from "../../../state/query";
@@ -33,6 +35,15 @@ import {
 
 /** While the checkout is mid-merge, how often its unresolved files are read again. */
 const MERGE_POLL_MS = 10_000;
+/** How long after the thread got a pull request an unknown mergeability reads as "checking". */
+const JUST_OPENED_MS = 2 * 60_000;
+
+/** `origin/main` → `main`: the branch name the graph and the host use. */
+function branchOfRef(ref: string | null | undefined): string | null {
+  if (!ref) return null;
+  const slash = ref.indexOf("/");
+  return slash === -1 ? ref : ref.slice(slash + 1);
+}
 
 /**
  * What this client did that the host does not know yet: a merge in flight, and a Resolve click
@@ -69,6 +80,8 @@ export interface ThreadPrFlow {
   readonly creating: boolean;
   readonly resolveConflicts: () => void;
   readonly merge: () => void;
+  /** Where the thread's git commands run, for the composer's git chips. */
+  readonly gitCwd: string | null;
 }
 
 /**
@@ -162,6 +175,28 @@ export function useThreadPrFlow(
       ? vcsEnvironment.status({ environmentId, input: { cwd: gitCwd } })
       : null,
   );
+  // While the git menu opens the pull request, the branch against the base it will most likely
+  // target. Same input as the pull request's own graph, so the card that follows reads it warm.
+  const creatingBase = creating ? branchOfRef(statusQuery.data?.branchChanges?.baseRef) : null;
+  const creatingHead = shell?.branch ?? null;
+  const creatingGraphQuery = useEnvironmentQuery(
+    creating && gitCwd !== null && creatingBase !== null && creatingHead !== null
+      ? pullRequestEnvironment.graph({
+          environmentId,
+          input: { cwd: gitCwd, baseBranch: creatingBase, headBranch: creatingHead },
+        })
+      : null,
+  );
+  const creatingStep = creating ? (action.currentPhaseLabel ?? action.currentLabel) : null;
+  const refreshCreatingGraph = creatingGraphQuery.refresh;
+  const lastCreatingStep = useRef(creatingStep);
+  useEffect(() => {
+    if (lastCreatingStep.current === creatingStep) return;
+    lastCreatingStep.current = creatingStep;
+    // Each step moves the branch: the commit lands, then the push.
+    if (creatingStep !== null) refreshCreatingGraph();
+  }, [creatingStep, refreshCreatingGraph]);
+  const nowMinute = useNowMinute();
 
   // A git command the agent finished can have moved the branch, the base or the merge state.
   const refreshGraph = graphQuery.refresh;
@@ -184,11 +219,14 @@ export function useThreadPrFlow(
     ? prFlowCreating({
         title: shell?.title ?? "Pull request",
         head: shell?.branch ?? "",
-        stepLabel: action.currentPhaseLabel ?? action.currentLabel,
+        stepLabel: creatingStep,
         commitsToPush:
-          status === null
+          status == null
             ? null
             : ((status.hasUpstream ? status.aheadCount : status.aheadOfDefaultCount) ?? null),
+        graph: creatingGraphQuery.data ?? null,
+        base: creatingBase,
+        uncommittedFiles: status?.workingTree.files.length ?? null,
       })
     : link === null || snapshot === null
       ? null
@@ -202,6 +240,7 @@ export function useThreadPrFlow(
               (asked?.number === link.number && asked.userMessages === userMessages),
             merging: linkKey !== null && local.merging === linkKey,
             command,
+            justOpened: Date.parse(nowMinute) - Date.parse(link.linkedAt) < JUST_OPENED_MS,
           },
         );
 
@@ -232,5 +271,5 @@ export function useThreadPrFlow(
     void perform("merge").finally(() => setLocal((current) => ({ ...current, merging: null })));
   };
 
-  return { flow, creating, resolveConflicts, merge };
+  return { flow, creating, resolveConflicts, merge, gitCwd };
 }

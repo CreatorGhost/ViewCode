@@ -671,9 +671,22 @@ pull request linked by hand later sits where it was linked. Folded cards render 
 snapshot only and never mount the full card, so the graph and checks reads stay with the one
 current card per thread.
 
-A card the conversation just received (its link younger than `PR_APPEAR_WINDOW_MS`) mounts
-with `appear`: it rises in and every row arrives staggered. Without it the card, which replaces
-the creating card at the end of the chat, mounted as a hard cut and its rows counted as initial.
+While the git menu opens a pull request, the creating card at the end of the chat already draws
+the branch: it reads the same graph RPC against the base `branchChanges.baseRef` names, with the
+same input the pull request's card will use, so that card starts with the graph cached. When the
+link arrives, the pull request's card takes over the creating card's rows
+(`creatingRowsShown` in `ThreadPrFlowCard.tsx`): they stay put and only what is new opens in.
+Any other card the conversation just received (its link younger than `PR_APPEAR_WINDOW_MS`)
+mounts with `appear` and rises in. Either way it is never a hard cut.
+
+"Checking it merges cleanly" needs `justOpened` (the link is under two minutes old). Hosts can
+leave mergeability `unknown` for a long time, and a checkout on old Git cannot say either, so
+without that window the card would spin forever.
+
+The composer's **Create PR** chip runs `GitActionsControl`'s own quick action through its
+`composer-chip` presentation, so the default-branch prompt, permissions and toasts stay the git
+menu's. That presentation is a ViewCode change to an upstream file, guarded by
+`GitActionsControl.viewcode.test.ts`.
 
 The Review panel's review card (`ReviewCard` in `chat/ReviewProgress.tsx`) is drawn with the PR
 card's exported row frame, lanes and shimmer label: the reviewer on the head lane with its live
