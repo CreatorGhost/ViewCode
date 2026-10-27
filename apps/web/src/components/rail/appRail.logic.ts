@@ -1,5 +1,6 @@
 import type { EnvironmentId, ServerProviderUsageWindow } from "@t3tools/contracts";
 import { threadOwnNeed } from "@t3tools/shared/threadNeedsYou";
+import { CURSOR_KEYCHAIN_USAGE_OFF_MESSAGE } from "@t3tools/shared/usageLimits";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
@@ -27,6 +28,8 @@ export type RailUsageRing = {
   tone: RailRingTone;
   /** What the ring draws, outermost first: weekly outside, the session window inside (as Synara does). Empty when idle. */
   tracks: ReadonlyArray<RailRingTrack>;
+  /** A Mac's Cursor account whose usage waits for the Keychain opt-in: a dimmed ring offering Enable. */
+  usageOff?: true;
 };
 
 /** The window closest to exhaustion; the ring warns about whichever limit hits first. */
@@ -47,8 +50,9 @@ function mostConstrainedWindow(entry: ProviderInstanceEntry): ServerProviderUsag
 /**
  * One ring per enabled, reachable account that reports usage limits. An account whose
  * limits read fine but have no window yet gets an idle ring, so the rail is not blank
- * until the first message. No subscription limits, a failed probe, or a provider that
- * reports none gets no ring.
+ * until the first message. A Mac's Cursor account waiting for the Keychain opt-in gets
+ * an "off" ring, so it does not vanish unexplained. No subscription limits, a failed
+ * probe, or a provider that reports none gets no ring.
  */
 export function buildRailUsageRings(
   entries: ReadonlyArray<ProviderInstanceEntry>,
@@ -59,6 +63,18 @@ export function buildRailUsageRings(
       const window = mostConstrainedWindow(entry);
       if (!window) {
         const limits = entry.snapshot.usageLimits;
+        if (limits?.unavailable?.message === CURSOR_KEYCHAIN_USAGE_OFF_MESSAGE) {
+          return [
+            {
+              entry,
+              window: null,
+              remainingPercent: 0,
+              tone: "healthy",
+              tracks: [],
+              usageOff: true,
+            },
+          ];
+        }
         const idle = !!limits && !limits.unavailable && limits.windows.length === 0;
         return idle
           ? [{ entry, window: null, remainingPercent: 100, tone: "healthy", tracks: [] }]
