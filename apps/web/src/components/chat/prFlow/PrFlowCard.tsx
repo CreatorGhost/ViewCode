@@ -224,8 +224,10 @@ function PrFlowRows({
     : conflictPhase && status.tone !== "busy"
       ? "text-warning"
       : undefined;
+  // While conflicts stand, only the branch's way into the base turns amber; the base lane stays
+  // its quiet grey, so the eye goes from the warning node to the commits that clash.
   const segmentTone = (segment: GraphSegment) =>
-    segment.target && targetTone !== undefined
+    segment.target && targetTone !== undefined && (merged || segment.lane !== "base")
       ? targetTone
       : merged && segment.lane === "head"
         ? "text-branch"
@@ -328,7 +330,7 @@ export function PrFlowRowFrame({
                 className={segmentTone(segment)}
                 stroke="currentColor"
                 strokeWidth={1.5}
-                strokeDasharray={segment.dashed ? "2 3" : undefined}
+                strokeDasharray={segment.dashed ? "3.5 3" : undefined}
               />
             ))}
             {node}
@@ -343,6 +345,7 @@ export function PrFlowRowFrame({
 const MID = ROW_HEIGHT / 2;
 
 function TargetNode({ flow }: { flow: PrFlow }) {
+  const live = use(PrFlowLiveContext);
   const x = LANE_X.base;
   if (flow.phase === "merged") {
     return <circle cx={x} cy={MID} r={5.5} className="fill-branch" />;
@@ -350,10 +353,21 @@ function TargetNode({ flow }: { flow: PrFlow }) {
   if (flow.phase === "conflicts") {
     return (
       <g className="text-warning">
+        {live ? (
+          <circle
+            ref={observeVisibleAnimation}
+            cx={x}
+            cy={MID}
+            r={8}
+            className="pr-flow-ripple"
+            stroke="currentColor"
+            strokeWidth={1.25}
+          />
+        ) : null}
         <circle cx={x} cy={MID} r={6} fill="currentColor" />
         <path
           d={`M${x} ${MID - 3}v3.4M${x} ${MID + 2.6}v.1`}
-          className="stroke-background"
+          className="stroke-white"
           strokeWidth={1.6}
           strokeLinecap="round"
         />
@@ -450,7 +464,7 @@ function CommitRowContent({
       {conflicting ? (
         <span
           key="conflicts"
-          className="blur-swap flex size-4.5 shrink-0 items-center justify-center rounded-full border border-warning/50 bg-warning-surface text-2xs text-warning-foreground tabular-nums"
+          className="blur-swap flex size-4.5 shrink-0 items-center justify-center rounded-full border border-warning/45 bg-warning/6 text-2xs text-warning-foreground tabular-nums"
         >
           {row.conflicts}
         </span>
@@ -702,51 +716,42 @@ function PrFlowFooter({
   const base = flow.base ?? "the base";
   const checks = flow.checks;
   const conflicts = flow.conflicts;
+  // Only the count is amber, and it opens the clashing lines when they are known; the node's
+  // ripple already says the card is waiting on the reader, so the line itself stays still.
   const label =
-    flow.phase === "conflicts" && conflicts !== null && conflicts.files.length > 0 ? (
+    flow.phase === "conflicts" ? (
       <>
-        <PreviewCard>
-          <PreviewCardTrigger
-            render={
-              <span className="cursor-default text-warning-foreground underline decoration-warning/50 decoration-dotted underline-offset-4" />
-            }
-          >
-            {status.short}
-          </PreviewCardTrigger>
-          <PreviewCardPopup side="top" align="start">
-            <ConflictLines conflicts={conflicts} base={base} />
-          </PreviewCardPopup>
-        </PreviewCard>
-        <span className="text-muted-foreground"> with {base}</span>
+        {conflicts !== null && conflicts.files.length > 0 ? (
+          <PreviewCard>
+            <PreviewCardTrigger
+              render={
+                <span className="cursor-default text-warning-foreground underline decoration-warning/50 decoration-dotted underline-offset-4" />
+              }
+            >
+              {status.short}
+            </PreviewCardTrigger>
+            <PreviewCardPopup side="top" align="start">
+              <ConflictLines conflicts={conflicts} base={base} />
+            </PreviewCardPopup>
+          </PreviewCard>
+        ) : (
+          <span className="text-warning-foreground">{status.short}</span>
+        )}{" "}
+        with {base}
       </>
     ) : (
       status.label
     );
-  // Open conflicts wait on the reader; the rest is work in flight. Both shine until they settle.
-  const live = use(PrFlowLiveContext) && (status.tone === "busy" || flow.phase === "conflicts");
-  const liveText =
-    flow.phase === "conflicts" && conflicts !== null && conflicts.files.length > 0
-      ? `${status.short} with ${base}`
-      : status.label;
+  const live = use(PrFlowLiveContext) && status.tone === "busy";
   return (
     <div className="flex min-h-8 items-center gap-2 px-0.5 pt-1">
       <FooterIcon flow={flow} status={status} />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <ShimmerLabel
-          live={live}
-          text={liveText}
-          band={flow.phase === "conflicts" ? "pr-flow-warning-band" : undefined}
-        >
+        <ShimmerLabel live={live} text={status.label}>
           <BlurSwap
             swapKey={status.label}
             render={
-              <p
-                className={cn(
-                  "truncate",
-                  status.tone === "busy" && "text-muted-foreground",
-                  flow.phase === "conflicts" && "text-warning-foreground",
-                )}
-              />
+              <p className={cn("truncate", status.tone === "busy" && "text-muted-foreground")} />
             }
           >
             {label}
@@ -787,12 +792,10 @@ function PrFlowFooter({
 export function ShimmerLabel({
   live,
   text,
-  band,
   children,
 }: {
   live: boolean;
   text: string;
-  band?: string | undefined;
   children: ReactNode;
 }) {
   const cardLive = use(PrFlowLiveContext);
@@ -804,7 +807,7 @@ export function ShimmerLabel({
     >
       <span className="relative block overflow-hidden whitespace-nowrap">
         {children}
-        {shining ? <ActivityShimmerOverlay className={band}>{text}</ActivityShimmerOverlay> : null}
+        {shining ? <ActivityShimmerOverlay>{text}</ActivityShimmerOverlay> : null}
       </span>
     </span>
   );
@@ -842,7 +845,7 @@ function FooterAction({
   switch (prFlowFooterAction(flow)) {
     case "resolve":
       return onResolveConflicts === undefined ? null : (
-        <Button size="xs" variant="secondary" onClick={onResolveConflicts}>
+        <Button size="xs" variant="primary-soft" onClick={onResolveConflicts}>
           Resolve conflicts
         </Button>
       );
