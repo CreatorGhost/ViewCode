@@ -51,7 +51,7 @@ export const spokenSummaryEffects = (input: {
  * The cheap model of the provider (and account) that ran the turn, like Haiku
  * for an Opus turn; the title model when that provider has no known cheap model.
  */
-export const spokenSummaryModelSelection = (input: {
+const spokenSummaryModelSelection = (input: {
   readonly runInstanceId: ProviderInstanceId;
   readonly runDriverKind: ProviderDriverKind | undefined;
   readonly textGenerationModelSelection: ModelSelection;
