@@ -491,6 +491,10 @@
       "types": "./src/agentReview.ts",
       "default": "./src/agentReview.ts"
     },
+    "./agent-session-import": {
+      "types": "./src/agentSessionImport.ts",
+      "default": "./src/agentSessionImport.ts"
+    },
     "./review-findings": {
       "types": "./src/reviewFindings.ts",
       "default": "./src/reviewFindings.ts"

@@ -67,6 +67,13 @@ function copyWorkspaceManifestFixture(targetRoot: string): void {
     });
   }
 
+  // The smoke resolves from scratch, so a dependency whose range has moved past its patched
+  // version leaves that patch unused; the smoke checks version bumps, not patches.
+  NodeFS.appendFileSync(
+    NodePath.resolve(targetRoot, "pnpm-workspace.yaml"),
+    "\nallowUnusedPatches: true\n",
+  );
+
   const patchesDirectory = NodePath.resolve(repoRoot, "patches");
   if (NodeFS.existsSync(patchesDirectory)) {
     NodeFS.cpSync(patchesDirectory, NodePath.resolve(targetRoot, "patches"), { recursive: true });

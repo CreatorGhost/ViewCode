@@ -1,7 +1,7 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn<() => Promise<string | null>>() }));
 
@@ -18,6 +18,11 @@ vi.mock(import("./ReadOnlySourcePreview"), async (original) => ({
 import { AttachmentFilePreview } from "./AttachmentFilePreview";
 
 describe("attachment HTML preview recovery", () => {
+  // The source view is lazy: load it first, so a busy run's module load cannot outlast waitFor.
+  beforeAll(async () => {
+    await import("./ReadOnlySourcePreview");
+  });
+
   const originalUrl = "data:text/html,original";
   const renewedUrl = "data:text/html,renewed";
   let now = 0;

@@ -1,46 +1,7 @@
-import {
-  EnvironmentId,
-  ProjectId,
-  ProviderInstanceId,
-  ThreadId,
-  TurnId,
-  type AgentSessionSummary,
-} from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId, TurnId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { importedThreadsForCleanup, partitionImportableSessions } from "./agentSessionImport.logic";
-
-function session(
-  providerSessionId: string,
-  lastActivityAt: string,
-  hiddenReason: AgentSessionSummary["hiddenReason"] = null,
-): AgentSessionSummary {
-  return {
-    providerInstanceId: ProviderInstanceId.make("codex"),
-    providerSessionId,
-    provider: "codex",
-    title: providerSessionId,
-    firstActivityAt: lastActivityAt,
-    lastActivityAt,
-    userMessageCount: 3,
-    alreadyImported: false,
-    hidden: hiddenReason !== null,
-    hiddenReason,
-  };
-}
-
-describe("partitionImportableSessions", () => {
-  it("sorts newest first and folds hidden sessions away", () => {
-    const older = session("older", "2026-08-01T00:00:00.000Z");
-    const newer = session("newer", "2026-08-20T00:00:00.000Z");
-    const child = session("child", "2026-08-21T00:00:00.000Z", "subagent");
-
-    expect(partitionImportableSessions([older, child, newer])).toEqual({
-      visible: [newer, older],
-      hidden: [child],
-    });
-  });
-});
+import { importedThreadsForCleanup } from "./agentSessionImport.logic";
 
 describe("importedThreadsForCleanup", () => {
   const environmentId = EnvironmentId.make("local");
