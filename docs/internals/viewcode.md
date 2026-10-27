@@ -1101,6 +1101,13 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   be a class: with SVG labels only a class's `tspan` rule reaches subgraph
   titles and beats an author's own low-contrast `color`.
 
+- Mobile draws diagrams in a WebView (`apps/mobile/src/components/MermaidCodeBlock.tsx`)
+  with Mermaid from jsDelivr, pinned to the web app's version by URL and SRI hash in
+  `mermaidDiagram.ts`. Bumping `mermaid` in `apps/web` means updating both there; the
+  hash is `openssl dgst -sha384 -binary dist/mermaid.min.js | openssl base64 -A`. The
+  markdown module only exposes `renderCodeBlock`, withheld for a trailing fence that
+  has not closed yet, so a streaming diagram is never rendered half-written.
+
 ## Read aloud
 
 - The speaker button reads one assistant message, the same one Copy copies:
@@ -1145,6 +1152,12 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   title model. The summary is stripped of markdown and capped at 60 words in
   `provider-core/server/spokenSummary.ts`, because small models ignore format
   rules and a voice reads every symbol.
+- Mobile reads with the system voice (`expo-speech`, `apps/mobile/src/features/speech`).
+  Speak mode speaks only a reply that settles while its thread is open and the app is
+  in front: replies already there when the thread opens are never read, a summary is
+  read when it arrives after the turn, and leaving the thread or backgrounding the
+  app stops speech. Android caps one utterance near 4,000 characters, so text is
+  queued in chunks under that.
 
 ## Dictation (web and desktop)
 

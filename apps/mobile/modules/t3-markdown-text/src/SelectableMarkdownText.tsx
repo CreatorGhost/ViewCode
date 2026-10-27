@@ -7,10 +7,15 @@ import {
   nativeMarkdownChunkSpacing,
   nativeMarkdownDocumentChunks,
   nativeMarkdownDocumentRuns,
+  markdownEndsWithClosedFence,
   nativeMarkdownWithAuthoredWindowsPaths,
   nativeMarkdownWithPreservedSoftBreaks,
 } from "./nativeMarkdownText";
-import { MarkdownImageRendererContext, NativeMarkdownBlock } from "./NativeMarkdownBlock";
+import {
+  MarkdownCodeBlockRendererContext,
+  MarkdownImageRendererContext,
+  NativeMarkdownBlock,
+} from "./NativeMarkdownBlock";
 import {
   MarkdownContextClipboardContext,
   MarkdownFileContextMenuContext,
@@ -25,6 +30,7 @@ import type {
 const EMPTY_SKILLS: ReadonlyArray<SelectableMarkdownSkill> = [];
 
 export type {
+  MarkdownCodeBlockRenderer,
   MarkdownCodeHighlighter,
   MarkdownHighlightedToken,
   MarkdownImageRenderer,
@@ -49,6 +55,7 @@ export function SelectableMarkdownText({
   fileContextMenu,
   onFileContextMenuAction,
   renderImage,
+  renderCodeBlock,
   marginTop = 0,
   marginBottom = 0,
 }: SelectableMarkdownTextProps) {
@@ -74,6 +81,8 @@ export function SelectableMarkdownText({
         : chunk,
     );
   }, [markdown, preserveSoftBreaks, skills]);
+  // While a reply streams, its last block may be an unclosed fence.
+  const lastBlockClosed = markdownEndsWithClosedFence(markdown);
 
   const fileContextMenuHandlers = useMemo<MarkdownFileContextMenuHandlers | null>(
     () =>
@@ -95,13 +104,21 @@ export function SelectableMarkdownText({
             {chunks.map((chunk, index) => {
               const content =
                 chunk.kind === "rich" ? (
-                  <NativeMarkdownBlock
-                    node={chunk.node}
-                    skills={skills}
-                    textStyle={textStyle}
-                    highlightCode={highlightCode}
-                    onLinkPress={onLinkPress}
-                  />
+                  <MarkdownCodeBlockRendererContext.Provider
+                    value={
+                      index < chunks.length - 1 || lastBlockClosed
+                        ? (renderCodeBlock ?? null)
+                        : null
+                    }
+                  >
+                    <NativeMarkdownBlock
+                      node={chunk.node}
+                      skills={skills}
+                      textStyle={textStyle}
+                      highlightCode={highlightCode}
+                      onLinkPress={onLinkPress}
+                    />
+                  </MarkdownCodeBlockRendererContext.Provider>
                 ) : (
                   <NativeMarkdownSelectableText
                     runs={chunk.runs}

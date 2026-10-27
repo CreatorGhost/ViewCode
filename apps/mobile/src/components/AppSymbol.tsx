@@ -119,6 +119,8 @@ import IconTool from "@tabler/icons-react-native/IconTool";
 import IconTrash from "@tabler/icons-react-native/IconTrash";
 import IconTypography from "@tabler/icons-react-native/IconTypography";
 import IconUpload from "@tabler/icons-react-native/IconUpload";
+import IconDownload from "@tabler/icons-react-native/IconDownload";
+import IconVolume from "@tabler/icons-react-native/IconVolume";
 import IconUserCircle from "@tabler/icons-react-native/IconUserCircle";
 import IconUserCheck from "@tabler/icons-react-native/IconUserCheck";
 import IconUserX from "@tabler/icons-react-native/IconUserX";
@@ -280,6 +282,8 @@ const ANDROID_ICON_BY_SF_SYMBOL = {
   "textformat.size.larger": IconTextIncrease,
   "textformat.size.smaller": IconTextDecrease,
   "tray.and.arrow.up": IconUpload,
+  "tray.and.arrow.down": IconDownload,
+  "speaker.wave.2": IconVolume,
   trash: IconTrash,
   "wifi.slash": IconWifiOff,
   xmark: IconX,

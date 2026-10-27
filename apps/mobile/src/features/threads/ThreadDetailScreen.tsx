@@ -129,6 +129,7 @@ import {
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
 import type { ComposerCheckout } from "./composerChrome";
+import { useSpokenReplies } from "../speech/useSpokenReplies";
 import { ThreadFeed } from "./ThreadFeed";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
@@ -775,6 +776,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   );
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
   useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed);
+  useSpokenReplies({
+    environmentId: props.environmentId,
+    threadId: props.selectedThread.id,
+    feed: props.selectedThreadFeed,
+    latestTurn: props.selectedThread.latestTurn ?? null,
+  });
   const selectedProviderSkills = useMemo(() => {
     const provider = props.serverConfig?.providers.find(
       (candidate) => candidate.instanceId === selectedInstanceId,
