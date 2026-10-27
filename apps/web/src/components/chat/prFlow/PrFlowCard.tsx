@@ -81,7 +81,7 @@ export function PrFlowCard({
     <PrFlowLiveContext value={live}>
       <div
         className={cn(
-          "flex flex-col gap-1.5 rounded-xl border bg-card p-3 text-sm",
+          "@container/pr-flow flex min-w-0 flex-col gap-1.5 rounded-xl border bg-card p-3 text-sm",
           appear && "pr-flow-appear",
         )}
       >
@@ -177,6 +177,13 @@ const LANE_TONE = {
   base: "text-muted-foreground/45",
   side: "text-success",
 } as const;
+
+/**
+ * A branch chip beside a commit. On a narrow card it gives up its width before the commit's
+ * title does, and below 20rem it goes, so the title, author and age always fit.
+ */
+const REF_CHIP =
+  "hidden max-w-40 min-w-10 shrink-3 truncate rounded px-1.5 font-mono text-2xs leading-5 @xs/pr-flow:block";
 
 const REF_TONE = {
   head: "bg-info/10 text-info-foreground",
@@ -453,10 +460,7 @@ function CommitRowContent({
       {row.refs.slice(0, 2).map((ref) => (
         <span
           key={ref}
-          className={cn(
-            "max-w-40 shrink-0 truncate rounded px-1.5 font-mono text-2xs leading-5",
-            merged ? "bg-branch/10 text-branch" : REF_TONE[row.lane],
-          )}
+          className={cn(REF_CHIP, merged ? "bg-branch/10 text-branch" : REF_TONE[row.lane])}
         >
           {ref}
         </span>
@@ -471,11 +475,11 @@ function CommitRowContent({
       ) : row.resolved && conflictPhase ? (
         <DrawnCheck key="resolved" className="size-4.5 shrink-0 text-success" ring />
       ) : null}
-      <span className="ml-auto shrink-0 pl-2 font-mono text-2xs text-muted-foreground">
-        {row.sha.slice(0, 7)}
-      </span>
-      <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
-        {row.author} · {age.value === "just now" ? "now" : age.value}
+      <span className="ml-auto flex shrink-0 items-center gap-2 pl-2 text-muted-foreground">
+        <span className="hidden font-mono text-2xs @md/pr-flow:inline">{row.sha.slice(0, 7)}</span>
+        <span className="text-xs whitespace-nowrap">
+          {row.author} · {age.value === "just now" ? "now" : age.value}
+        </span>
       </span>
     </>
   );
@@ -494,14 +498,7 @@ function MergingRowContent({
       <ShimmerLabel live={live} text={row.subject}>
         <span className="block truncate text-muted-foreground">{row.subject}</span>
       </ShimmerLabel>
-      <span
-        className={cn(
-          "max-w-40 shrink-0 truncate rounded px-1.5 font-mono text-2xs leading-5",
-          REF_TONE.head,
-        )}
-      >
-        {head}
-      </span>
+      <span className={cn(REF_CHIP, REF_TONE.head)}>{head}</span>
       <BlurSwap
         swapKey={`${row.done}/${row.total}`}
         render={<span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums" />}
@@ -744,9 +741,10 @@ function PrFlowFooter({
     );
   const live = use(PrFlowLiveContext) && status.tone === "busy";
   return (
-    <div className="flex min-h-8 items-center gap-2 px-0.5 pt-1">
+    // On a narrow card the action wraps to its own line rather than crushing the label.
+    <div className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1.5 px-0.5 pt-1">
       <FooterIcon flow={flow} status={status} />
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+      <div className="flex min-w-0 flex-1 basis-40 flex-col gap-1.5">
         <ShimmerLabel live={live} text={status.label}>
           <BlurSwap
             swapKey={status.label}
@@ -773,7 +771,7 @@ function PrFlowFooter({
           </span>
         ) : null}
       </div>
-      <BlurSwap swapKey={flow.phase} className="shrink-0">
+      <BlurSwap swapKey={flow.phase} className="ml-auto shrink-0">
         <FooterAction
           flow={flow}
           onResolveConflicts={onResolveConflicts}
@@ -807,7 +805,13 @@ export function ShimmerLabel({
     >
       <span className="relative block overflow-hidden whitespace-nowrap">
         {children}
-        {shining ? <ActivityShimmerOverlay>{text}</ActivityShimmerOverlay> : null}
+        {/* The shine's copy ends in the same ellipsis as the label, so a cut label never
+            shows letters past it. */}
+        {shining ? (
+          <ActivityShimmerOverlay className="truncate text-foreground">
+            {text}
+          </ActivityShimmerOverlay>
+        ) : null}
       </span>
     </span>
   );
@@ -917,23 +921,25 @@ export function PrFlowCollapsedRow({
 }) {
   const presentation =
     state === "merged"
-      ? {
-          Icon: PullRequestGlyph.merged,
-          tone: "text-branch",
-          label: `Merged into ${base ?? "base"}`,
-        }
+      ? { Icon: PullRequestGlyph.merged, tone: "text-branch", label: "Merged" }
       : state === "closed"
         ? { Icon: PullRequestGlyph.closed, tone: "text-muted-foreground", label: "Closed" }
         : { Icon: PullRequestGlyph.pullRequest, tone: "text-success-foreground", label: "Open" };
   const host = hostOf(url);
   return (
-    <div className="flex h-10 items-center gap-2 rounded-xl border bg-card ps-3 pe-1.5 text-sm">
+    // On a narrow row the base, the diff stat and the host's name go first, so the title keeps room.
+    <div className="@container/pr-row flex h-10 min-w-0 items-center gap-2 rounded-xl border bg-card ps-3 pe-1.5 text-sm">
       <presentation.Icon aria-hidden className={cn("size-4 shrink-0", presentation.tone)} />
       <span className="shrink-0 font-medium">#{number}</span>
-      <span className={cn("shrink-0", presentation.tone)}>{presentation.label}</span>
+      <span className={cn("shrink-0", presentation.tone)}>
+        {presentation.label}
+        {state === "merged" ? (
+          <span className="hidden @md/pr-row:inline"> into {base ?? "base"}</span>
+        ) : null}
+      </span>
       <span className="min-w-0 truncate text-muted-foreground">{title}</span>
       {additions === null || deletions === null ? null : (
-        <span className="ml-auto shrink-0 font-mono text-xs">
+        <span className="ml-auto hidden shrink-0 font-mono text-xs @sm/pr-row:inline">
           <span className="text-diff-addition-foreground">+{additions}</span>{" "}
           <span className="text-diff-deletion-foreground">−{deletions}</span>
         </span>
@@ -942,11 +948,16 @@ export function PrFlowCollapsedRow({
         <Button
           size="xs"
           variant="ghost-muted"
-          className={additions === null || deletions === null ? "ml-auto" : undefined}
+          aria-label={`Open on ${host.label}`}
+          className={
+            additions === null || deletions === null ? "ml-auto" : "ml-auto @sm/pr-row:ml-0"
+          }
           onClick={() => onOpen(url)}
         >
           {host.icon}
-          {host.label}
+          <span className={host.icon === null ? undefined : "hidden @xs/pr-row:inline"}>
+            {host.label}
+          </span>
         </Button>
       )}
       {onExpand === undefined ? null : (
