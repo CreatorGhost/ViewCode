@@ -1,6 +1,7 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronRightIcon } from "lucide-react";
+import { useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { formatUsedPercent } from "../chat/composerUsageLimits.logic";
@@ -13,6 +14,8 @@ import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { formatDuration, NO_USAGE_RECORDED_NOTICE } from "@t3tools/shared/usageLimits";
 import { ResetCreditDialog, useResetCredit } from "../usage/UsageLimits";
+import { serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { type RailRingTone, type RailUsageRing } from "./appRail.logic";
 import {
   buildRailUsageCardRows,
@@ -46,13 +49,15 @@ function UsageRing({ ring }: { ring: RailUsageRing }) {
       >
         {ring.window === null ? (
           // Idle: limits read fine but no window is active yet. A static neutral ring, no arc.
+          // Off: usage is not read at all, so the ring is dashed.
           <circle
             cx={c}
             cy={c}
             r={outer}
             fill="none"
             strokeWidth={box.stroke}
-            className="stroke-foreground/10"
+            strokeDasharray={ring.usageOff ? "2 3" : undefined}
+            className={ring.usageOff ? "stroke-foreground/25" : "stroke-foreground/10"}
           />
         ) : null}
         {ring.tracks.map((track, index) => (
@@ -81,8 +86,59 @@ function UsageRing({ ring }: { ring: RailUsageRing }) {
           </g>
         ))}
       </svg>
-      {Icon ? <Icon className={cn(box.icon, "shrink-0")} aria-hidden /> : null}
+      {Icon ? (
+        <Icon className={cn(box.icon, "shrink-0", ring.usageOff && "opacity-50")} aria-hidden />
+      ) : null}
     </span>
+  );
+}
+
+/** The Mac Keychain opt-in from Settings, offered where the missing Cursor ring is noticed. */
+function UsageOffCardBody({
+  ring,
+  environmentId,
+}: {
+  ring: RailUsageRing;
+  environmentId: EnvironmentId;
+}) {
+  const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
+    label: "enable Cursor account usage",
+  });
+  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
+    reportFailure: false,
+  });
+  const [pending, setPending] = useState(false);
+  const enable = async () => {
+    setPending(true);
+    const result = await updateSettings({
+      environmentId,
+      input: { patch: { cursorKeychainUsageEnabled: true } },
+    });
+    if (result._tag === "Success") await refreshProviders({ environmentId, input: {} });
+    setPending(false);
+  };
+  return (
+    <div data-rail-usage-card="" className="flex w-76 flex-col gap-3 rounded-[inherit] p-4 text-xs">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="min-w-0 truncate font-semibold text-sm">{ring.entry.displayName}</span>
+        <span className="shrink-0 whitespace-nowrap text-muted-foreground">Usage off</span>
+      </div>
+      <span className="text-muted-foreground">
+        Cursor keeps its login in macOS Keychain. Allow ViewCode to read it to show your monthly
+        limits. macOS asks once, on this Mac.
+      </span>
+      <div>
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={pending}
+          aria-busy={pending}
+          onClick={() => void enable()}
+        >
+          {pending ? "Enabling…" : "Enable"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -244,9 +300,11 @@ function UsageRingWithCard({
             <button
               type="button"
               aria-label={
-                ring.window === null
-                  ? `${ring.entry.displayName}, ${NO_USAGE_RECORDED_NOTICE}`
-                  : `${ring.entry.displayName}, ${formatUsedPercent(ring.remainingPercent)} left`
+                ring.usageOff
+                  ? `${ring.entry.displayName}, usage off`
+                  : ring.window === null
+                    ? `${ring.entry.displayName}, ${NO_USAGE_RECORDED_NOTICE}`
+                    : `${ring.entry.displayName}, ${formatUsedPercent(ring.remainingPercent)} left`
               }
               onClick={() => void navigate({ to: "/usage" })}
               data-rail-usage-ring=""
@@ -265,11 +323,19 @@ function UsageRingWithCard({
               ring.window === null ? "text-muted-foreground" : "text-sidebar-foreground",
             )}
           >
-            {ring.window === null ? "–" : formatUsedPercent(ring.remainingPercent)}
+            {ring.usageOff
+              ? "Off"
+              : ring.window === null
+                ? "–"
+                : formatUsedPercent(ring.remainingPercent)}
           </span>
         </PreviewCardTrigger>
         <PreviewCardPopup side="right" align="end" sideOffset={10}>
-          <UsageCardBody ring={ring} environmentId={environmentId} reset={reset} />
+          {ring.usageOff ? (
+            <UsageOffCardBody ring={ring} environmentId={environmentId} />
+          ) : (
+            <UsageCardBody ring={ring} environmentId={environmentId} reset={reset} />
+          )}
         </PreviewCardPopup>
       </PreviewCard>
       <ResetCreditDialog

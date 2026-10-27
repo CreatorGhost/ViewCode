@@ -24,8 +24,8 @@ Cursor reads account usage from Cursor's dashboard API using the CLI login saved
 This includes headless ViewCode sessions and desktop usage across machines; the same account counts
 once across connected environments. Without an accessible CLI login, ViewCode shows a
 notice instead of incomplete local totals. ViewCode does not estimate missing tokens from conversation text.
-On macOS, choose **Enable Cursor usage** on Usage to allow ViewCode to read your existing CLI login
-from Keychain. You can turn it off in **Settings → Providers → Usage providers**. macOS may ask
+On macOS, choose **Enable Cursor usage** on Usage, or **Enable** on the dimmed Cursor ring marked
+**Off** in the side rail, to allow ViewCode to read your existing CLI login from Keychain. You can turn it off in **Settings → Providers → Usage providers**. macOS may ask
 you to allow access on the server Mac.
 
 Usage includes each configured account's history, including disabled accounts. Custom homes follow
