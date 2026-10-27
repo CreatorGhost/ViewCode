@@ -100,7 +100,14 @@ export function mermaidRenderHtml(code: string, colors: MermaidColors): string {
     var d=document.getElementById("d");d.innerHTML=r.svg;
     var s=d.querySelector("svg");
     if(!s){post({type:"error"});return;}
-    post({type:"rendered",svg:d.innerHTML,height:Math.ceil(s.getBoundingClientRect().height)});
+    // The WebView can report a zero size until its first layout; wait up to ~2s for one.
+    var frames=0;
+    (function measure(){
+      var h=Math.ceil(s.getBoundingClientRect().height);
+      if(h>0){post({type:"rendered",svg:d.innerHTML,height:h});return;}
+      if(frames++>120){post({type:"error"});return;}
+      requestAnimationFrame(measure);
+    })();
   },function(){post({type:"error"});});
 })();
 </script></body></html>`;

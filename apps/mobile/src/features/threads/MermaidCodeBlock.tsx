@@ -13,6 +13,9 @@ import {
   type MermaidColors,
 } from "./mermaidDiagram";
 
+// Mermaid loads as a subresource; no page, nor a link inside a diagram, ever navigates.
+const staysOnPage = (request: { readonly url: string }) => /^(about|data):/.test(request.url);
+
 type Rendered = { readonly svg: string; readonly height: number };
 
 // Feed rows unmount as they scroll away; a diagram renders once per source and theme.
@@ -73,7 +76,15 @@ export function MermaidCodeBlock(props: { readonly code: string; readonly fallba
         {props.fallback}
         <View
           pointerEvents="none"
-          style={{ position: "absolute", width: "100%", height: 1, opacity: 0, overflow: "hidden" }}
+          // The card's inset (m-3 plus its border), so the measured height fits the card.
+          style={{
+            position: "absolute",
+            left: 13,
+            right: 13,
+            height: 1,
+            opacity: 0,
+            overflow: "hidden",
+          }}
         >
           <WebView
             source={{ html: mermaidRenderHtml(props.code, colors) }}
@@ -83,8 +94,7 @@ export function MermaidCodeBlock(props: { readonly code: string; readonly fallba
               renderedDiagrams.set(key, "failed");
               setRevision((value) => value + 1);
             }}
-            // Mermaid loads as a subresource; the page itself never navigates.
-            onShouldStartLoadWithRequest={(request) => /^(about|data):/.test(request.url)}
+            onShouldStartLoadWithRequest={staysOnPage}
             style={{ height: 800, backgroundColor: "transparent" }}
           />
         </View>
@@ -117,6 +127,7 @@ export function MermaidCodeBlock(props: { readonly code: string; readonly fallba
             }}
             originWhitelist={["*"]}
             javaScriptEnabled={false}
+            onShouldStartLoadWithRequest={staysOnPage}
             scrollEnabled={false}
             style={{ flex: 1, backgroundColor: "transparent" }}
           />
@@ -163,6 +174,7 @@ function MermaidFullScreen(props: {
           }}
           originWhitelist={["*"]}
           javaScriptEnabled={false}
+          onShouldStartLoadWithRequest={staysOnPage}
           scalesPageToFit
           setBuiltInZoomControls
           setDisplayZoomControls={false}
