@@ -421,7 +421,6 @@ function CommitRowContent({
   const conflictPhase = flow.phase === "conflicts" || flow.phase === "resolving";
   const conflicting = conflictPhase && row.conflicts > 0 && !row.resolved;
   const merged = flow.phase === "merged" && row.lane === "head";
-  const live = use(PrFlowLiveContext);
   const age = formatRelativeElapsed(Math.max(0, nowMs - Date.parse(row.authoredAt)));
   return (
     <>
@@ -451,11 +450,7 @@ function CommitRowContent({
       {conflicting ? (
         <span
           key="conflicts"
-          ref={live ? observeVisibleAnimation : undefined}
-          className={cn(
-            live && "pr-flow-glow pr-flow-glow-badge",
-            "blur-swap flex size-4.5 shrink-0 items-center justify-center rounded-full border border-warning/50 bg-warning-surface text-2xs text-warning-foreground tabular-nums",
-          )}
+          className="blur-swap flex size-4.5 shrink-0 items-center justify-center rounded-full border border-warning/50 bg-warning-surface text-2xs text-warning-foreground tabular-nums"
         >
           {row.conflicts}
         </span>
@@ -739,7 +734,6 @@ function PrFlowFooter({
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <ShimmerLabel
           live={live}
-          glow={flow.phase === "conflicts"}
           text={liveText}
           band={flow.phase === "conflicts" ? "pr-flow-warning-band" : undefined}
         >
@@ -788,18 +782,15 @@ function PrFlowFooter({
 
 /**
  * A label with the activity shimmer while `live`: the shared moving shine, running only while on
- * screen, and with `glow` a soft amber pulse behind it on the same beat. Settled, it is just the
- * label. `text` is what the shine draws, the label as plain text.
+ * screen. Settled, it is just the label. `text` is what the shine draws, the label as plain text.
  */
 export function ShimmerLabel({
   live,
-  glow = false,
   text,
   band,
   children,
 }: {
   live: boolean;
-  glow?: boolean;
   text: string;
   band?: string | undefined;
   children: ReactNode;
@@ -809,7 +800,7 @@ export function ShimmerLabel({
   return (
     <span
       ref={shining ? observeVisibleAnimation : undefined}
-      className={cn("block w-fit max-w-full min-w-0", shining && glow && "pr-flow-glow")}
+      className="block w-fit max-w-full min-w-0"
     >
       <span className="relative block overflow-hidden whitespace-nowrap">
         {children}
