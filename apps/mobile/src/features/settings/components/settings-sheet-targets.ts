@@ -4,6 +4,7 @@ export type SettingsSheetTarget =
   | "SettingsThreads"
   | "SettingsAbout"
   | "SettingsArchive"
+  | "SettingsImportSessions"
   | "SettingsAppearance"
   | "SettingsOrganization"
   | "SettingsProjectOverview"

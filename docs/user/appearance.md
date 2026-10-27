@@ -81,6 +81,12 @@ reads the whole reply. The setting is saved on the server, so every device conne
 same. Change it from the speaker menu in the chat's top bar or with **Speak mode** in the command
 palette, and stop a reading the way you stop any other.
 
+On the phone, tap the speaker button beside Copy under a finished reply; tap it again to stop. The
+phone uses its system voice.
+
+On the phone, set **Speak replies** in **Settings → Agent behavior**. **Full reply** there skips the
+reply's code, and nothing is read while the app is in the background.
+
 Speech runs on your device; your replies are never sent anywhere. Natural voices speak English. On
 macOS, download more system voices in **System Settings → Accessibility → Spoken Content → System
 voice → Manage Voices**.
