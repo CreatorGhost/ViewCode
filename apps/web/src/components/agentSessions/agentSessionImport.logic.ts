@@ -1,10 +1,5 @@
 import type { OrchestrationThreadShell } from "@t3tools/client-runtime/viewcodeThread";
-import type {
-  AgentSessionHiddenReason,
-  AgentSessionSummary,
-  EnvironmentId,
-  ScopedProjectRef,
-} from "@t3tools/contracts";
+import type { AgentSessionHiddenReason, EnvironmentId, ScopedProjectRef } from "@t3tools/contracts";
 
 export const HIDDEN_REASON_LABELS: Record<AgentSessionHiddenReason, string> = {
   subagent: "Sub-agent",
@@ -15,25 +10,6 @@ export const HIDDEN_REASON_LABELS: Record<AgentSessionHiddenReason, string> = {
   "in-viewcode": "Already in ViewCode",
   "in-t3code": "Also in T3 Code",
 };
-
-export function sessionKey(
-  session: Pick<AgentSessionSummary, "providerInstanceId" | "providerSessionId">,
-): string {
-  return `${session.providerInstanceId}\0${session.providerSessionId}`;
-}
-
-/** Newest first, with folded-away sessions split out for the "Show hidden" toggle. */
-export function partitionImportableSessions<T extends AgentSessionSummary>(
-  sessions: ReadonlyArray<T>,
-) {
-  const sorted = sessions.toSorted((left, right) =>
-    right.lastActivityAt.localeCompare(left.lastActivityAt),
-  );
-  return {
-    visible: sorted.filter((session) => !session.hidden),
-    hidden: sorted.filter((session) => session.hidden),
-  };
-}
 
 /** The importer names threads `import:<instance>:<session>`. */
 function isImportedThreadId(threadId: string): boolean {
