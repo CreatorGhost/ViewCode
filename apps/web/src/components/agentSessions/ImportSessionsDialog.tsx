@@ -5,6 +5,12 @@ import type {
   ProjectId,
 } from "@t3tools/contracts";
 import {
+  importSelection,
+  partitionImportableSessions,
+  sessionKey,
+  toggleSelectAll,
+} from "@t3tools/client-runtime/agent-session-import";
+import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
@@ -29,11 +35,7 @@ import {
 } from "../ui/dialog";
 import { Spinner } from "../ui/spinner";
 import { toastManager } from "../ui/toast";
-import {
-  HIDDEN_REASON_LABELS,
-  partitionImportableSessions,
-  sessionKey,
-} from "./agentSessionImport.logic";
+import { HIDDEN_REASON_LABELS } from "./agentSessionImport.logic";
 
 export interface ImportSessionsTarget {
   readonly environmentId: EnvironmentId;
@@ -138,9 +140,8 @@ function ImportSessionsPopup({
     list.status === "ready" ? list.sessions : [],
   );
   const shown = showHidden ? [...visible, ...hidden] : visible;
-  const selected = (list.status === "ready" ? list.sessions : []).filter(
-    (session) => !session.alreadyImported && checked.has(sessionKey(session)),
-  );
+  const { selected, state: selectAllState } = importSelection(shown, checked);
+  const canSelectAny = shown.some((session) => !session.alreadyImported);
 
   const toggle = (session: AgentSessionSummary, value: boolean) => {
     const next = new Set(checked);
@@ -228,6 +229,17 @@ function ImportSessionsPopup({
                 Nothing new to import. The hidden ones are already in ViewCode, sub-agents or too
                 short; show hidden to see them.
               </p>
+            ) : null}
+            {canSelectAny ? (
+              <label className="flex cursor-pointer items-center gap-2.5 border-b border-border/60 px-2 pt-0.5 pb-2 text-sm has-disabled:cursor-default">
+                <Checkbox
+                  checked={selectAllState === "all"}
+                  indeterminate={selectAllState === "some"}
+                  disabled={importing}
+                  onCheckedChange={() => setChecked(toggleSelectAll(shown, checked))}
+                />
+                Select all
+              </label>
             ) : null}
             {shown.map((session) => (
               <SessionRow

@@ -1140,6 +1140,18 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
 - Utterances stay under 250 characters: Chromium's `speechSynthesis` cuts off
   or stalls long ones, and drops events for utterances it garbage-collects, so
   the queue stays referenced until it ends.
+- Speak mode (`speakMode`: off, summary, full; off by default) is a server
+  setting, unlike voice and speed: in "summary" the server writes each
+  completed turn's `spokenSummary` onto its final assistant message, so every
+  client reads the same words and none generates its own. Checkpoint capture,
+  where a run becomes `completed`, enqueues `spoken-summary.generate`
+  (`orchestration-v2/ViewCodeSpokenSummary.ts`). It runs in its own outbox lane
+  like titles, so a slow model never holds back the next turn, and a failure only
+  leaves the field absent. The model is the cheap one of the provider instance
+  that ran the turn (Haiku for an Opus turn, through the same account), else the
+  title model. The summary is stripped of markdown and capped at 60 words in
+  `provider-core/server/spokenSummary.ts`, because small models ignore format
+  rules and a voice reads every symbol.
 
 ## Dictation (web and desktop)
 

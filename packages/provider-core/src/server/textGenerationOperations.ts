@@ -13,6 +13,7 @@ import {
   buildReviewGuidePrompt,
   buildThreadTitlePrompt,
 } from "./textGenerationPrompts.ts";
+import { buildSpokenSummaryPrompt, sanitizeSpokenSummary } from "./spokenSummary.ts";
 import {
   sanitizeCommitSubject,
   sanitizePrTitle,
@@ -168,11 +169,24 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     });
   });
 
+  const generateSpokenSummary: ProviderTextGeneration["generateSpokenSummary"] = Effect.fn(
+    `${name}.generateSpokenSummary`,
+  )(function* (input) {
+    const generated = yield* run({
+      operation: "generateSpokenSummary",
+      cwd: input.cwd,
+      modelSelection: input.modelSelection,
+      ...buildSpokenSummaryPrompt(input),
+    });
+    return { summary: sanitizeSpokenSummary(generated.summary) };
+  });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateReviewGuide,
+    generateSpokenSummary,
   } satisfies ProviderTextGeneration;
 }

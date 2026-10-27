@@ -51,6 +51,7 @@ import * as McpAppModelContext from "../../mcpApps/McpAppModelContext.ts";
 import * as RunExecutionService from "../RunExecutionService.ts";
 import * as RunFinalizationService from "../RunFinalizationService.ts";
 import * as ThreadTitleRegenerationService from "../ThreadTitleRegenerationService.ts";
+import * as ViewCodeSpokenSummary from "../ViewCodeSpokenSummary.ts";
 import * as RuntimePolicy from "../RuntimePolicy.ts";
 import * as TurnItemPositionStore from "../TurnItemPositionStore.ts";
 import * as RuntimeRequestService from "../RuntimeRequestService.ts";
@@ -438,6 +439,7 @@ export function layerWithRegistry<Error>(
         layerEventSinkProvided,
         IdAllocator.layer,
         layerStores,
+        layerServerSettings,
       ),
     ),
   );
@@ -502,6 +504,10 @@ export function layerWithRegistry<Error>(
         layerProviderTurnStartServiceProvided,
         layerRuntimeRequestServiceProvided,
         layerThreadTitleRegenerationTest,
+        Layer.succeed(
+          ViewCodeSpokenSummary.ViewCodeSpokenSummaryService,
+          ViewCodeSpokenSummary.ViewCodeSpokenSummaryService.of({ execute: () => Effect.void }),
+        ),
         layerServerSettings,
         layerThreadManagementProvided,
       ),
