@@ -32,8 +32,8 @@ import {
 } from "@t3tools/client-runtime/pr-flow";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { PrFlowStatusChip } from "./PrFlowStatusChip";
-import { diffstatBlocks } from "./prFlowChips.logic";
 import { useThreadPrFlow } from "./useThreadPrFlow";
+import { diffstatBlocks } from "@t3tools/client-runtime/diff-count";
 
 /**
  * The thread's current pull request as a compact card (header and footer), for the Review

@@ -1,9 +1,12 @@
 import type { GitGraphLane } from "@t3tools/contracts";
 
+import { type PrFlow, type PrFlowRow, prFlowReached, prFlowStatus } from "./prFlow.ts";
+
 /**
  * The commit graph drawn one row at a time: each row holds the pieces of every edge that crosses
- * it, in its own 0..ROW_HEIGHT box. A row that opens (grid rows 0fr → 1fr) then clips its own
- * slice of the graph instead of leaving a drawing that no longer lines up.
+ * it, in its own 0..ROW_HEIGHT box. A row that opens (grid rows 0fr → 1fr on web) then clips its
+ * own slice of the graph instead of leaving a drawing that no longer lines up. Web and the phone
+ * draw the same layout.
  */
 export const ROW_HEIGHT = 28;
 const MID = ROW_HEIGHT / 2;
@@ -98,4 +101,60 @@ export function layoutGraph(
     });
   });
   return rows.map((segments) => [...segments.values()]);
+}
+
+/** How an edge is coloured: its lane's colour, or the pull request's merge in amber or purple. */
+export type PrFlowEdgeTone = GitGraphLane | "warning" | "merged";
+
+/**
+ * The PR card's graph: the merge into the base on top (once there is a pull request to merge),
+ * then the flow's rows, each with the edges that cross it and the tone of every edge.
+ */
+export function layoutPrFlowGraph(flow: PrFlow) {
+  const showTarget = prFlowReached(flow.phase, "opening");
+  const merged = flow.phase === "merged";
+  const conflictPhase = flow.phase === "conflicts" || flow.phase === "resolving";
+  const headTip = flow.rows.find((row) => row.kind !== "commit" || row.lane === "head");
+  const baseTip = flow.rows.find((row) => row.kind === "commit" && row.lane === "base");
+  const nodeSha = (row: PrFlowRow) => (row.kind === "commit" ? row.sha : row.kind);
+  const nodes: ReadonlyArray<GraphNode> = [
+    ...(showTarget
+      ? [
+          {
+            key: "target",
+            sha: null,
+            lane: "base",
+            parents: [headTip, baseTip].flatMap((row) => (row === undefined ? [] : [nodeSha(row)])),
+            pending: !merged,
+          } satisfies GraphNode,
+        ]
+      : []),
+    ...flow.rows.map((row): GraphNode => ({
+      key: row.key,
+      sha: nodeSha(row),
+      lane: row.kind === "commit" ? row.lane : "head",
+      parents: row.parents,
+      pending: row.kind !== "commit",
+    })),
+  ];
+  const targetTone: PrFlowEdgeTone | undefined = merged
+    ? "merged"
+    : conflictPhase && prFlowStatus(flow).tone !== "busy"
+      ? "warning"
+      : undefined;
+  // While conflicts stand, only the branch's way into the base turns amber; the base lane stays
+  // its quiet grey, so the eye goes from the warning node to the commits that clash.
+  const edgeTone = (segment: GraphSegment): PrFlowEdgeTone =>
+    segment.target && targetTone !== undefined && (merged || segment.lane !== "base")
+      ? targetTone
+      : merged && segment.lane === "head"
+        ? "merged"
+        : segment.lane;
+  return {
+    showTarget,
+    /** Rows of `flow.rows` start this far into `segments`. */
+    rowOffset: showTarget ? 1 : 0,
+    segments: layoutGraph(nodes),
+    edgeTone,
+  } as const;
 }

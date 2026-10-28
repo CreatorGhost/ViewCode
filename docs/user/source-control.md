@@ -156,7 +156,7 @@ The thread's pull request then shows as a card in the chat, at the point where t
 with its state beside the composer and a short version at the top of the Review panel. The card
 follows the pull request as it changes: your branch's commits against the base's commits since you
 branched, which base commits conflict with yours (hover the conflict count to see the clashing
-lines), each check as it finishes, and what the agent is doing while it works on the pull request.
+lines, or tap it on the phone), each check as it finishes, and what the agent is doing while it works on the pull request.
 
 Once a pull request is merged or closed, its card folds to one line and the composer chip goes
 away. A thread that opens several pull requests shows a card for each, and only the newest open

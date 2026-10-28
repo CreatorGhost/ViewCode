@@ -443,6 +443,10 @@
       "types": "./src/prFlow.ts",
       "default": "./src/prFlow.ts"
     },
+    "./pr-flow-graph": {
+      "types": "./src/prFlowGraph.ts",
+      "default": "./src/prFlowGraph.ts"
+    },
     "./pull-request-merge-method": {
       "types": "./src/pullRequestMergeMethod.ts",
       "default": "./src/pullRequestMergeMethod.ts"

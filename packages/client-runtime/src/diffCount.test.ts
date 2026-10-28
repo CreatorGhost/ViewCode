@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { diffstatBlocks } from "./prFlowChips.logic";
+import { diffstatBlocks } from "./diffCount.ts";
 
 const draw = (additions: number, deletions: number) =>
   diffstatBlocks(additions, deletions)

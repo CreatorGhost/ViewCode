@@ -106,6 +106,7 @@ import { ThreadCreationFailedCard } from "./ThreadCreationFailedCard";
 import { UsageResumeCard } from "./UsageResumeCard";
 
 import { ActiveAgentsStrip } from "../agents/ActiveAgentsStrip";
+import { ComposerPullRequestChips } from "./ComposerPullRequestChips";
 import {
   FLOATING_WORKING_CONTROL_COVERAGE,
   FloatingWorkingControl,
@@ -428,6 +429,21 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       selectedThreadIdForAgents,
       selectedThreadKind,
     ],
+  );
+  // ViewCode: the pull request's chips sit above the composer, over the Active agents bar.
+  const { onOpenGit } = props;
+  const composerTopAccessory = useMemo(
+    () => (
+      <>
+        <ComposerPullRequestChips
+          environmentId={props.environmentId}
+          threadId={selectedThreadIdForAgents}
+          onOpenGit={onOpenGit}
+        />
+        {activeAgentsBar}
+      </>
+    ),
+    [activeAgentsBar, onOpenGit, props.environmentId, selectedThreadIdForAgents],
   );
   const contentPresentationKind = props.contentPresentation.kind;
   // The raw sync status enters "synchronizing" on every full fetch, cached or
@@ -1231,7 +1247,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     onEditorFocusChange={handleComposerFocusChange}
                     // The glued bars step aside while the keyboard is up so the
                     // draft keeps the room; the composer's own toolbar stays.
-                    topAccessory={composerKeyboardOpen ? null : activeAgentsBar}
+                    topAccessory={composerKeyboardOpen ? null : composerTopAccessory}
                     checkout={composerKeyboardOpen ? null : (props.composerCheckout ?? null)}
                     onPressCheckoutBranch={props.onOpenGit}
                   />

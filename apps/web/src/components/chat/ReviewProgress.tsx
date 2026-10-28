@@ -42,7 +42,7 @@ import {
   LANE_X,
   layoutGraph,
   ROW_HEIGHT,
-} from "./prFlow/prFlowGraph";
+} from "@t3tools/client-runtime/pr-flow-graph";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 import { type ReviewHeading, ReviewIdentity, useLinkedPullRequestTitle } from "./reviewIdentity";
 import { reviewWorkLine } from "./reviewProgress.logic";

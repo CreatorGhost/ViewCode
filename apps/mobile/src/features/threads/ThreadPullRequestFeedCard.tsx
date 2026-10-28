@@ -1,9 +1,7 @@
 import {
   PR_MERGED_MOMENT_MS,
   PR_MERGE_NEWS_MS,
-  type PrFlow,
   prFlowFolded,
-  prFlowFooterAction,
 } from "@t3tools/client-runtime/pr-flow";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
@@ -16,13 +14,11 @@ import { Alert, Pressable, View } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
-import { cn } from "../../lib/cn";
 import { useNavigateToPullRequest } from "../../native/useOpenPullRequest";
 import { useThreadShell } from "../../state/entities";
 import { PullRequestDiffStats } from "../pull-requests/PullRequestPresentation";
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
-import { pullRequestCardPresentation } from "./pull-request-feed";
-import { RequestActionButton } from "./RequestActionButton";
+import { PrFlowCard } from "./PrFlowCard";
 import { usePullRequestFoldChoice, useThreadPullRequestFlow } from "./useThreadPullRequestFlow";
 
 const FOLDED_STATE = {
@@ -160,152 +156,23 @@ function ThreadPullRequestFullCard(props: {
     props.live,
   );
   if (flow === null) return null;
-  const presentation = pullRequestCardPresentation(flow);
   return (
-    <View
-      className={cn(
-        "mb-4 gap-2.5 rounded-lg border px-3 py-3",
-        // The conflict glow: still, so it costs nothing while the card sits on screen.
-        presentation.conflictGlow ? "border-warning-border bg-warning" : "border-border bg-card",
-      )}
-    >
-      <View className="flex-row items-start gap-2">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityHint="Opens the pull request."
-          disabled={flow.url === null}
-          onPress={() => (flow.url === null ? undefined : props.onOpen(flow.url))}
-          className="min-w-0 flex-1 gap-1 active:opacity-70"
-        >
-          <View className="flex-row items-center gap-1.5">
-            <SymbolView
-              name={
-                flow.phase === "merged" ? PullRequestGlyph.merged : PullRequestGlyph.pullRequest
-              }
-              size={14}
-              tintColorClassName={presentation.status.tint}
-            />
-            <Text className="shrink-0 text-xs text-foreground-muted">
-              {flow.number === null ? "Pull request" : `#${flow.number}`}
-            </Text>
-            <Text
-              className="min-w-0 shrink text-xs font-mono text-foreground-tertiary"
-              numberOfLines={1}
-            >
-              {flow.base === null ? flow.head : `${flow.head} → ${flow.base}`}
-            </Text>
-          </View>
-          <Text className="text-base leading-5 font-t3-medium text-foreground" numberOfLines={2}>
-            {flow.title}
-          </Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Fold the pull request card"
-          onPress={props.onCollapse}
-          hitSlop={8}
-          className="min-h-8 justify-center pl-2 active:opacity-70"
-        >
-          <SymbolView name="chevron.up" size={12} tintColorClassName="accent-icon-muted" />
-        </Pressable>
-      </View>
-
-      <View className="flex-row items-center gap-1.5">
-        <SymbolView
-          name={presentation.status.icon}
-          size={13}
-          tintColorClassName={presentation.status.tint}
-        />
-        <Text className={cn("min-w-0 flex-1 text-sm", presentation.status.text)}>
-          {presentation.status.label}
-        </Text>
-        {flow.additions === null || flow.deletions === null ? null : (
-          <PullRequestDiffStats additions={flow.additions} deletions={flow.deletions} compact />
-        )}
-      </View>
-
-      {presentation.checks === null ? null : (
-        <View className="gap-1">
-          <View className="flex-row items-center gap-1.5">
-            <SymbolView
-              name={presentation.checks.icon}
-              size={13}
-              tintColorClassName={presentation.checks.tint}
-            />
-            <Text className="text-sm text-foreground-secondary">{presentation.checks.label}</Text>
-          </View>
-          {presentation.namedChecks.map((check) => (
-            <Text key={check.name} className="pl-5 text-xs text-foreground-muted" numberOfLines={1}>
-              {check.name} · {check.result}
-            </Text>
-          ))}
-          {presentation.moreChecks > 0 ? (
-            <Text className="pl-5 text-xs text-foreground-tertiary">
-              and {presentation.moreChecks} more
-            </Text>
-          ) : null}
-        </View>
-      )}
-
-      <PullRequestCardAction
-        flow={flow}
-        onMerge={() =>
-          Alert.alert(
-            flow.number === null ? "Merge pull request?" : `Merge #${flow.number}?`,
-            `${flow.head} merges into ${flow.base ?? "its base"} on the host.`,
-            [
-              { text: "Cancel", style: "cancel" },
-              { text: "Merge", onPress: merge },
-            ],
-          )
-        }
-        onResolveConflicts={resolveConflicts}
-        onOpen={props.onOpen}
-      />
-    </View>
+    <PrFlowCard
+      flow={flow}
+      live={props.live}
+      onCollapse={props.onCollapse}
+      onOpen={props.onOpen}
+      onResolveConflicts={resolveConflicts}
+      onMerge={() =>
+        Alert.alert(
+          flow.number === null ? "Merge pull request?" : `Merge #${flow.number}?`,
+          `${flow.head} merges into ${flow.base ?? "its base"} on the host.`,
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Merge", onPress: merge },
+          ],
+        )
+      }
+    />
   );
-}
-
-function PullRequestCardAction(props: {
-  readonly flow: PrFlow;
-  readonly onMerge: () => void;
-  readonly onResolveConflicts: () => void;
-  readonly onOpen: (url: string) => void;
-}) {
-  const { flow } = props;
-  const action = prFlowFooterAction(flow);
-  switch (action) {
-    case "resolve":
-      return (
-        <RequestActionButton
-          label="Resolve conflicts"
-          tone="secondary"
-          onPress={props.onResolveConflicts}
-        />
-      );
-    case "resolving":
-    case "merging":
-      // A still label rather than a spinner: resolving can take the agent minutes.
-      return (
-        <RequestActionButton
-          label={action === "resolving" ? "Resolving…" : "Merging…"}
-          tone="secondary"
-          disabled
-        />
-      );
-    case "merge":
-      return <RequestActionButton label="Merge" onPress={props.onMerge} />;
-    case "open": {
-      const url = flow.url;
-      return url === null ? null : (
-        <RequestActionButton
-          label="Open pull request"
-          tone="secondary"
-          onPress={() => props.onOpen(url)}
-        />
-      );
-    }
-    case null:
-      return null;
-  }
 }

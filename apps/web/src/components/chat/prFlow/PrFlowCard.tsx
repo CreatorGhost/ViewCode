@@ -14,12 +14,11 @@ import { Spinner } from "../../ui/spinner";
 import { ActivityShimmerOverlay } from "../ActivityShimmerOverlay";
 import {
   GRAPH_WIDTH,
-  type GraphNode,
   type GraphSegment,
   LANE_X,
   ROW_HEIGHT,
-  layoutGraph,
-} from "./prFlowGraph";
+  layoutPrFlowGraph,
+} from "@t3tools/client-runtime/pr-flow-graph";
 import {
   formatCheckDuration,
   type PrFlow,
@@ -185,6 +184,8 @@ const LANE_TONE = {
   side: "text-success",
 } as const;
 
+const EDGE_TONE = { ...LANE_TONE, warning: "text-warning", merged: "text-branch" } as const;
+
 /**
  * A branch chip beside a commit. On a narrow card it gives up its width before the commit's
  * title does, and below 20rem it goes, so the title, author and age always fit.
@@ -223,11 +224,8 @@ function PrFlowRows({
   );
   const nowMs = Date.parse(useNowMinute());
   const merged = flow.phase === "merged";
-  const conflictPhase = flow.phase === "conflicts" || flow.phase === "resolving";
-  const headTip = flow.rows.find(
-    (row) => row.kind !== "commit" || (row.kind === "commit" && row.lane === "head"),
-  );
-  const baseTip = flow.rows.find((row) => row.kind === "commit" && row.lane === "base");
+  const { segments, rowOffset, edgeTone } = layoutPrFlowGraph(flow);
+  const headTip = flow.rows.find((row) => row.kind !== "commit" || row.lane === "head");
   // The commit the git menu just made takes the uncommitted row's place: it swaps in rather than
   // opening below a row that vanished.
   const topKind = flow.rows[0]?.kind ?? null;
@@ -237,46 +235,11 @@ function PrFlowRows({
     setLastTopKind(topKind);
     if (lastTopKind === "uncommitted" && headTip !== undefined) setCommittedKey(headTip.key);
   }
-  const nodeSha = (row: PrFlowRow) => (row.kind === "commit" ? row.sha : row.kind);
-  const nodes: ReadonlyArray<GraphNode> = [
-    ...(showTarget
-      ? [
-          {
-            key: "target",
-            sha: null,
-            lane: "base",
-            parents: [headTip, baseTip].flatMap((row) => (row === undefined ? [] : [nodeSha(row)])),
-            pending: !merged,
-          } satisfies GraphNode,
-        ]
-      : []),
-    ...flow.rows.map((row): GraphNode => ({
-      key: row.key,
-      sha: nodeSha(row),
-      lane: row.kind === "commit" ? row.lane : "head",
-      parents: row.parents,
-      pending: row.kind !== "commit",
-    })),
-  ];
-  const segments = layoutGraph(nodes);
-  const rowOffset = showTarget ? 1 : 0;
+  const segmentTone = (segment: GraphSegment) => EDGE_TONE[edgeTone(segment)];
   // Rows that arrive together open one after another, top first.
   const arriving = [...(showTarget ? ["target"] : []), ...flow.rows.map((row) => row.key)].filter(
     (key) => !initialKeys.has(key) && key !== committedKey,
   );
-  const targetTone = merged
-    ? "text-branch"
-    : conflictPhase && status.tone !== "busy"
-      ? "text-warning"
-      : undefined;
-  // While conflicts stand, only the branch's way into the base turns amber; the base lane stays
-  // its quiet grey, so the eye goes from the warning node to the commits that clash.
-  const segmentTone = (segment: GraphSegment) =>
-    segment.target && targetTone !== undefined && (merged || segment.lane !== "base")
-      ? targetTone
-      : merged && segment.lane === "head"
-        ? "text-branch"
-        : LANE_TONE[segment.lane];
   const base = flow.base ?? "base";
 
   return (
