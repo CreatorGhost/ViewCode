@@ -1,6 +1,15 @@
 "use client";
 
-import { BotIcon, MicIcon, Volume2Icon, SquareIcon } from "lucide-react";
+import {
+  AudioLinesIcon,
+  BotIcon,
+  MicIcon,
+  Volume2Icon,
+  VolumeOffIcon,
+  SquareIcon,
+} from "lucide-react";
+import { useSpeakMode } from "~/hooks/useSpeakMode";
+import { SPEAK_MODE_OPTIONS } from "~/lib/speakMode.logic";
 import { useOpenRockBot } from "./rockbot/useOpenRockBot";
 import { rockBotEnvironment } from "../state/rockbot";
 import { scopeThread } from "@t3tools/client-runtime/viewcodeThread";
@@ -806,6 +815,7 @@ function OpenCommandPaletteDialog(props: {
       ? null
       : scopeThread(speechProjection.environmentId, speechProjection.projection);
   const readingAloud = useReadAloudStore((store) => store.playingKey !== null);
+  const speakMode = useSpeakMode(activeThread?.environmentId ?? primaryEnvironmentId);
   const composerHandleRef = useComposerHandleContext();
   const dictationEnabled = useClientSettings((settings) => settings.dictationEnabled);
   const dictationListening = useDictationStore((store) => store.state.phase === "listening");
@@ -1700,6 +1710,42 @@ function OpenCommandPaletteDialog(props: {
         readLatestReplyAloud(thread);
       },
     });
+  }
+  if (isReadAloudSupported()) {
+    const speakModeItem: CommandPaletteSubmenuItem = {
+      kind: "submenu",
+      value: "action:speak-mode",
+      title: "Speak mode",
+      searchTerms: ["speak mode", "speak replies", "read aloud", "summary", "voice", "tts"],
+      icon: <AudioLinesIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <AudioLinesIcon className={ADDON_ICON_CLASS} />,
+      groups: [
+        {
+          value: "speak-mode",
+          label: "Speak replies when a turn finishes",
+          items: SPEAK_MODE_OPTIONS.map(({ mode, label }) => ({
+            kind: "action",
+            value: `speak-mode:${mode}`,
+            title: label,
+            searchTerms: [label, "speak mode"],
+            icon:
+              mode === "off" ? (
+                <VolumeOffIcon className={ITEM_ICON_CLASS} />
+              ) : (
+                <AudioLinesIcon className={ITEM_ICON_CLASS} />
+              ),
+            titleTrailingContent:
+              speakMode.mode === mode ? (
+                <span className="text-xs text-muted-foreground/70">Current</span>
+              ) : undefined,
+            run: async () => {
+              speakMode.setMode(mode);
+            },
+          })),
+        },
+      ],
+    };
+    actionItems.push(speakModeItem);
   }
   if (
     dictationEnabled &&

@@ -1188,6 +1188,12 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   title model. The summary is stripped of markdown and capped at 60 words in
   `provider-core/server/spokenSummary.ts`, because small models ignore format
   rules and a voice reads every symbol.
+- The web client speaks from ChatView, so only a thread on screen is read
+  (`hooks/useSpeakMode.ts`, `lib/speakMode.logic.ts`). A turn that had already
+  finished when the thread was opened, or while speak mode was off, stays
+  silent: opening a chat or turning speak mode on never reads an old reply.
+  With speak mode off the thread is not even built for it, so streaming costs
+  nothing.
 - Mobile reads with the system voice (`expo-speech`, `apps/mobile/src/features/speech`).
   Speak mode speaks only a reply that settles while its thread is open and the app is
   in front: replies already there when the thread opens are never read, a summary is

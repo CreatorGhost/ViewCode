@@ -59,6 +59,12 @@ export const VIEWCODE_SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["speak speech text to speech tts rate fast slow"],
   },
   {
+    id: "read-aloud-speak-mode",
+    title: "Speak replies",
+    to: "/settings/appearance",
+    searchTerms: ["speak mode read aloud automatically summary full reply turn finishes voice tts"],
+  },
+  {
     id: "dictation",
     title: "Dictation",
     to: "/settings/appearance",

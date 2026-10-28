@@ -72,15 +72,20 @@ Under **Read aloud** in **Settings → Appearance** you can:
   MB, the fullest sound), or **System voice (no download)**. Choosing a size downloads it once.
 - Choose the voice and speed, and select **Preview** to hear them.
 - Select **Remove downloaded voice** to delete every downloaded size and free the space.
+- Set **Speak replies** to read each reply aloud when its turn finishes, without pressing anything.
+
+**Speak replies** reads only the chat you have open, and only turns that finish while it is open.
+**Summary** reads a short spoken version of the reply, which the turn's provider writes with its
+smaller model a moment after the turn ends; the chat still shows the full reply. **Full reply**
+reads the whole reply. The setting is saved on the server, so every device connected to it does the
+same. Change it from the speaker menu in the chat's top bar or with **Speak mode** in the command
+palette, and stop a reading the way you stop any other.
 
 On the phone, tap the speaker button beside Copy under a finished reply; tap it again to stop. The
 phone uses its system voice.
 
-**Speak replies** reads replies aloud as they finish, in the thread you have open. Set it in
-**Settings → Agent behavior → Speak replies** on the phone; it applies to every device connected
-to that environment. **Summary** reads a short summary the agent writes for each turn, **Full reply** reads the whole
-reply without its code, and **Off** reads only when you ask. Nothing is read for other threads or
-while the app is in the background.
+On the phone, set **Speak replies** in **Settings → Agent behavior**. **Full reply** there skips the
+reply's code, and nothing is read while the app is in the background.
 
 Speech runs on your device; your replies are never sent anywhere. Natural voices speak English. On
 macOS, download more system voices in **System Settings → Accessibility → Spoken Content → System
