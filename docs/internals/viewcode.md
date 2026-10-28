@@ -667,8 +667,9 @@ this restriction disappear.
 
 ## Pull request card
 
-The chat's PR card (`apps/web/src/components/chat/prFlow/`, model in client-runtime `prFlow.ts`
-so the phone feed's `ThreadPullRequestFeedCard` reads the same phases and actions) combines the thread's PR link
+The chat's PR card (`apps/web/src/components/chat/prFlow/`, phone `features/threads/PrFlowCard.tsx`;
+model and graph layout in client-runtime `prFlow.ts` and `prFlowGraph.ts`, so both draw the same
+rows, lanes and edge colours) combines the thread's PR link
 snapshot (the host's state), the host's checks, the agent's running command, and
 `GitWorkflowService.pullRequestGraph`, which reads commits and conflicts from the thread's
 checkout. That read must never write to the worktree, so conflicts come from
@@ -677,6 +678,11 @@ graph returns `conflicts: null`, and the card only says "Conflicts with <base>",
 The read never fetches. `<remote>/<base>` is only as fresh as the git status poll's background
 fetch (`refreshStatusUpstreamIfStale`). Do not add a fetch per read; the card refetches after
 every git command the agent runs.
+
+The phone cannot pause an animation that scrolls off screen the way web's
+`observeVisibleAnimation` does, so its conflict node ripples three beats when the
+state appears and then rests. Web hovers become taps there: native sheets for the
+clashing lines, an alert for a check's details.
 
 The branch's fork point is the parent of its oldest first-parent commit, not `git merge-base`.
 After the agent merges the base in, `merge-base` would move to the base tip and the base commits
