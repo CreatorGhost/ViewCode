@@ -90,7 +90,7 @@ describe("resolvePreviewMiniPlayerFrame", () => {
   it("opens at the source aspect ratio in the top-right corner", () => {
     expect(
       resolvePreviewMiniPlayerFrame({ width: null, position: null, source, container }),
-    ).toEqual({ x: 668, y: PREVIEW_MINI_PLAYER_EDGE_GAP, width: 320, height: 200 });
+    ).toEqual({ x: 588, y: PREVIEW_MINI_PLAYER_EDGE_GAP, width: 400, height: 250 });
   });
 
   it("keeps a tall source at the minimum width instead of the default box", () => {
@@ -305,7 +305,7 @@ describe("resolvePreviewMiniPlayerFrame with the details card", () => {
         container,
         obstacles: withCard,
       }),
-    ).toEqual({ x: 988 - 320, y: 260 + gap, width: 320, height: 200 });
+    ).toEqual({ x: 988 - 400, y: 260 + gap, width: 400, height: 250 });
   });
 
   it("opens left of the card when it cannot fit beneath it", () => {
@@ -318,7 +318,7 @@ describe("resolvePreviewMiniPlayerFrame with the details card", () => {
         container,
         obstacles: tallCard,
       }),
-    ).toEqual({ x: 680 - gap - 320, y: 700 - 150 - gap - 200, width: 320, height: 200 });
+    ).toEqual({ x: 680 - gap - 400, y: 700 - 150 - gap - 250, width: 400, height: 250 });
   });
 
   it("keeps a stored player's size when the card covers its columns", () => {

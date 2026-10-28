@@ -13,7 +13,11 @@ export const PREVIEW_MINI_PLAYER_EDGE_GAP = 12;
 export const PREVIEW_MINI_PLAYER_CORNER_RADIUS = 12;
 // The mini-player shell straddles this webview at 47 and 49: above --z-sheet, under dialogs (50).
 export const PREVIEW_MINI_PLAYER_WEBVIEW_Z_INDEX = 48;
-const PREVIEW_MINI_PLAYER_DEFAULT_BOX = { width: 320, height: 320 } as const;
+// ViewCode: the default box grows with the chat area, between these bounds, so a floating
+// browser stays readable on a large window. Guarded by previewMiniPlayerLayout.viewcode.test.ts.
+const PREVIEW_MINI_PLAYER_DEFAULT_BOX_MIN = { width: 320, height: 320 } as const;
+const PREVIEW_MINI_PLAYER_DEFAULT_BOX_MAX = { width: 640, height: 480 } as const;
+const PREVIEW_MINI_PLAYER_DEFAULT_BOX_SHARE = { width: 0.4, height: 0.5 } as const;
 const PREVIEW_MINI_PLAYER_MIN_SIZE = { width: 240, height: 150 } as const;
 
 export interface PreviewMiniPlayerFrame extends PreviewMiniPlayerPosition, PreviewMiniPlayerSize {}
@@ -131,10 +135,22 @@ function fitPreviewMiniPlayerWidth(
   return { width: Math.round(width), height: Math.round(width / aspectRatio) };
 }
 
-function defaultPreviewMiniPlayerWidth(source: PreviewMiniPlayerSize): number {
+const defaultBoxSide = (side: "width" | "height", container: PreviewMiniPlayerSize) =>
+  Math.min(
+    PREVIEW_MINI_PLAYER_DEFAULT_BOX_MAX[side],
+    Math.max(
+      PREVIEW_MINI_PLAYER_DEFAULT_BOX_MIN[side],
+      container[side] * PREVIEW_MINI_PLAYER_DEFAULT_BOX_SHARE[side],
+    ),
+  );
+
+function defaultPreviewMiniPlayerWidth(
+  source: PreviewMiniPlayerSize,
+  container: PreviewMiniPlayerSize,
+): number {
   return Math.min(
-    PREVIEW_MINI_PLAYER_DEFAULT_BOX.width,
-    (PREVIEW_MINI_PLAYER_DEFAULT_BOX.height * source.width) / source.height,
+    defaultBoxSide("width", container),
+    (defaultBoxSide("height", container) * source.width) / source.height,
   );
 }
 
@@ -246,7 +262,7 @@ export function resolvePreviewMiniPlayerFrame(input: {
     obstacles = NO_PREVIEW_MINI_PLAYER_OBSTACLES,
   } = input;
   const size = fitPreviewMiniPlayerWidth(
-    width ?? defaultPreviewMiniPlayerWidth(source),
+    width ?? defaultPreviewMiniPlayerWidth(source, container),
     source,
     availableArea(
       container,
