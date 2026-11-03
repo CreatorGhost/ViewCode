@@ -11,6 +11,7 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collaps
 import { cn } from "~/lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
 import ChatMarkdown from "../ChatMarkdown";
+import { pendingUserInputLockReason } from "./pendingUserInputLockReason";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
@@ -84,6 +85,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   // Message-mode requests remain answerable after their provider turn ends.
   const canRespond = prompt.responseCapability !== "not_resumable";
   const responseDisabled = disabled || isResponding || !canRespond;
+  const lockReason = pendingUserInputLockReason({ canRespond, disabled, isResponding });
   const autoAdvanceTimerRef = useRef<number | null>(null);
   // The auto-advance timer fires after the render that armed it.
   const advance = useStableCallback(onAdvance);
@@ -242,6 +244,11 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
             />
             {activeQuestion.multiSelect ? (
               <p className="mt-1 text-secondary-label text-xs">Select one or more options.</p>
+            ) : null}
+            {lockReason ? (
+              <p role="status" className="mt-1 text-secondary-label text-xs">
+                {lockReason}
+              </p>
             ) : null}
             <div className="mt-2 space-y-0.5">
               {activeQuestion.options.map((option, index) => {
