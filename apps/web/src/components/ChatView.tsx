@@ -440,6 +440,7 @@ import { ChatHeader } from "./chat/ChatHeader";
 import { useSpeakModeAutoplay } from "~/hooks/useSpeakMode";
 import { SpeakModeMenu } from "./chat/SpeakModeMenu";
 import { ActiveAgentsBar } from "./agents/ActiveAgentsBar";
+import { timelineHasUserMessage } from "./chat/timelineSendFollow";
 import { SidechatHost } from "./chat/SidechatHost";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
@@ -4327,6 +4328,11 @@ export default function ChatView(props: ChatViewProps) {
           }
           if (event.deltaY < 0 && contentScrollsUp()) {
             handleManualNavigation();
+          } else if (event.deltaY > 0 && viewportIsAwayFromEnd()) {
+            // ViewCode: reading down a reply anchored above the end is the reader's own scroll,
+            // as PageDown and touch already count it; otherwise Scroll to end stays hidden.
+            // Guarded by ChatView.viewcode.test.ts.
+            handleManualNavigation();
           }
         };
         // Touch direction isn't observable here (touchmove fires on any
@@ -6925,7 +6931,9 @@ export default function ChatView(props: ChatViewProps) {
             ...(attachment.source ? { source: attachment.source } : {}),
           },
     );
-    if (!shouldQueueBehindActiveRun) {
+    if (!shouldQueueBehindActiveRun && timelineHasUserMessage(timelineEntries)) {
+      scrollToEnd();
+    } else if (!shouldQueueBehindActiveRun) {
       isAtEndRef.current = true;
       timelineScrollModeRef.current = "anchoring-new-turn";
       liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
@@ -7341,18 +7349,22 @@ export default function ChatView(props: ChatViewProps) {
     beginLocalDispatch({ preparingWorktree: false });
     setThreadError(threadIdForSend, null);
 
-    isAtEndRef.current = true;
-    timelineScrollModeRef.current = "anchoring-new-turn";
-    liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-    setTimelineLiveFollowEnabled(true);
-    pendingTimelineAnchorRef.current = messageIdForSend;
-    activeTimelineAnchorIndexRef.current = null;
-    showScrollDebouncer.current.cancel();
-    setShowScrollToBottom(false);
-    setTimelineAnchor({
-      threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
-      messageId: messageIdForSend,
-    });
+    if (timelineHasUserMessage(timelineEntries)) {
+      scrollToEnd();
+    } else {
+      isAtEndRef.current = true;
+      timelineScrollModeRef.current = "anchoring-new-turn";
+      liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
+      setTimelineLiveFollowEnabled(true);
+      pendingTimelineAnchorRef.current = messageIdForSend;
+      activeTimelineAnchorIndexRef.current = null;
+      showScrollDebouncer.current.cancel();
+      setShowScrollToBottom(false);
+      setTimelineAnchor({
+        threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
+        messageId: messageIdForSend,
+      });
+    }
 
     setOptimisticUserMessages((existing) => [
       ...existing,
