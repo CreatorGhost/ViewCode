@@ -198,21 +198,32 @@ function ListRow(props: {
   readonly selected?: boolean;
   readonly isFirst?: boolean;
   readonly right?: ReactNode;
+  /** An interactive trailing control, such as a switch. */
+  readonly control?: ReactNode;
   readonly onPress?: () => void;
 }) {
   if (Platform.OS === "android") {
-    return (
+    const row = (
       <MaterialListRow
-        className="bg-grouped-card"
+        className={props.control ? "flex-1 bg-grouped-card" : "bg-grouped-card"}
         title={props.title}
         subtitle={props.subtitle}
         leading={props.icon}
-        trailing={props.right}
+        trailing={props.control ? null : props.right}
         disabled={props.disabled}
         onPress={props.onPress}
         accessibilityRole={props.selected !== undefined ? "radio" : "button"}
         accessibilityState={props.selected !== undefined ? { checked: props.selected } : undefined}
       />
+    );
+    if (!props.control) return row;
+    // A Compose control inside the row's Pressable loses taps once the Pressable becomes the JS
+    // responder, so it sits beside the row instead.
+    return (
+      <View className="flex-row items-center bg-grouped-card">
+        {row}
+        <View className="pr-4">{props.control}</View>
+      </View>
     );
   }
   return (
@@ -243,7 +254,9 @@ function ListRow(props: {
             </Text>
           ) : null}
         </View>
-        {"right" in props ? (
+        {props.control ? (
+          props.control
+        ) : "right" in props ? (
           props.right
         ) : !props.disabled ? (
           <SymbolView
@@ -1141,7 +1154,7 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
                   />
                 }
                 isFirst
-                right={
+                control={
                   <ThemedSwitch
                     accessibilityLabel="Create private repository on GitHub"
                     value={publishesToGitHub}
