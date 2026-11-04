@@ -11,6 +11,7 @@ import { recordFatalCause, recordFatalErrors } from "../fatalLog.ts";
 import { awaitLauncherLoss } from "../launcherWatch.ts";
 import { runServer } from "../server.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
+import { addressInUseMessage, isAddressInUse } from "./viewcodeAddressInUse.ts";
 
 const encodeCommand = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
 
@@ -28,6 +29,16 @@ const runServerCommand = (
     // ViewCode: a dying server leaves its last error in server-fatal.log.
     yield* recordFatalErrors(config.logsDir);
     const run = runServer.pipe(
+      // ViewCode: a taken port (only an explicit one: the default moves to a free one)
+      // is a usage problem, not a crash, so it gets one line instead of a stack.
+      Effect.catchIf(
+        (error) => config.listenPath === undefined && isAddressInUse(error),
+        () =>
+          Effect.sync(() => {
+            process.stderr.write(`${addressInUseMessage(config.port)}\n`);
+            process.exitCode = 1;
+          }),
+      ),
       recordFatalCause(config.logsDir),
       Effect.provideService(ServerConfig.ServerConfig, config),
     );
