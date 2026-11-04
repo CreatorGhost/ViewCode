@@ -876,6 +876,12 @@ send as usual. There is no loop or queue behind it.
 
 ## Sidebar
 
+- A merged pull request does not settle its thread straight away
+  (`orchestration-v2/viewcodeMergeSettlement.ts`). A merge is often one step of the task, and
+  the agent's next steps waited for it, so upstream's rule settled threads with work left. The
+  sweep sends the agent one message (a repeated command id, so later sweeps are no-ops) and
+  settles once a run has ended after the merge. Merges older than six hours settle as before, so
+  an update never wakes every old thread at once.
 - The shape is fixed by the user: rail, project folders, chats, each chat's agents.
   Do not regroup by time. Grouping, sorting and the attention counts live in
   client-runtime `state/threadArrangement.ts` so web and mobile arrange a folder alike.
