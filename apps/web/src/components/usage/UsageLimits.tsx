@@ -38,6 +38,7 @@ import {
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { UsageLimitsPooled } from "./UsageLimitsPooled";
+import { useTokenUsageWindows } from "./UsageWindowRow";
 import { PROVIDER_PRESENTATION } from "./usageProviders";
 
 const PACE: Record<LimitPace, { readonly label: string; readonly icon: typeof GaugeIcon }> = {
@@ -362,5 +363,13 @@ export function UsageLimitsSection({
       ];
     }),
   );
-  return <UsageLimitsPooled presentations={selected} now={now} cursorPrompt={cursorPrompt} />;
+  const tokenUsage = useTokenUsageWindows(now, selectedEnvironmentIds);
+  return (
+    <UsageLimitsPooled
+      presentations={selected}
+      now={now}
+      cursorPrompt={cursorPrompt}
+      tokenUsage={tokenUsage}
+    />
+  );
 }

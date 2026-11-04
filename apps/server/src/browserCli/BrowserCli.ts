@@ -255,7 +255,7 @@ type Endpoint =
   | { readonly socketPath: string }
   | { readonly hostname: string; readonly port: number; readonly path: string };
 
-export const parseBrowserEndpoint = (raw: string): Endpoint | undefined => {
+const parseBrowserEndpoint = (raw: string): Endpoint | undefined => {
   if (raw.startsWith("unix:")) {
     const socketPath = raw.slice("unix:".length);
     return socketPath.length > 0 ? { socketPath } : undefined;

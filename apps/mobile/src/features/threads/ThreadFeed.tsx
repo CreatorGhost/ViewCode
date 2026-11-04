@@ -135,6 +135,7 @@ import {
   type MediaVideoPreviewSource,
 } from "../../lib/videoPreviewSource";
 import { CopyTextButton } from "../../components/CopyTextButton";
+import { ReadAloudButton, readAloudKey } from "../speech/ReadAloudButton";
 import { parseReviewCommentMessageSegments } from "../review/reviewCommentSelection";
 import type { ReviewDiffTheme } from "../review/shikiReviewHighlighter";
 import {
@@ -1933,6 +1934,16 @@ function renderFeedEntry(
               buttonSize={28}
               iconSize={13}
             />
+            {renderedText.trim().length > 0 ? (
+              <ReadAloudButton
+                speechKey={readAloudKey(
+                  scopedThreadKey(props.environmentId, props.threadId),
+                  message.id,
+                )}
+                markdown={renderedText}
+                tintColor={iconSubtleColor}
+              />
+            ) : null}
             <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
               {timestampLabel}
             </Text>

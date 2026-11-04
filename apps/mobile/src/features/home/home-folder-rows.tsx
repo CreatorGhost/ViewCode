@@ -11,6 +11,7 @@ import {
   type FolderSortOrder,
 } from "@t3tools/client-runtime/state/thread-arrangement";
 import type { MenuAction } from "@react-native-menu/menu";
+import { useNavigation } from "@react-navigation/native";
 import { memo, useCallback, useMemo, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 
@@ -95,23 +96,33 @@ export const HomeFolderHeader = memo(function HomeFolderHeader(props: {
   readonly onSortChange: (folderKey: string, order: FolderSortOrder) => void;
 }) {
   const { folderKey, onToggle, onNewThread, onSortChange, project } = props;
+  const navigation = useNavigation();
   const sortActions = useMemo<MenuAction[]>(
-    () =>
-      FOLDER_SORT_ORDERS.map((order) => ({
+    () => [
+      ...FOLDER_SORT_ORDERS.map((order) => ({
         id: `sort:${order}`,
         title: `Sort by ${FOLDER_SORT_ORDER_LABEL[order].toLowerCase()}`,
         state: order === props.sortOrder ? ("on" as const) : ("off" as const),
       })),
+      { id: "import-sessions", title: "Import past sessions…" },
+    ],
     [props.sortOrder],
   );
   const handleSortAction = useCallback(
     ({ nativeEvent }: { readonly nativeEvent: { readonly event: string } }) => {
+      if (nativeEvent.event === "import-sessions") {
+        navigation.navigate("ImportSessions", {
+          environmentId: project.environmentId,
+          projectId: project.id,
+        });
+        return;
+      }
       const order = FOLDER_SORT_ORDERS.find(
         (candidate) => nativeEvent.event === `sort:${candidate}`,
       );
       if (order) onSortChange(folderKey, order);
     },
-    [folderKey, onSortChange],
+    [folderKey, navigation, onSortChange, project.environmentId, project.id],
   );
   // The project colour, else the icon's colour, tints the header; the bar marks a project colour.
   const accentColor =
@@ -133,7 +144,7 @@ export const HomeFolderHeader = memo(function HomeFolderHeader(props: {
         actions={sortActions}
         onPressAction={handleSortAction}
         shouldOpenOnLongPress
-        title={`Sort ${props.title}`}
+        title={props.title}
         style={FOLDER_TITLE_MENU_STYLE}
       >
         <Pressable
@@ -145,7 +156,7 @@ export const HomeFolderHeader = memo(function HomeFolderHeader(props: {
           ]
             .filter((part) => part !== null)
             .join(", ")}
-          accessibilityHint={`${props.expanded ? "Collapses" : "Expands"} the project folder. Long-press to sort it.`}
+          accessibilityHint={`${props.expanded ? "Collapses" : "Expands"} the project folder. Long-press to sort it or import past sessions.`}
           accessibilityState={{ expanded: props.expanded }}
           className="min-h-[44px] flex-1 flex-row items-center gap-2"
           onPress={() => onToggle(folderKey)}

@@ -9,9 +9,9 @@ import {
 import type { EnvironmentId } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Linking, Platform, View } from "react-native";
+import { Alert, Linking, Pressable, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useUniwindTheme } from "../../lib/useUniwindTheme";
+import { SymbolView } from "../../components/AppSymbol";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { AppText as Text } from "../../components/AppText";
 import { ErrorBanner } from "../../components/ErrorBanner";
@@ -56,7 +56,7 @@ export function ConnectionsNewRouteScreen({
   const [scannerLocked, setScannerLocked] = useState(false);
   const attemptedAutoConnectRef = useRef<string | null>(null);
 
-  const headerIconColor = useUniwindTheme()["--color-icon"];
+  const { height: windowHeight } = useWindowDimensions();
 
   const connectDisabled = isSubmitting || hostInput.trim().length === 0;
 
@@ -193,20 +193,6 @@ export function ConnectionsNewRouteScreen({
     <SettingsScreen
       formSheet={routeName === "ConnectionsNew"}
       title={showScanner ? "Scan QR Code" : "Add Environment"}
-      actions={[
-        {
-          accessibilityLabel: showScanner ? "Close scanner" : "Scan QR code",
-          icon: showScanner ? "xmark" : Platform.OS === "ios" ? "qrcode.viewfinder" : "camera",
-          tintColor: headerIconColor,
-          onPress: () => {
-            if (showScanner) {
-              closeScanner();
-            } else {
-              void openScanner();
-            }
-          },
-        },
-      ]}
     >
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
@@ -221,11 +207,20 @@ export function ConnectionsNewRouteScreen({
         <View collapsable={false} className="gap-5">
           {showScanner ? (
             cameraPermission?.granted ? (
-              <View className="overflow-hidden rounded-[24px] border-continuous">
-                <CameraView
-                  barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-                  onBarcodeScanned={handleQrScan}
-                  style={{ aspectRatio: 1, width: "100%" }}
+              <View className="gap-4">
+                <View className="overflow-hidden rounded-[24px] border-continuous">
+                  <CameraView
+                    barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                    onBarcodeScanned={handleQrScan}
+                    style={{ aspectRatio: 1, width: "100%" }}
+                  />
+                </View>
+                <ConnectionSheetButton
+                  fullWidth
+                  icon="xmark"
+                  label="Enter manually instead"
+                  tone="secondary"
+                  onPress={closeScanner}
                 />
               </View>
             ) : (
@@ -242,43 +237,84 @@ export function ConnectionsNewRouteScreen({
                     void openScanner();
                   }}
                 />
+                <ConnectionSheetButton
+                  compact
+                  icon="xmark"
+                  label="Enter manually"
+                  tone="secondary"
+                  onPress={closeScanner}
+                />
               </View>
             )
           ) : (
-            <View collapsable={false} className="gap-4 rounded-[24px] bg-grouped-card p-4">
-              <ConnectionFormField
-                label="Host"
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="url"
-                placeholder="192.168.1.100:8080"
-                value={hostInput}
-                onChangeText={handleHostChange}
-              />
-
-              <ConnectionFormField
-                label="Pairing code"
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="abc-123-xyz"
-                value={codeInput}
-                onChangeText={handleCodeChange}
-              />
-
-              {pairingConnectionError ? <ErrorBanner message={pairingConnectionError} /> : null}
-
-              <View className="android:flex-row android:justify-end">
-                <ConnectionSheetButton
-                  icon="plus"
-                  label={isSubmitting ? "Pairing..." : "Add environment"}
-                  disabled={connectDisabled}
-                  tone="primary"
-                  onPress={() => {
-                    void handleSubmit();
-                  }}
+            <>
+              <Pressable
+                accessibilityLabel="Scan QR code"
+                accessibilityHint="Opens the camera to scan the pairing code shown on your computer"
+                accessibilityRole="button"
+                className="items-center justify-center gap-4 rounded-[28px] border-continuous bg-primary px-6 active:opacity-80"
+                // Roughly the top third of the screen, never cramped on small phones.
+                style={{ minHeight: Math.max(220, Math.round(windowHeight / 3)) }}
+                onPress={() => {
+                  void openScanner();
+                }}
+              >
+                <SymbolView
+                  name="camera"
+                  size={64}
+                  tintColorClassName="accent-primary-foreground"
+                  type="monochrome"
                 />
+                <View className="items-center gap-1.5">
+                  <Text className="text-[22px] font-t3-bold text-primary-foreground">
+                    Scan QR code
+                  </Text>
+                  <Text className="text-center text-sm leading-normal text-primary-foreground opacity-80">
+                    Choose Connect phone in ViewCode on your computer, then point the camera at its
+                    code.
+                  </Text>
+                </View>
+              </Pressable>
+
+              <Text className="px-1 pt-2 text-xs font-t3-bold tracking-[0.8px] text-foreground-muted uppercase">
+                Or enter manually
+              </Text>
+
+              <View collapsable={false} className="gap-4 rounded-[24px] bg-grouped-card p-4">
+                <ConnectionFormField
+                  label="Host"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  placeholder="192.168.1.100:8080"
+                  value={hostInput}
+                  onChangeText={handleHostChange}
+                />
+
+                <ConnectionFormField
+                  label="Pairing code"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="abc-123-xyz"
+                  value={codeInput}
+                  onChangeText={handleCodeChange}
+                />
+
+                {pairingConnectionError ? <ErrorBanner message={pairingConnectionError} /> : null}
+
+                <View className="android:flex-row android:justify-end">
+                  <ConnectionSheetButton
+                    icon="plus"
+                    label={isSubmitting ? "Pairing..." : "Add environment"}
+                    disabled={connectDisabled}
+                    tone="primary"
+                    onPress={() => {
+                      void handleSubmit();
+                    }}
+                  />
+                </View>
               </View>
-            </View>
+            </>
           )}
         </View>
       </ScrollView>

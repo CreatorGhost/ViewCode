@@ -8,8 +8,9 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildUsageSections,
+  contextSegments,
   formatBankedResets,
-  formatContextWindowSummary,
+  formatContextHeadline,
   formatTokenCount,
   formatUsageReset,
   formatUsedPercent,
@@ -21,6 +22,7 @@ import {
   type UsageProviderInput,
   usageRingTone,
   usageTone,
+  usageWindowTitle,
 } from "./composerUsageLimits.logic";
 
 const MINUTE = 60_000;
@@ -228,11 +230,6 @@ describe("context window formatting", () => {
     expect(formatTokenCount(999_990)).toBe("1M");
     expect(formatTokenCount(1_200_000)).toBe("1.2M");
   });
-
-  it("summarises used against the window with its percent", () => {
-    expect(formatContextWindowSummary(19_700, 258_400)).toBe("19.7k / 258.4k (8%)");
-    expect(formatContextWindowSummary(19_700, null)).toBe("19.7k");
-  });
 });
 
 describe("resolveUsageRing", () => {
@@ -275,5 +272,61 @@ describe("shouldRefreshUsage", () => {
       shouldRefreshUsage({ ...read, unavailable: { reason: "unsupported" } }, checkedAt + HOUR),
     ).toBe(false);
     expect(shouldRefreshUsage(undefined, checkedAt)).toBe(false);
+  });
+});
+
+describe("contextSegments", () => {
+  it("splits the window into used, free and the auto-compact reserve", () => {
+    expect(
+      contextSegments({
+        usedTokens: 604_100,
+        maxTokens: 1_000_000,
+        autoCompactThreshold: 967_000,
+        compactsAutomatically: true,
+      }),
+    ).toEqual({ used: 604_100, free: 362_900, reserved: 33_000, untilAutoCompact: 362_900 });
+  });
+  it("has no reserve without a threshold below the window, and no free space without a size", () => {
+    expect(
+      contextSegments({
+        usedTokens: 10,
+        maxTokens: 100,
+        autoCompactThreshold: null,
+        compactsAutomatically: true,
+      }),
+    ).toEqual({ used: 10, free: 90, reserved: null, untilAutoCompact: null });
+    expect(
+      contextSegments({
+        usedTokens: 10,
+        maxTokens: null,
+        autoCompactThreshold: 50,
+        compactsAutomatically: false,
+      }),
+    ).toEqual({ used: 10, free: null, reserved: null, untilAutoCompact: null });
+  });
+  it("gives the reserve up to what is used once the thread passes the threshold", () => {
+    expect(
+      contextSegments({
+        usedTokens: 980,
+        maxTokens: 1000,
+        autoCompactThreshold: 900,
+        compactsAutomatically: true,
+      }),
+    ).toEqual({ used: 980, free: 0, reserved: 20, untilAutoCompact: 0 });
+  });
+});
+
+describe("formatContextHeadline", () => {
+  it("reads used of max, or used alone", () => {
+    expect(formatContextHeadline(604_100, 1_000_000)).toBe("604.1k of 1M");
+    expect(formatContextHeadline(19_700, null)).toBe("19.7k used");
+  });
+});
+
+describe("usageWindowTitle", () => {
+  it("names plain windows as limits and keeps model buckets as labelled", () => {
+    expect(usageWindowTitle({ kind: "session", label: "5-hour" })).toBe("Session limit");
+    expect(usageWindowTitle({ kind: "weekly", label: "Weekly" })).toBe("Weekly limit");
+    expect(usageWindowTitle({ kind: "weekly", label: "Weekly · Fable" })).toBe("Weekly · Fable");
   });
 });

@@ -131,6 +131,7 @@ import {
   parseCodexFeedbackCommand,
   shouldShowLoadEarlierControl,
   submitCodexFeedback,
+  THREAD_TOO_LARGE_FOR_CONNECTION_MESSAGE,
   type CodexFeedbackSubmission,
 } from "@t3tools/client-runtime/state/threads";
 import { resolveThreadLastVisitedAt } from "./Sidebar.logic";
@@ -397,6 +398,7 @@ import {
   useProjects,
   useThreadProjection,
   useThreadStatus,
+  useThreadSyncError,
   useThreadHistory,
   useQuietThreadShell,
   useThreadShell,
@@ -435,7 +437,10 @@ import {
   resolveScrollToEndClearance,
 } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
+import { useSpeakModeAutoplay } from "~/hooks/useSpeakMode";
+import { SpeakModeMenu } from "./chat/SpeakModeMenu";
 import { ActiveAgentsBar } from "./agents/ActiveAgentsBar";
+import { timelineHasUserMessage } from "./chat/timelineSendFollow";
 import { SidechatHost } from "./chat/SidechatHost";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
@@ -1061,6 +1066,23 @@ function makeModelDisabledReason(
   };
 }
 
+/**
+ * The banner lane (provider notices, thread errors) floats over the canvas, and the draft hero
+ * centres in the canvas below it (viewcode-chat.css reads `--chat-banner-lane-height`). The lane
+ * wraps as the column narrows, so its height is measured rather than guessed; written straight
+ * to the canvas's style, since a notice changing is no reason to render the view again.
+ */
+function observeBannerLaneHeight(lane: HTMLDivElement | null) {
+  const host = lane?.parentElement;
+  if (!lane || !host) return;
+  return observeResize(lane, ([entry]) => {
+    host.style.setProperty(
+      "--chat-banner-lane-height",
+      `${Math.ceil(entry?.contentRect.height ?? 0)}px`,
+    );
+  });
+}
+
 export default function ChatView(props: ChatViewProps) {
   const {
     environmentId,
@@ -1153,6 +1175,11 @@ export default function ChatView(props: ChatViewProps) {
   });
   const serverThreadProjection = useThreadProjection(routeThreadDetailRef);
   const serverProjection = serverThreadProjection?.projection ?? null;
+  useSpeakModeAutoplay({
+    environmentId,
+    threadKey: serverThreadProjection === null ? null : scopedThreadKey(routeThreadRef),
+    projection: serverThreadProjection,
+  });
   const promptRef = useRef("");
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
@@ -1555,8 +1582,12 @@ export default function ChatView(props: ChatViewProps) {
           threadId: parentSubagentThreadRef.threadId,
           title: parentSubagentThread?.title ?? "Parent thread",
         };
+  const threadSyncError = useThreadSyncError(routeThreadDetailRef);
+  // Only this one: other sync errors retry on their own and would flash.
+  const threadTooLargeError =
+    threadSyncError === THREAD_TOO_LARGE_FOR_CONNECTION_MESSAGE ? threadSyncError : null;
   const threadError = isServerThread
-    ? (localServerError ?? serverRuntime?.lastError ?? null)
+    ? (localServerError ?? serverRuntime?.lastError ?? threadTooLargeError)
     : localDraftError;
   const threadErrorBannerKey = getThreadErrorBannerKey(routeThreadKey, threadError);
   const visibleThreadError = shouldShowThreadErrorBanner(
@@ -4300,6 +4331,11 @@ export default function ChatView(props: ChatViewProps) {
           }
           if (event.deltaY < 0 && contentScrollsUp()) {
             handleManualNavigation();
+          } else if (event.deltaY > 0 && viewportIsAwayFromEnd()) {
+            // ViewCode: reading down a reply anchored above the end is the reader's own scroll,
+            // as PageDown and touch already count it; otherwise Scroll to end stays hidden.
+            // Guarded by ChatView.viewcode.test.ts.
+            handleManualNavigation();
           }
         };
         // Touch direction isn't observable here (touchmove fires on any
@@ -5398,16 +5434,18 @@ export default function ChatView(props: ChatViewProps) {
     })
       ? activeContextWindow.usedTokens
       : null;
-  const [fullHistoryThreadKeys, setFullHistoryThreadKeys] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const keepFullHistory = fullHistoryThreadKeys.has(routeThreadKey);
+  // Compacting before a send is opt-in (user decision): the chip offers it, and a send keeps the
+  // full history unless the chip was pressed for this thread.
+  const [compactBeforeSendThreadKeys, setCompactBeforeSendThreadKeys] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const keepFullHistory = !compactBeforeSendThreadKeys.has(routeThreadKey);
   const setKeepFullHistory = (threadKey: string, keep: boolean) => {
-    setFullHistoryThreadKeys((current) => {
-      if (current.has(threadKey) === keep) return current;
+    setCompactBeforeSendThreadKeys((current) => {
+      if (current.has(threadKey) === !keep) return current;
       const next = new Set(current);
-      if (keep) next.add(threadKey);
-      else next.delete(threadKey);
+      if (keep) next.delete(threadKey);
+      else next.add(threadKey);
       return next;
     });
   };
@@ -6896,7 +6934,9 @@ export default function ChatView(props: ChatViewProps) {
             ...(attachment.source ? { source: attachment.source } : {}),
           },
     );
-    if (!shouldQueueBehindActiveRun) {
+    if (!shouldQueueBehindActiveRun && timelineHasUserMessage(timelineEntries)) {
+      scrollToEnd();
+    } else if (!shouldQueueBehindActiveRun) {
       isAtEndRef.current = true;
       timelineScrollModeRef.current = "anchoring-new-turn";
       liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
@@ -7135,7 +7175,7 @@ export default function ChatView(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
-        setKeepFullHistory(routeThreadKey, false);
+        setKeepFullHistory(routeThreadKey, true);
         clearUsageLimitsFor(routeThreadKey);
         if (turnUsesAttachmentUploads) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
@@ -7312,18 +7352,22 @@ export default function ChatView(props: ChatViewProps) {
     beginLocalDispatch({ preparingWorktree: false });
     setThreadError(threadIdForSend, null);
 
-    isAtEndRef.current = true;
-    timelineScrollModeRef.current = "anchoring-new-turn";
-    liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-    setTimelineLiveFollowEnabled(true);
-    pendingTimelineAnchorRef.current = messageIdForSend;
-    activeTimelineAnchorIndexRef.current = null;
-    showScrollDebouncer.current.cancel();
-    setShowScrollToBottom(false);
-    setTimelineAnchor({
-      threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
-      messageId: messageIdForSend,
-    });
+    if (timelineHasUserMessage(timelineEntries)) {
+      scrollToEnd();
+    } else {
+      isAtEndRef.current = true;
+      timelineScrollModeRef.current = "anchoring-new-turn";
+      liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
+      setTimelineLiveFollowEnabled(true);
+      pendingTimelineAnchorRef.current = messageIdForSend;
+      activeTimelineAnchorIndexRef.current = null;
+      showScrollDebouncer.current.cancel();
+      setShowScrollToBottom(false);
+      setTimelineAnchor({
+        threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
+        messageId: messageIdForSend,
+      });
+    }
 
     setOptimisticUserMessages((existing) => [
       ...existing,
@@ -8063,6 +8107,8 @@ export default function ChatView(props: ChatViewProps) {
             parentThreadLink={parentThreadLink}
             onOpenThread={onOpenRelatedThreadStable}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
+            // Only the docked panel puts a fixed control over the header's right edge.
+            // Closed, the toggles sit in the actions, so nothing is reserved.
             toolbarControlCount={inlineRightPanelOwnsTitleBar ? 1 : 0}
             actions={
               <div data-chat-header-actions className="flex shrink-0 items-center gap-2">
@@ -8121,6 +8167,7 @@ export default function ChatView(props: ChatViewProps) {
                   disabled={!canOperateThread}
                   disabledReason="You do not have permission to operate this thread"
                 />
+                <SpeakModeMenu environmentId={environmentId} />
                 {!inlineRightPanelOwnsTitleBar ? panelToggleControls : null}
               </div>
             }
@@ -8166,7 +8213,10 @@ export default function ChatView(props: ChatViewProps) {
                 </div>
               </div>
             ) : null}
-            <div className="chat-banner-lane pointer-events-none absolute top-0 z-20 flex flex-col">
+            <div
+              ref={observeBannerLaneHeight}
+              className="chat-banner-lane pointer-events-none absolute top-0 z-20 flex flex-col"
+            >
               <NoProviderPrompt environmentId={environmentId} prompt={providerPickerPrompt} />
               <ProviderStatusBanner
                 status={visibleProviderStatus}
@@ -8368,7 +8418,7 @@ export default function ChatView(props: ChatViewProps) {
                   className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-content-max-width)"
                 >
                   {isDraftHeroState ? (
-                    <div className="absolute inset-x-0 bottom-full">
+                    <div data-chat-hero-headline="" className="absolute inset-x-0 bottom-full">
                       <div
                         className="pb-4 group-has-data-[composer-shoulder-tab]/composer-stack:pb-0"
                         style={

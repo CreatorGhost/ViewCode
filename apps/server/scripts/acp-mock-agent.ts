@@ -45,6 +45,7 @@ const emitXAiRateLimitThenHang = process.env.T3_ACP_EMIT_XAI_RATE_LIMIT_THEN_HAN
 const emitXAiAskUserQuestionThenHang =
   process.env.T3_ACP_EMIT_XAI_ASK_USER_QUESTION_THEN_HANG === "1";
 const emitContentThenHang = process.env.T3_ACP_EMIT_CONTENT_THEN_HANG === "1";
+const contentAgainTriggerPath = process.env.T3_ACP_CONTENT_AGAIN_TRIGGER_PATH;
 const emitPlanThenHang = process.env.T3_ACP_EMIT_PLAN_THEN_HANG === "1";
 const emitActiveToolThenHang = process.env.T3_ACP_EMIT_ACTIVE_TOOL_THEN_HANG === "1";
 const emitGrokMonitorPostTurnPoll = process.env.T3_ACP_EMIT_GROK_MONITOR_POST_TURN_POLL === "1";
@@ -90,6 +91,8 @@ const emitStaleXAiPromptCompleteBeforeSecondHang =
 const emitOverlappingXAiPromptCompleteOutOfOrder =
   process.env.T3_ACP_EMIT_OVERLAPPING_XAI_PROMPT_COMPLETE_OUT_OF_ORDER === "1";
 const failPrompt = process.env.T3_ACP_FAIL_PROMPT === "1";
+// Every prompt this process receives fails with this text, like a CLI that lost its login.
+const failPromptMessage = process.env.T3_ACP_FAIL_PROMPT_MESSAGE?.trim() || undefined;
 const failSetConfigOption = process.env.T3_ACP_FAIL_SET_CONFIG_OPTION === "1";
 const failSetModeConfigOption = process.env.T3_ACP_FAIL_SET_MODE_CONFIG_OPTION === "1";
 const exitOnSetConfigOption = process.env.T3_ACP_EXIT_ON_SET_CONFIG_OPTION === "1";
@@ -1302,6 +1305,9 @@ const program = Effect.gen(function* () {
       if (failPrompt) {
         return yield* AcpError.AcpRequestError.internalError("Mock prompt failure");
       }
+      if (failPromptMessage !== undefined) {
+        return yield* AcpError.AcpRequestError.internalError(failPromptMessage);
+      }
 
       if (emitStaleXAiPromptCompleteBeforeSecondHang && promptCount === 1) {
         return yield* finishPrompt(requestedSessionId, "end_turn", {
@@ -1471,6 +1477,18 @@ const program = Effect.gen(function* () {
             content: { type: "text", text: "partial before stall" },
           },
         });
+        if (contentAgainTriggerPath !== undefined) {
+          while (!(yield* Effect.sync(() => NodeFS.existsSync(contentAgainTriggerPath)))) {
+            yield* Effect.sleep("20 millis");
+          }
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: " and more" },
+            },
+          });
+        }
         return yield* Effect.never;
       }
 

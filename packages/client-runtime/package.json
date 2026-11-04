@@ -431,6 +431,10 @@
       "types": "./src/pullRequestMarkdown.ts",
       "default": "./src/pullRequestMarkdown.ts"
     },
+    "./pull-request-list-groups": {
+      "types": "./src/pullRequestListGroups.ts",
+      "default": "./src/pullRequestListGroups.ts"
+    },
     "./pull-request-query": {
       "types": "./src/pullRequestQuery.ts",
       "default": "./src/pullRequestQuery.ts"
@@ -438,6 +442,10 @@
     "./pr-flow": {
       "types": "./src/prFlow.ts",
       "default": "./src/prFlow.ts"
+    },
+    "./pr-flow-graph": {
+      "types": "./src/prFlowGraph.ts",
+      "default": "./src/prFlowGraph.ts"
     },
     "./pull-request-merge-method": {
       "types": "./src/pullRequestMergeMethod.ts",
@@ -486,6 +494,10 @@
     "./agent-review": {
       "types": "./src/agentReview.ts",
       "default": "./src/agentReview.ts"
+    },
+    "./agent-session-import": {
+      "types": "./src/agentSessionImport.ts",
+      "default": "./src/agentSessionImport.ts"
     },
     "./review-findings": {
       "types": "./src/reviewFindings.ts",

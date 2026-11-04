@@ -659,10 +659,12 @@ export const make = Effect.gen(function* () {
       ),
   );
 
-  const retryTunnel = reconcileSemaphore.withPermits(1)(Effect.gen(function* () {
-    yield* Ref.set(restartDelayRef, 0);
-    return yield* reconcileConfig(yield* Ref.get(desiredConfigRef));
-  }));
+  const retryTunnel = reconcileSemaphore.withPermits(1)(
+    Effect.gen(function* () {
+      yield* Ref.set(restartDelayRef, 0);
+      return yield* reconcileConfig(yield* Ref.get(desiredConfigRef));
+    }),
+  );
   const runtime = CloudManagedEndpointRuntime.of({
     applyConfig,
     retryTunnel,

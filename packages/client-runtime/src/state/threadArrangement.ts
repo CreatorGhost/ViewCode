@@ -20,7 +20,7 @@ import type { SidebarThreadRowEntry, SidebarThreadTreeNode } from "./threadTree.
 /** The groups a chat's agents fall into, in display order. */
 export type AgentStatusGroup = "working" | "needs-you" | "failed" | "done";
 
-export const AGENT_STATUS_GROUPS: ReadonlyArray<AgentStatusGroup> = [
+const AGENT_STATUS_GROUPS: ReadonlyArray<AgentStatusGroup> = [
   "working",
   "needs-you",
   "failed",
@@ -98,7 +98,7 @@ function parseMs(value: string | null | undefined): number {
  * When a thread last moved: its newest message or turn stamp, else its
  * creation. "Newest first" everywhere in a folder means this.
  */
-export function threadActivityAtMs(thread: ActivityInput): number {
+function threadActivityAtMs(thread: ActivityInput): number {
   return Math.max(
     parseMs(thread.createdAt),
     parseMs(thread.latestUserMessageAt),

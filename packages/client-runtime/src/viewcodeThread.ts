@@ -36,6 +36,8 @@ export interface OrchestrationMessage {
   readonly updatedAt: string;
   /** Copied from the thread this one was forked from: shown as history, never written here. */
   readonly inherited?: true;
+  /** Speak mode "summary": what to read aloud for this reply, written after its turn ends. */
+  readonly spokenSummary?: string | undefined;
 }
 
 export interface OrchestrationLatestTurn {

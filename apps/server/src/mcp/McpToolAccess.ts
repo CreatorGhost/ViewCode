@@ -16,6 +16,7 @@ import {
   type DispatchModeRefusal,
 } from "../orchestration-v2/DispatchModeLimit.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
+import { isSeparateChat } from "./peerExchange.ts";
 import { resolveInteractionMode, resolveRuntimeMode } from "./OrchestratorMcpService.ts";
 import {
   assertFullAccess,
@@ -143,7 +144,14 @@ export const writesWithCapability = <P, A, E, R>(handle: (params: P) => Effect.E
   declare((params: P) => writingCaller.pipe(Effect.flatMap(() => handle(params))));
 
 const threadWrites =
-  (callerCheck: typeof writingCaller) =>
+  (
+    callerCheck: typeof writingCaller,
+    /**
+     * A chat the user started separately (`peerExchange.ts`): refused, or passed to a handler
+     * that applies its own rule, or open because the tool only files the chat in the sidebar.
+     */
+    separateChats: "refuse" | "pass",
+  ) =>
   <P, A, E, R>(
     threads: (params: P) => ReadonlyArray<ThreadId | undefined>,
     handle: (params: P) => Effect.Effect<A, E, R>,
@@ -158,6 +166,15 @@ const threadWrites =
             .pipe(Effect.mapError(unavailable));
           if (target !== null && target.deletedAt === null) {
             yield* assertTargetWithinLimits(caller.limits, target);
+            if (
+              separateChats === "refuse" &&
+              caller.caller !== undefined &&
+              (yield* isSeparateChat(caller.threads, caller.caller, target).pipe(
+                Effect.mapError(unavailable),
+              ))
+            ) {
+              return yield* independentChatRefused(target.title);
+            }
           }
         }
         // The target's user can raise its modes after the check above; the
@@ -177,13 +194,32 @@ const threadWrites =
       }),
     );
 
-export const writesThreads = threadWrites(writingCaller);
+/**
+ * Changes another thread in the caller's own agent tree. A chat the user started separately is
+ * not this agent's to change (ViewCode, `peerExchange.ts`).
+ */
+export const writesThreads = threadWrites(writingCaller, "refuse");
+
+/**
+ * Renames or files another thread in the sidebar (pin, settle, snooze), never touching its
+ * conversation or runs, so a separate chat the user started is fair game too.
+ */
+export const writesThreadMetadata = threadWrites(writingCaller, "pass");
 
 /**
  * Sends a message or answer into another thread. Open to RockBot too, whose
- * handler must then ask its user (`OrchestratorMcpService.confirmRockBotWrite`).
+ * handler must then ask its user (`OrchestratorMcpService.confirmRockBotWrite`), and to a chat
+ * messaging another the user started separately, whose handler applies `peerExchange.ts`.
  */
-export const sendsForUser = threadWrites(sendingCaller);
+export const sendsForUser = threadWrites(sendingCaller, "pass");
+
+const independentChatRefused = (title: string) =>
+  Effect.fail(
+    new OrchestratorMcpFailure({
+      code: "capability_denied",
+      message: `"${title}" is a separate chat the user started. An agent changes only its own chat and its subagents; ask the user to do this there, or message that chat with t3_thread_send, which asks the user first.`,
+    }),
+  );
 
 const escalationDenied = (refusal: DispatchModeRefusal) =>
   new OrchestratorMcpFailure({

@@ -68,6 +68,18 @@ export interface ThreadTitleGenerationResult {
   needsRefinement?: boolean | undefined;
 }
 
+export interface SpokenSummaryGenerationInput {
+  cwd: string;
+  /** The turn's final assistant reply. */
+  message: string;
+  modelSelection: ModelSelection;
+}
+
+export interface SpokenSummaryGenerationResult {
+  /** Plain prose, already stripped and capped; empty when nothing was usable. */
+  summary: string;
+}
+
 export interface ReviewGuideStackLayer {
   readonly number: number;
   readonly title: string | null;
@@ -113,4 +125,8 @@ export interface ProviderTextGeneration {
   readonly generateReviewGuide: (
     input: ReviewGuideGenerationInput,
   ) => Effect.Effect<ReviewGuideGenerationResult, TextGenerationError>;
+
+  readonly generateSpokenSummary: (
+    input: SpokenSummaryGenerationInput,
+  ) => Effect.Effect<SpokenSummaryGenerationResult, TextGenerationError>;
 }

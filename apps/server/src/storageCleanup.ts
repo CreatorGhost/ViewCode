@@ -106,6 +106,19 @@ function sameProjectWorktreePolicies(left: ServerSettings, right: ServerSettings
   );
 }
 
+/**
+ * ViewCode: Git 2.56 reports a worktree whose `.git` file names a missing directory as "gitfile
+ * does not point to a valid repository" instead of "not a git repository". Both mean the
+ * worktree no longer belongs to a repository. Guarded by storageCleanup.viewcode.test.ts.
+ */
+export function gitStderrMeansNoRepository(stderr: string): boolean {
+  const message = stderr.toLowerCase();
+  return (
+    message.includes("not a git repository") ||
+    message.includes("gitfile does not point to a valid repository")
+  );
+}
+
 export function storageCleanupThreadIdle(thread: OrchestrationV2ThreadShell, now: number): boolean {
   return (
     thread.worktreePath !== null &&
@@ -473,7 +486,7 @@ const make = Effect.gen(function* () {
         );
       if (result === null) return null;
       if (result.exitCode === 0 || result.exitCode === allowedExitCode) return result;
-      if (result.stderr.toLowerCase().includes("not a git repository")) return null;
+      if (gitStderrMeansNoRepository(result.stderr)) return null;
       return yield* failure(
         result.stderr.trim().split(/\r?\n/)[0]?.slice(0, 1000) || "command failed",
       );

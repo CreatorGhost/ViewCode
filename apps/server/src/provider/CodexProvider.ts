@@ -492,6 +492,14 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
       input.skipNativeUsage
         ? Effect.succeed(undefined)
         : client.request("account/rateLimits/read", null).pipe(
+            Effect.tap((response) =>
+              // Which allowance the rows come from is not visible in the UI; this is how a
+              // "limit reached" that does not match the account's real state gets traced.
+              Effect.logDebug("Codex rate limits read.", {
+                limitId: response.rateLimits?.limitId ?? null,
+                bucketIds: Object.keys(response.rateLimitsByLimitId ?? {}),
+              }),
+            ),
             Effect.map((response): CodexRateLimitsProbe => ({
               snapshot: response.rateLimits,
               rateLimitsByLimitId: response.rateLimitsByLimitId,

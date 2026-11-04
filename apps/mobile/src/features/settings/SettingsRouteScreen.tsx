@@ -123,6 +123,11 @@ function SettingsIndexSections() {
         <SettingsRow icon="folder" label="Organization" target="SettingsOrganization" />
         <SettingsRow icon="text.bubble" label="Thread behavior" target="SettingsThreads" />
         <SettingsRow icon="archivebox" label="Archived Threads" target="SettingsArchive" />
+        <SettingsRow
+          icon="tray.and.arrow.down"
+          label="Import past sessions"
+          target="SettingsImportSessions"
+        />
       </SettingsSection>
 
       <SettingsSection title="Server settings">

@@ -42,7 +42,7 @@ export interface AdminPolicy {
   readonly problem: string | null;
 }
 
-export const NO_ADMIN_POLICY: AdminPolicy = {
+const NO_ADMIN_POLICY: AdminPolicy = {
   blockedDrivers: [],
   tailscaleBlocked: false,
   problem: null,
@@ -54,7 +54,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isDisallowed = (rule: unknown) => isRecord(rule) && rule.allowed === false;
 
 /** What a decoded policy blocks. Anything it does not understand blocks nothing. */
-export function adminPolicyFromValue(value: unknown): AdminPolicy {
+function adminPolicyFromValue(value: unknown): AdminPolicy {
   if (!isRecord(value)) return NO_ADMIN_POLICY;
   const providers = isRecord(value.providers) ? value.providers : {};
   return {
@@ -92,7 +92,7 @@ export const AdminPolicyRef = Context.Reference<AdminPolicy>(
 );
 
 /** A plist as plain values: dicts, arrays, strings, numbers and booleans. */
-export function decodePlist(bytes: Uint8Array): unknown {
+function decodePlist(bytes: Uint8Array): unknown {
   const text = new TextDecoder().decode(bytes.subarray(0, 8));
   if (text === "bplist00") return decodeBinaryPlist(bytes);
   return decodeXmlPlist(new TextDecoder().decode(bytes));

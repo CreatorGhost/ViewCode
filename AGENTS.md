@@ -8,6 +8,8 @@ You can think of T3 Code as an open source "bring-your-own-subscription" alterna
 
 This is ViewCode, a fork of T3 Code. It adds mid-chat provider handoff, child agents, agent-to-agent messaging, a Command Code provider, a no-port desktop mode and a Droppy-style composer. Read [docs/internals/viewcode.md](docs/internals/viewcode.md) before changing those areas: it lists where the code lives, the decisions behind it and the traps already hit. Keep it current when a ViewCode decision changes.
 
+Merges from upstream T3 Code follow [docs/operations/upstream-merge.md](docs/operations/upstream-merge.md) (the `upstream-merge` skill); a clean merge can still drop ViewCode fixes. A ViewCode change to upstream-owned code needs a guard test in a `*.viewcode.test.ts(x)` file beside it, never only a case in an upstream test file.
+
 ## What makes T3 Code special?
 
 We have over 500,000 users who love T3 Code. It's important we maintain the things they love as we continue to iterate on the product. Here's a brief list of the things we can never compromise on.

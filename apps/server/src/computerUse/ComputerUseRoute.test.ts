@@ -14,7 +14,7 @@ const credentialThread = ThreadId.make("thread-from-credential");
 
 const scope = (
   capabilities: ReadonlyArray<McpInvocationContext.McpCapability>,
- ): McpInvocationContext.McpThreadInvocationScope => ({
+): McpInvocationContext.McpThreadInvocationScope => ({
   environmentId: EnvironmentId.make("environment"),
   requestNamespace: "computer-test",
   thread: {

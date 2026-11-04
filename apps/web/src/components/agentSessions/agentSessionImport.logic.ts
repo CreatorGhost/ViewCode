@@ -1,10 +1,5 @@
 import type { OrchestrationThreadShell } from "@t3tools/client-runtime/viewcodeThread";
-import type {
-  AgentSessionHiddenReason,
-  AgentSessionSummary,
-  EnvironmentId,
-  ScopedProjectRef,
-} from "@t3tools/contracts";
+import type { AgentSessionHiddenReason, EnvironmentId, ScopedProjectRef } from "@t3tools/contracts";
 
 export const HIDDEN_REASON_LABELS: Record<AgentSessionHiddenReason, string> = {
   subagent: "Sub-agent",
@@ -16,32 +11,13 @@ export const HIDDEN_REASON_LABELS: Record<AgentSessionHiddenReason, string> = {
   "in-t3code": "Also in T3 Code",
 };
 
-export function sessionKey(
-  session: Pick<AgentSessionSummary, "providerInstanceId" | "providerSessionId">,
-): string {
-  return `${session.providerInstanceId}\0${session.providerSessionId}`;
-}
-
-/** Newest first, with folded-away sessions split out for the "Show hidden" toggle. */
-export function partitionImportableSessions<T extends AgentSessionSummary>(
-  sessions: ReadonlyArray<T>,
-) {
-  const sorted = sessions.toSorted((left, right) =>
-    right.lastActivityAt.localeCompare(left.lastActivityAt),
-  );
-  return {
-    visible: sorted.filter((session) => !session.hidden),
-    hidden: sorted.filter((session) => session.hidden),
-  };
-}
-
 /** The importer names threads `import:<instance>:<session>`. */
-export function isImportedThreadId(threadId: string): boolean {
+function isImportedThreadId(threadId: string): boolean {
   return threadId.startsWith("import:");
 }
 
 /** An imported thread counts as continued once it runs a turn or starts a provider session. */
-export function isUntouchedImportedThread(
+function isUntouchedImportedThread(
   thread: Pick<OrchestrationThreadShell, "latestTurn" | "session">,
 ): boolean {
   return thread.latestTurn === null && thread.session === null;
@@ -51,7 +27,7 @@ export function isUntouchedImportedThread(
 export function importedThreadsForCleanup<
   T extends Pick<
     OrchestrationThreadShell,
-      "id" | "projectId" | "archivedAt" | "createdAt" | "latestTurn" | "session"
+    "id" | "projectId" | "archivedAt" | "createdAt" | "latestTurn" | "session"
   > & { readonly environmentId: EnvironmentId },
 >(threads: ReadonlyArray<T>, projectRefs: ReadonlyArray<ScopedProjectRef>) {
   const inProject = (thread: T) =>

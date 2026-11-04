@@ -97,6 +97,8 @@ import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
 import * as RockBotConfirmation from "../rockbot/RockBotConfirmation.ts";
+import { formatPeerChatMessage } from "@t3tools/shared/agentMessages";
+import { isSeparateChat, type PeerMessage, peerExchangeStep } from "./peerExchange.ts";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { runtimeRequestNeed } from "@t3tools/shared/threadNeedsYou";
 import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
@@ -1237,6 +1239,96 @@ const make = Effect.gen(function* () {
       ? Effect.fail(notActive)
       : Effect.void;
   };
+
+  /**
+   * A message from one chat to another the user started separately (`peerExchange.ts`): the one
+   * reply to a request needs nothing more; anything else waits for the user's Send. It arrives
+   * in the agent envelope, so the receiver and every client know it came from a peer.
+   */
+  const peerMessageText = (
+    parent: Pick<OrchestrationV2ThreadProjection, "thread" | "messages">,
+    target: Pick<OrchestrationV2ThreadProjection, "thread">,
+    messageId: MessageId,
+    body: string,
+  ) =>
+    Effect.gen(function* () {
+      const { messages: delivered } = yield* threadManagement
+        .getThreadRecords(target.thread.id, ["messages"], { messageRoles: ["user"] })
+        .pipe(Effect.mapError(threadManagementFailure));
+      const between = (
+        messages: ReadonlyArray<OrchestrationV2ConversationMessage>,
+        senderThreadId: ThreadId,
+        from: PeerMessage["from"],
+      ) =>
+        messages
+          .filter((message) => message.senderThreadId === senderThreadId)
+          .map((message): PeerMessage => ({
+            id: message.id,
+            from,
+            createdAtMs: DateTime.toEpochMillis(message.createdAt),
+            text: message.text,
+          }));
+      // A retry of a send that already landed is the same message, not a new request.
+      const retried = delivered.some((message) => message.id === messageId);
+      const step = retried
+        ? ({ kind: "request" } as const)
+        : peerExchangeStep(
+            [
+              ...between(parent.messages, target.thread.id, "target"),
+              ...between(delivered, parent.thread.id, "caller"),
+            ],
+            body,
+          );
+      if (step.kind === "duplicate") {
+        return yield* failure(
+          "send_loop_guard",
+          `"${target.thread.title}" already has this message and has not answered it. Do not resend it; wait for its reply or tell the user.`,
+        );
+      }
+      if (step.kind === "request" && !retried) {
+        yield* RockBotConfirmation.confirmPeer(parent.thread.id, {
+          title: `Message ${target.thread.title}`,
+          detail: body,
+        });
+      }
+      return formatPeerChatMessage({
+        messageId,
+        fromThreadId: parent.thread.id,
+        fromName: parent.thread.title,
+        inReplyTo: step.kind === "reply" ? step.inReplyTo : null,
+        body,
+      });
+    });
+
+  const separateChat = (
+    parent: Pick<OrchestrationV2ThreadProjection, "thread">,
+    target: Pick<OrchestrationV2ThreadProjection, "thread">,
+  ) =>
+    isSeparateChat(threadManagement, parent.thread, target.thread).pipe(
+      Effect.mapError(threadManagementFailure),
+    );
+
+  /**
+   * Turns in which the user let this chat read a separate chat's conversation, keyed by the
+   * caller's run and the target. One approval covers the turn's paging, never a later turn.
+   */
+  const peerReadGrants = new Set<string>();
+  const allowPeerRead = (
+    parent: Pick<OrchestrationV2ThreadProjection, "thread" | "runs">,
+    target: Pick<OrchestrationV2ThreadProjection["thread"], "id" | "title">,
+  ) =>
+    Effect.gen(function* () {
+      const runId = ThreadManagementService.latestActiveRun(parent)?.id;
+      const grant = `${parent.thread.id}\0${runId ?? ""}\0${target.id}`;
+      if (runId !== undefined && peerReadGrants.has(grant)) return;
+      yield* RockBotConfirmation.confirmPeer(parent.thread.id, {
+        title: `Read ${target.title}`,
+        detail: `This chat wants to read the conversation in "${target.title}", a separate chat, for the rest of its turn.`,
+        acceptLabel: "Allow",
+        declineLabel: "Don't allow",
+      });
+      if (runId !== undefined) peerReadGrants.add(grant);
+    });
 
   const loadReadableThread = (scope: McpInvocationScope, threadId: ThreadId) =>
     Effect.gen(function* () {
@@ -2634,6 +2726,9 @@ const make = Effect.gen(function* () {
           );
         }
         const { parent, target, shell } = yield* loadReadableThread(scope, input.threadId);
+        if (parent !== undefined && (yield* separateChat(parent, target))) {
+          yield* allowPeerRead(parent, target.thread);
+        }
         const view = input.view ?? "messages";
         const afterPosition = input.afterPosition ?? -1;
         const limit = input.limit ?? DEFAULT_THREAD_READ_LIMIT;
@@ -2756,6 +2851,10 @@ const make = Effect.gen(function* () {
           requestKey: key,
           operation: "thread-send",
         });
+        const text =
+          parent !== undefined && (yield* separateChat(parent, target))
+            ? yield* peerMessageText(parent, target, messageId, input.message)
+            : input.message;
         const result = yield* threadManagement
           .sendToThread({
             projectId: target.thread.projectId,
@@ -2767,7 +2866,7 @@ const make = Effect.gen(function* () {
             threadId: input.threadId,
             ...(parent === undefined ? {} : { senderThreadId: parent.thread.id }),
             messageId,
-            text: input.message,
+            text,
             attachments: [],
             mode,
             createdBy: "agent",

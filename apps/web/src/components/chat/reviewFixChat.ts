@@ -47,10 +47,7 @@ export type ReviewFixChat =
  * Leaves the request at the end of a composer, after whatever the reader already typed there,
  * with the records its chips refer to. Only for a new chat's draft, which has no thread to send to.
  */
-export function writeReviewFixToComposer(
-  target: ComposerThreadTarget,
-  request: ReviewFixRequest,
-): void {
+function writeReviewFixToComposer(target: ComposerThreadTarget, request: ReviewFixRequest): void {
   const store = useComposerDraftStore.getState();
   // The chips' records go in first, so the text that refers to them finds them.
   for (const comment of request.comments) {

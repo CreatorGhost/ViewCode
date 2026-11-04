@@ -1,3 +1,5 @@
+import { splitUpstreamPullRequestGroups } from "@t3tools/client-runtime/pull-request-list-groups";
+
 import {
   groupPullRequestsByProject,
   type EnvironmentPullRequestEntry,
@@ -11,26 +13,14 @@ export function viewCodePullRequestProjectGroups(
   text: string,
 ) {
   const entries = groups.flatMap((group) => group.entries);
-  return groupPullRequestsByProject(
-    text.length === 0
-      ? entries.toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      : entries,
-    labels,
-  ).map((group) => {
-    const repositories = [
-      ...new Set(
-        group.entries.map((entry) =>
-          entry.host.toLowerCase() === "github.com"
-            ? entry.repository
-            : `${entry.host}/${entry.repository}`,
-        ),
-      ),
-    ].filter((repository) => repository.toLowerCase() !== group.label.toLowerCase());
-    return {
-      ...group,
-      repositoryLabel: repositories.length === 0 ? null : repositories.join(", "),
-    };
-  });
+  return splitUpstreamPullRequestGroups(
+    groupPullRequestsByProject(
+      text.length === 0
+        ? entries.toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        : entries,
+      labels,
+    ),
+  );
 }
 
 /** Keep every failed repository visible, including equally named projects on two servers. */

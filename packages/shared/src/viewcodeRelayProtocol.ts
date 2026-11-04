@@ -72,9 +72,9 @@ export const FrameType = {
 export type FrameType = (typeof FrameType)[keyof typeof FrameType];
 
 const FRAME_TYPES: ReadonlySet<number> = new Set(Object.values(FrameType));
-export const FRAME_HEADER_BYTES = 6;
-export const FLAG_SEALED = 0b1;
-export const MAX_STREAM_ID = 0xffff_ffff;
+const FRAME_HEADER_BYTES = 6;
+const FLAG_SEALED = 0b1;
+const MAX_STREAM_ID = 0xffff_ffff;
 
 export interface Frame {
   readonly type: FrameType;
@@ -122,7 +122,7 @@ export interface FrameSealer {
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-export function encodeFrame(frame: Frame): Uint8Array {
+function encodeFrame(frame: Frame): Uint8Array {
   if (!Number.isInteger(frame.streamId) || frame.streamId < 0 || frame.streamId > MAX_STREAM_ID) {
     throw new RangeError(`Invalid stream id ${frame.streamId}`);
   }
@@ -181,7 +181,7 @@ export function openPayload(frame: Frame, sealer?: FrameSealer): Uint8Array | nu
 }
 
 /** Null when the payload is not valid JSON; callers validate the shape they need. */
-export function parseJsonPayload(payload: Uint8Array): unknown {
+function parseJsonPayload(payload: Uint8Array): unknown {
   try {
     return JSON.parse(textDecoder.decode(payload));
   } catch {

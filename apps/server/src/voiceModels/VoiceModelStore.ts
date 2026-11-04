@@ -33,9 +33,9 @@ import { ServerConfig } from "../config.ts";
  * .github/workflows/voice-models.yml; managed networks that block Hugging Face
  * usually allow GitHub. Hugging Face stays the fallback for each file.
  */
-export const VOICE_MODEL_RELEASE_URL =
+const VOICE_MODEL_RELEASE_URL =
   "https://github.com/CreatorGhost/ViewCode/releases/download/voice-models-v1";
-export const DICTATION_MODEL_RELEASE_URL =
+const DICTATION_MODEL_RELEASE_URL =
   "https://github.com/CreatorGhost/ViewCode/releases/download/dictation-models-v1";
 /** Written last into a tier's directory: its presence means every file was verified. */
 export const VOICE_MODEL_COMPLETE_RECORD = ".complete.json";

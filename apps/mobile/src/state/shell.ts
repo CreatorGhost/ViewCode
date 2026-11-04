@@ -1,4 +1,10 @@
-import { createEnvironmentShellAtoms, createEnvironmentShellSummaryAtom, createEnvironmentSnapshotAtom, createShellEnvironmentAtoms, type EnvironmentShellState } from "@t3tools/client-runtime/state/shell";
+import {
+  createEnvironmentShellAtoms,
+  createEnvironmentShellSummaryAtom,
+  createEnvironmentSnapshotAtom,
+  createShellEnvironmentAtoms,
+  type EnvironmentShellState,
+} from "@t3tools/client-runtime/state/shell";
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";

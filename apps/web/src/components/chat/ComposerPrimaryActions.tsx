@@ -391,20 +391,24 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
               )}
               {...pointerFocusProps}
               aria-pressed={!keepFullHistory}
-              aria-label={`Compact ${compactTokens} tokens of history before sending`}
+              aria-label={
+                keepFullHistory
+                  ? `Compact ${compactTokens} tokens of history before sending`
+                  : `Keep the full ${compactTokens} tokens of history`
+              }
               disabled={!canOperateThread}
               onClick={onToggleKeepFullHistory}
             />
           }
         >
           <Minimize2Icon aria-hidden="true" />
-          {keepFullHistory ? "Full" : "Compact"}
+          Compact
           <span>{compactTokens}</span>
         </TooltipTrigger>
         <TooltipPopup>
           {keepFullHistory
-            ? `Next send keeps all ${compactTokens} tokens. Click to compact first`
-            : `Next send compacts ${compactTokens} tokens first. Click to keep full history`}
+            ? `Sends with all ${compactTokens} tokens of history. Click to compact first`
+            : `Compacts ${compactTokens} tokens of history, then sends. Click to keep the full history`}
         </TooltipPopup>
       </Tooltip>
       {submitWithInterrupt}

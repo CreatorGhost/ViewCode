@@ -114,6 +114,11 @@ export const OrchestrationEffectRequestV2 = Schema.Union([
     type: Schema.Literal("delegated-tasks.stop"),
     reason: Schema.optional(Schema.String),
   }),
+  // ViewCode speak mode; see `ViewCodeSpokenSummary.ts`.
+  Schema.Struct({
+    type: Schema.Literal("spoken-summary.generate"),
+    runId: RunId,
+  }),
 ]);
 export type OrchestrationEffectRequestV2 = typeof OrchestrationEffectRequestV2.Type;
 
@@ -127,6 +132,7 @@ export const REPLAY_SAFE_EFFECT_TYPES_AFTER_PROCESS_LOSS = [
   "attachment.cleanup",
   "thread-title.generate",
   "delegated-tasks.stop",
+  "spoken-summary.generate",
 ] as const satisfies ReadonlyArray<OrchestrationEffectRequestV2["type"]>;
 
 export const PROCESS_BOUND_EFFECT_TYPES = [
@@ -136,6 +142,19 @@ export const PROCESS_BOUND_EFFECT_TYPES = [
   "provider-turn.restart",
   "runtime-request.respond",
 ] as const satisfies ReadonlyArray<OrchestrationEffectRequestV2["type"]>;
+
+const SIDE_LANE_EFFECT_TYPES = [
+  "thread-title.generate",
+  "spoken-summary.generate",
+] as const satisfies ReadonlyArray<OrchestrationEffectRequestV2["type"]>;
+
+/**
+ * Model-written text (titles, ViewCode spoken summaries) runs in a lane of its
+ * own per type, so a slow generation never holds back a turn's start; every
+ * other effect on a thread shares one ordered lane.
+ */
+const effectLane = (alias: "active" | "candidate") =>
+  `CASE WHEN ${alias}.effect_type IN (${SIDE_LANE_EFFECT_TYPES.map((type) => `'${type}'`).join(", ")}) THEN ${alias}.effect_type ELSE '' END`;
 
 export const OrchestrationEffectStatusV2 = Schema.Literals([
   "pending",
@@ -342,17 +361,7 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
                 }
               )
             )
-            AND (
-              (
-                candidate.effect_type = 'thread-title.generate'
-                AND active.effect_type = 'thread-title.generate'
-              )
-              OR
-              (
-                candidate.effect_type != 'thread-title.generate'
-                AND active.effect_type != 'thread-title.generate'
-              )
-            )
+            AND ${sql.literal(effectLane("active"))} = ${sql.literal(effectLane("candidate"))}
         )
       `;
 

@@ -50,11 +50,34 @@ export interface OversizedRelayMessage {
   readonly messagePrefix: string;
 }
 
-function safeMessagePrefix(data: Uint8Array): string {
-  // Log only the RPC tag. Raw payload prefixes can contain user text or tokens.
-  const start = new TextDecoder().decode(data.subarray(0, 256));
+/** RPC requests a stream has seen, by id, so an oversized reply can name its method. */
+const MAX_REMEMBERED_REQUESTS = 256;
+
+const knownTag = (start: string): string | undefined => {
   const tag = /"tag"\s*:\s*"([a-zA-Z0-9._-]{1,70})"/.exec(start)?.[1];
-  return tag && KNOWN_RPC_TAGS.has(tag) ? `{"tag":"${tag}"}` : "<RPC tag unavailable>";
+  return tag && KNOWN_RPC_TAGS.has(tag) ? tag : undefined;
+};
+
+/** Only the RPC tag: raw payload prefixes can contain user text or tokens. */
+function messageTag(
+  data: Uint8Array,
+  requestTags: ReadonlyMap<string, string>,
+): string | undefined {
+  // Replies carry the request id, not the tag, so look the request up.
+  const start = new TextDecoder().decode(data.subarray(0, 256));
+  const requestId = /"requestId"\s*:\s*"?(\d{1,20})/.exec(start)?.[1];
+  return (requestId === undefined ? undefined : requestTags.get(requestId)) ?? knownTag(start);
+}
+
+function rememberRequest(requestTags: Map<string, string>, data: Uint8Array): void {
+  const start = new TextDecoder().decode(data.subarray(0, 256));
+  if (!/"_tag"\s*:\s*"Request"/.test(start)) return;
+  const id = /"id"\s*:\s*"?(\d{1,20})/.exec(start)?.[1];
+  const tag = knownTag(start);
+  if (id === undefined || tag === undefined) return;
+  requestTags.set(id, tag);
+  const oldest = requestTags.keys().next();
+  if (requestTags.size > MAX_REMEMBERED_REQUESTS && !oldest.done) requestTags.delete(oldest.value);
 }
 
 export interface RelayForwarder {
@@ -74,6 +97,7 @@ interface WsStream {
   readonly kind: "ws";
   readonly socket: InstanceType<typeof Undici.WebSocket>;
   readonly pending: Array<string | Uint8Array>;
+  readonly requestTags: Map<string, string>;
   pendingBytes: number;
   open: boolean;
 }
@@ -221,7 +245,14 @@ export function createRelayForwarder(options: {
       return abort(streamId, "Invalid WebSocket request.");
     }
     socket.binaryType = "arraybuffer";
-    const stream: WsStream = { kind: "ws", socket, pending: [], pendingBytes: 0, open: false };
+    const stream: WsStream = {
+      kind: "ws",
+      socket,
+      pending: [],
+      requestTags: new Map(),
+      pendingBytes: 0,
+      open: false,
+    };
     streams.set(streamId, stream);
     socket.addEventListener("open", () => {
       stream.open = true;
@@ -242,13 +273,19 @@ export function createRelayForwarder(options: {
           ? new TextEncoder().encode(event.data)
           : new Uint8Array(event.data as ArrayBuffer);
       if (data.byteLength > MAX_WS_MESSAGE_BYTES) {
-        const details = {
+        const tag = messageTag(data, stream.requestTags);
+        options.onOversizedMessage({
           byteLength: data.byteLength,
           streamId,
-          messagePrefix: safeMessagePrefix(data),
-        };
-        options.onOversizedMessage(details);
-        send(makeJsonFrame(FrameType.WsClose, streamId, { code: 1009, reason: "Message too big" }));
+          messagePrefix: tag ? `{"tag":"${tag}"}` : "<RPC tag unavailable>",
+        });
+        // Clients read the tag to hold back only the subscription that was too big.
+        send(
+          makeJsonFrame(FrameType.WsClose, streamId, {
+            code: 1009,
+            reason: tag ? `Message too big: ${tag}` : "Message too big",
+          }),
+        );
         endStream(streamId);
         return;
       }
@@ -307,6 +344,7 @@ export function createRelayForwarder(options: {
         if (stream?.kind !== "ws") return;
         const message = decodeWsMessage(payload);
         if (!message) return;
+        if (message.kind === "text") rememberRequest(stream.requestTags, message.data);
         const value =
           message.kind === "text" ? new TextDecoder().decode(message.data) : message.data;
         if (stream.open) {

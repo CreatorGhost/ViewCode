@@ -209,7 +209,7 @@ function projectForPullRequest(
   return projects.find(matches);
 }
 
-export function reviewFindingsTarget(
+function reviewFindingsTarget(
   thread: Pick<OrchestrationV2ThreadShell, "pullRequests">,
   requested: SubmitReviewFindingsInput["target"],
 ): ReviewFindingsTarget | null {
@@ -231,7 +231,7 @@ const POST_FINDINGS_LINKED_THREADS = 5;
  * The findings a `post_review_findings` call asked for, by their card keys, without those already
  * posted. Exported so the choice is testable without a layer.
  */
-export function selectFindingsToPost(
+function selectFindingsToPost(
   payload: {
     readonly findings: ReadonlyArray<ReviewFinding>;
     readonly needsChecking: ReadonlyArray<ReviewFinding>;

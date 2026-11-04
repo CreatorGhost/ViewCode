@@ -22,7 +22,7 @@ import * as Path from "effect/Path";
 /** npm 11 runs on Node 20.17+ and 22.9+, so it fits every Electron that can run wrangler 4. */
 export const BUNDLED_NPM_VERSION = "11.20.0";
 /** `dist.integrity` of npm@11.20.0 in the registry metadata. Changing the version means changing this. */
-export const BUNDLED_NPM_INTEGRITY =
+const BUNDLED_NPM_INTEGRITY =
   "sha512-dF3EDFwbYN+N5RUip+ZYDe0NeURK5BgqKOcvT1iNtUYhTMTl0FwWhBuXrS7KtXyduqyTMS5aaQaregnHDAxNgw==";
 const TARBALL_URL = `https://registry.npmjs.org/npm/-/npm-${BUNDLED_NPM_VERSION}.tgz`;
 const DOWNLOAD_TIMEOUT = Duration.minutes(2);

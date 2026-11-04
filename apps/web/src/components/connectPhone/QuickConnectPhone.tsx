@@ -140,6 +140,16 @@ function CopyButton({ value, label }: { readonly value: string; readonly label: 
   );
 }
 
+function CopyLinkButton({ value }: { readonly value: string }) {
+  const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "sign-in link" });
+  return (
+    <Button variant="outline" size="sm" onClick={() => copyToClipboard(value, undefined)}>
+      {isCopied ? <CheckIcon /> : <CopyIcon />}
+      {isCopied ? "Copied" : "Copy link"}
+    </Button>
+  );
+}
+
 function Details({ text }: { readonly text: string | undefined }) {
   if (!text) return null;
   return (
@@ -206,23 +216,24 @@ function SignInPrompt({ signIn }: { readonly signIn: ViewCodeRelaySetupState["si
         </div>
       ) : null}
       {signIn.url ? (
-        <div className="flex items-center gap-1">
-          <a
-            className="min-w-0 truncate text-xs text-muted-foreground underline underline-offset-4 select-all"
-            href={openUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {signIn.url}
-          </a>
-          <CopyButton value={signIn.url} label="sign-in link" />
-        </div>
+        <a
+          className="block min-w-0 truncate text-xs text-muted-foreground underline underline-offset-4 select-all"
+          href={openUrl}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {signIn.url}
+        </a>
       ) : null}
       {openUrl ? (
-        <Button variant="outline" size="sm" onClick={() => openLink(openUrl)}>
-          <ExternalLinkIcon />
-          {window.desktopBridge ? "Open link again" : "Open link"}
-        </Button>
+        // Open goes to the default browser; Copy lets the link and code go to any other one.
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => openLink(openUrl)}>
+            <ExternalLinkIcon />
+            {window.desktopBridge ? "Open link again" : "Open link"}
+          </Button>
+          <CopyLinkButton value={openUrl} />
+        </div>
       ) : null}
     </div>
   );

@@ -1,4 +1,10 @@
-import { resolveEnvironmentMachineKind, type EnvironmentId, type EnvironmentMachineKind, type ServerConfig, type ServerProvider } from "@t3tools/contracts";
+import {
+  resolveEnvironmentMachineKind,
+  type EnvironmentId,
+  type EnvironmentMachineKind,
+  type ServerConfig,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 
 export type ThreadListProvider = Pick<

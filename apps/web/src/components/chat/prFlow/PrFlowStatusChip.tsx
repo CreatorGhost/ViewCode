@@ -21,32 +21,27 @@ const TONE_TEXT = {
  */
 export function PrFlowStatusChip({ flow }: { flow: PrFlow }) {
   const status = prFlowStatus(flow);
-  const creating = !prFlowReached(flow.phase, "conflicts");
+  // Before the host has a number for it, the chip just says the pull request is on its way.
+  const creating = !prFlowReached(flow.phase, "checking");
   return (
-    <span
-      className={cn(
-        "relative flex h-6.5 items-center px-2.5 text-xs whitespace-nowrap",
-        creating && "text-background",
-      )}
-    >
+    <span className="relative flex h-6.5 items-center px-2.5 text-xs whitespace-nowrap">
       <span
         aria-hidden
         data-chip-surface
-        className={cn(
-          "absolute inset-0 origin-left rounded-full border",
-          creating ? "border-transparent bg-foreground" : "bg-card",
-        )}
+        className="absolute inset-0 origin-left rounded-full border bg-card"
       />
       <span key={status.short} className="blur-swap relative flex items-center gap-1.5">
         {status.tone === "busy" ? (
-          <Spinner size="xs" />
+          <Spinner size="xs" tone="muted" />
         ) : status.tone === "merged" ? (
           <PullRequestGlyph.merged aria-hidden className="size-3 text-branch" />
         ) : (
           <span aria-hidden className={cn("size-1.5 rounded-full", TONE_DOT[status.tone])} />
         )}
         {creating ? null : <span>#{flow.number}</span>}
-        <span className={creating ? undefined : TONE_TEXT[status.tone]}>{status.short}</span>
+        <span className={creating ? "text-foreground/85" : TONE_TEXT[status.tone]}>
+          {status.short}
+        </span>
       </span>
     </span>
   );

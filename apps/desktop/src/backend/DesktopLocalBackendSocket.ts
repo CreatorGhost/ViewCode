@@ -66,7 +66,7 @@ export function toSocketRequestOptions(
 const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
 
 /** Converts the backend's reply into the Response `protocol.handle` returns. */
-export function toProtocolResponse(response: NodeHttp.IncomingMessage, method: string): Response {
+function toProtocolResponse(response: NodeHttp.IncomingMessage, method: string): Response {
   const headers = new Headers();
   for (const [name, value] of Object.entries(response.headers)) {
     if (value === undefined || name === "connection" || name === "transfer-encoding") continue;

@@ -65,7 +65,7 @@ export interface ReviewFindingsSource {
 }
 
 /** A thread's latest findings activity; activities are append-only, so a re-review comes last. */
-export function latestReviewFindingsActivity<T extends Pick<FindingsActivity, "kind">>(
+function latestReviewFindingsActivity<T extends Pick<FindingsActivity, "kind">>(
   activities: ReadonlyArray<T>,
 ): T | undefined {
   return activities.findLast((activity) => activity.kind === REVIEW_FINDINGS_ACTIVITY_KIND);
@@ -155,7 +155,7 @@ export function selectReviewFindingsSource(input: {
 }
 
 /** How many linked threads a view reads for findings; each one is a thread subscription. */
-export const REVIEW_SOURCE_CANDIDATE_LIMIT = 5;
+const REVIEW_SOURCE_CANDIDATE_LIMIT = 5;
 
 /**
  * The threads that may hold a review of these pull requests, most recently active first: the
@@ -356,7 +356,7 @@ export const RUNTIME_ERROR_ACTIVITY_KIND = "runtime.error";
  * is woken again by its agents' answers into turns that complete, so the failure is only in the
  * record of what happened, not in where its turns stand now.
  */
-export function reviewErrorSinceStart(
+function reviewErrorSinceStart(
   activities: ReadonlyArray<Pick<FindingsActivity, "kind" | "payload">>,
 ): string | null {
   for (let index = activities.length - 1; index >= 0; index -= 1) {

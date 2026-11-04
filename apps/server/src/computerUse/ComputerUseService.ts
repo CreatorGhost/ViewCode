@@ -266,7 +266,7 @@ const requestPixels = (
 };
 
 /** Pixel centre → logical screen point, through the screen rect the image covers. */
-export const toScreenPoint = (
+const toScreenPoint = (
   shot: Pick<ShotRecord, "width" | "height" | "bounds">,
   x: number,
   y: number,
@@ -280,7 +280,7 @@ const refused = (error: ComputerUseError): ComputerUseResponse => ({ ok: false, 
 
 /** Thread ids are opaque; keep them from becoming path syntax. */
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const driver = yield* ComputerDriver;
   const showCursor = yield* ComputerUseCursor;
   const settings = yield* ServerSettings.ServerSettingsService;

@@ -90,10 +90,17 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
         set((state) => {
           const threadKey = scopedThreadKey(ref);
           const previous = state.byThreadKey[threadKey];
-          return { byThreadKey: { ...state.byThreadKey, [threadKey]: {
-            kind: "unstaged", filePath: filePath?.trim() || null,
-            revealRequestId: previous?.kind === "unstaged" ? (previous.revealRequestId ?? 0) + 1 : 1,
-          } } };
+          return {
+            byThreadKey: {
+              ...state.byThreadKey,
+              [threadKey]: {
+                kind: "unstaged",
+                filePath: filePath?.trim() || null,
+                revealRequestId:
+                  previous?.kind === "unstaged" ? (previous.revealRequestId ?? 0) + 1 : 1,
+              },
+            },
+          };
         }),
       reconcileTurnSelection: (ref, availableTurnIds) =>
         set((state) => {

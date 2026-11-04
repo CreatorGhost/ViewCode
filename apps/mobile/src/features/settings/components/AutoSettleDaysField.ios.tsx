@@ -11,7 +11,10 @@ import {
   presentationBackground,
   tag,
 } from "@expo/ui/swift-ui/modifiers";
-import { MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS, MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS } from "@t3tools/contracts";
+import {
+  MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
+  MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
+} from "@t3tools/contracts";
 import { useState } from "react";
 
 import { useAppearancePreferences } from "../appearance/AppearancePreferencesProvider";

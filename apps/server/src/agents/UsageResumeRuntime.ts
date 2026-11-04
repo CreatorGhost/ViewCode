@@ -52,7 +52,7 @@ export class UsageResumeRuntime extends Context.Service<
   }
 >()("t3/agents/UsageResumeRuntime") {}
 
-export function usageResumeEvents(
+function usageResumeEvents(
   event: OrchestrationV2DomainEvent,
   shell?: OrchestrationV2ThreadShell | null,
 ): ReadonlyArray<UsageResumeEvent> {

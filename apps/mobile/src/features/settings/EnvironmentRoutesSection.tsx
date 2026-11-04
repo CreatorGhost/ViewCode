@@ -70,9 +70,7 @@ export function EnvironmentRoutesSection({
           inUse={connectionRouteId(route.target) === activeRouteId}
           // The last route goes with the machine, which is "Remove" on the row.
           // A learned route would be learned again, so it cannot be removed.
-          onRemove={
-            routes.length > 1 && !isLearned(route) ? () => confirmRemove(route) : undefined
-          }
+          onRemove={routes.length > 1 && !isLearned(route) ? () => confirmRemove(route) : undefined}
         />
       ))}
       <Pressable

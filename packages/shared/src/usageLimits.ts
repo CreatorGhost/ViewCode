@@ -47,6 +47,13 @@ export function isChatGptUsageLimitError(
   return false;
 }
 
+/**
+ * ViewCode: the message a Mac server reports while Cursor usage waits for the Keychain opt-in. The
+ * rail matches it to show an "off" ring with an Enable action instead of dropping Cursor.
+ */
+export const CURSOR_KEYCHAIN_USAGE_OFF_MESSAGE =
+  "Enable Cursor account usage to read its login from macOS Keychain.";
+
 export const CURSOR_USAGE_WINDOWS = [
   {
     id: "totalPercentUsed",

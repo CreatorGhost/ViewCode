@@ -1,4 +1,8 @@
-import type { EnvironmentId, UserInputAttachmentAnswerPayload, UserInputAttachments } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  UserInputAttachmentAnswerPayload,
+  UserInputAttachments,
+} from "@t3tools/contracts";
 import { Image, Linking, Pressable, View } from "react-native";
 import { getQuestionAnswerText } from "@t3tools/client-runtime/viewcode-work-log/user-input";
 import { AppText as Text } from "../../components/AppText";

@@ -30,14 +30,6 @@ const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(
   `^(?:${KNOWN_WORKTREE_BRANCH_PREFIXES.join("|")})[-/](?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$`,
 );
 
-/** The branch name with a current or legacy worktree prefix removed, or unchanged. */
-export function stripWorktreeBranchPrefix(refName: string): string {
-  const prefix = KNOWN_WORKTREE_BRANCH_PREFIXES.find((candidate) =>
-    refName.startsWith(`${candidate}/`),
-  );
-  return prefix === undefined ? refName : refName.slice(prefix.length + 1);
-}
-
 /**
  * Sanitize an arbitrary string into a valid, lowercase git refName fragment.
  * Strips quotes, collapses separators, limits to 64 chars.

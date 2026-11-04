@@ -225,7 +225,7 @@ export type DriverResult =
 /** Every value the driver reports is clipped to this many characters. */
 export const VALUE_MAX_CHARS = 200;
 /** Nodes the observe walk may visit, whatever the returned cap. */
-export const OBSERVE_MAX_VISITED = 4_000;
+const OBSERVE_MAX_VISITED = 4_000;
 const OBSERVE_MAX_DEPTH = 64;
 const OBSERVE_BATCH = 16;
 /** Leaves room under the parent's observe timeout to answer `truncated`. */
@@ -235,7 +235,7 @@ const MAX_ELEMENT_HANDLES = 20_000;
 /** `elementAt` only names the target for an approval; it must stay quick. */
 const ELEMENT_AT_TIME_BUDGET_MS = 3_000;
 /** Coordinate input must refer to exactly the geometry in its screenshot. */
-export const BOUNDS_TOLERANCE = 0;
+const BOUNDS_TOLERANCE = 0;
 /**
  * How long activation may take before input is refused. `open -a` on a busy
  * or managed Mac can take seconds; the worker timeouts in
@@ -278,7 +278,7 @@ const WINDOW_ROLES = new Set(["window", "dialog", "alert"]);
 const MAC_WINDOW_ROLES = new Set([...WINDOW_ROLES, "menu", "menu_bar"]);
 
 /** What a listed target is when it is not an ordinary window. */
-export const windowKind = (role: string): "menu" | "menu-bar" | undefined =>
+const windowKind = (role: string): "menu" | "menu-bar" | undefined =>
   role === "menu" ? "menu" : role === "menu_bar" ? "menu-bar" : undefined;
 
 /** Status items (`AXExtrasMenuBar`) belong to the system's menu bar extras, not the app's menus. */
@@ -290,14 +290,14 @@ const nonEmpty = (value: string | null | undefined): string | undefined =>
   value !== null && value !== undefined && value.trim().length > 0 ? value : undefined;
 
 /** The label the agent sees and the identity is checked against. */
-export const elementLabel = (name: string | null, description: string | null): string =>
+const elementLabel = (name: string | null, description: string | null): string =>
   nonEmpty(name) ?? nonEmpty(description) ?? "";
 
 export const clipValue = (value: string): string =>
   value.length <= VALUE_MAX_CHARS ? value : `${value.slice(0, VALUE_MAX_CHARS - 1)}…`;
 
 /** An observe query matches a control's label or value, ignoring case; `needle` is lower case. */
-export const matchesObserveQuery = (
+const matchesObserveQuery = (
   label: string,
   value: string | null | undefined,
   needle: string,
@@ -610,7 +610,7 @@ interface KeyedWindow {
  * `AXIdentifier`, which apps reuse, e.g. "MainWindow"); otherwise role,
  * title and position among same-titled siblings.
  */
-export const keyedWindows = (
+const keyedWindows = (
   pid: number,
   children: ReadonlyArray<Element>,
   roles: ReadonlySet<string> = WINDOW_ROLES,
@@ -650,7 +650,7 @@ export const keyedWindows = (
  * Callers have already checked that the observed native window is alive.
  * Anything else means the window is gone.
  */
-export const findWindow = (
+const findWindow = (
   entry: Pick<WindowEntry, "key" | "stable" | "unique" | "role" | "title" | "bounds">,
   keyed: ReadonlyArray<KeyedWindow>,
 ): KeyedWindow | undefined => {

@@ -202,7 +202,6 @@
     "src/native/NativeLayoutObserver.ios.tsx",
     "src/native/NativeLayoutObserver.tsx",
     "src/native/NativeScrollViewMarker.tsx",
-    "src/native/NativeSheetContent.tsx",
     "src/native/NativeWorkspaceColumns.ios.tsx",
     "src/native/NativeWorkspaceColumns.tsx",
     "src/native/SelectableMarkdownText.types.ts",

@@ -57,6 +57,14 @@ function statusWithoutLiveData(
   return Option.isSome(data) ? "cached" : "empty";
 }
 
+/**
+ * The thread's catch-up was bigger than the connection carries in one message
+ * (Quick connect's relay stops at 1 MiB). The subscription holds off instead of
+ * closing the socket again for every other request.
+ */
+export const THREAD_TOO_LARGE_FOR_CONNECTION_MESSAGE =
+  "This chat is too large to load over Quick connect. Open it on your computer, or update ViewCode on your computer.";
+
 function formatThreadError(cause: Cause.Cause<unknown>): string {
   const error = Cause.squash(cause);
   return error instanceof Error && error.message.trim().length > 0
@@ -863,6 +871,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       {
         onDefect: () => setStreamError("Could not synchronize the thread."),
         onExpectedFailure: (cause) => setStreamError(formatThreadError(cause)),
+        onMessageTooBig: setStreamError(THREAD_TOO_LARGE_FOR_CONNECTION_MESSAGE),
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
       },

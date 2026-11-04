@@ -158,8 +158,12 @@ function WorkspaceImagePreview(props: {
   readonly alt: string;
   readonly workspaceMutationId: string | null;
 }) {
+  // ViewCode: an image outside the project (a screenshot in /tmp) goes through the media route, as
+  // the browser preview below does; the workspace route refuses paths outside the root.
+  const insideWorkspace =
+    mediaFileReference(props.absolutePath, props.workspaceRoot).relativePath !== undefined;
   const resource = workspaceAssetResource({
-    kind: "workspace-file",
+    kind: insideWorkspace ? "workspace-file" : "media-file",
     threadRef: props.threadRef,
     draft: props.draft,
     workspaceRoot: props.workspaceRoot,

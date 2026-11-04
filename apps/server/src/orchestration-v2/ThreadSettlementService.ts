@@ -3,6 +3,7 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import {
   CommandId,
+  MessageId,
   type ThreadId,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ThreadShell,
@@ -28,6 +29,7 @@ import * as TerminalManager from "../terminal/Manager.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import { mergeSettlementStep, mergeWakeMessage } from "./viewcodeMergeSettlement.ts";
 
 export interface SettlementPullRequest {
   readonly state: "open" | "closed" | "merged";
@@ -205,14 +207,41 @@ export function isSnoozed(
   return !wokeOnError && !wokeOnCompletion;
 }
 
-export function resolveAutoSettlementAt(input: {
+/** The number the merge wake names: the linked or branch pull request, else the latest link. */
+function mergedPullRequestNumber(
+  thread: ProjectionStore.ProjectionSettlementCandidate,
+): number | null {
+  const reference = thread.linkedPullRequest ?? thread.branchPullRequest;
+  if (reference != null) return reference.number;
+  const links = settlementPullRequestLinks(thread.pullRequests ?? []);
+  if (links.length === 0) return null;
+  return links.reduce((current, candidate) =>
+    linkTerminalAtMs(candidate) > linkTerminalAtMs(current) ? candidate : current,
+  ).number;
+}
+
+type AutoSettlementInput = {
   readonly thread: ProjectionStore.ProjectionSettlementCandidate;
   readonly pullRequest: SettlementPullRequest | null;
   readonly nowMs: number;
   readonly autoSettleAfterDays: number | null;
   readonly autoSettleOnMerge: boolean;
   readonly autoSettleKeepPullRequests?: boolean;
-}): DateTime.Utc | null {
+};
+
+/** ViewCode: a recent merge wakes the agent instead of settling (`viewcodeMergeSettlement.ts`). */
+export type AutoSettlementDecision =
+  | { readonly kind: "settle"; readonly at: DateTime.Utc }
+  | { readonly kind: "wake-for-merge"; readonly mergedAtMs: number };
+
+export function resolveAutoSettlementAt(input: AutoSettlementInput): DateTime.Utc | null {
+  const decision = resolveAutoSettlementDecision(input);
+  return decision?.kind === "settle" ? decision.at : null;
+}
+
+export function resolveAutoSettlementDecision(
+  input: AutoSettlementInput,
+): AutoSettlementDecision | null {
   const { thread } = input;
   let pullRequest = input.pullRequest;
   const links = settlementPullRequestLinks(thread.pullRequests ?? []);
@@ -238,7 +267,24 @@ export function resolveAutoSettlementAt(input: {
     toMillis(thread.latestRunCompletedAt),
   ]);
   if (pullRequest !== null && pullRequestSettles(thread, pullRequest, input.autoSettleOnMerge)) {
-    return activityAtMs === null ? thread.createdAt : DateTime.makeUnsafe(activityAtMs);
+    const mergedAtMs =
+      pullRequest.state === "merged" && pullRequest.mergedAt != null
+        ? Date.parse(pullRequest.mergedAt)
+        : Number.NaN;
+    if (
+      !Number.isNaN(mergedAtMs) &&
+      mergeSettlementStep({
+        mergedAtMs,
+        latestRunCompletedAtMs: toMillis(thread.latestRunCompletedAt),
+        nowMs: input.nowMs,
+      }) === "wake-agent"
+    ) {
+      return { kind: "wake-for-merge", mergedAtMs };
+    }
+    return {
+      kind: "settle",
+      at: activityAtMs === null ? thread.createdAt : DateTime.makeUnsafe(activityAtMs),
+    };
   }
   const hasPullRequest =
     pullRequest !== null || thread.linkedPullRequest != null || thread.branchPullRequest != null;
@@ -250,7 +296,7 @@ export function resolveAutoSettlementAt(input: {
   const inactivityAtMs =
     latestMillis([activityAtMs, toMillis(thread.lastSnoozeWakeAt), timerWakeAtMs]) ?? activityAtMs;
   return inactivityAtMs < input.nowMs - input.autoSettleAfterDays * DAY_MS
-    ? DateTime.makeUnsafe(inactivityAtMs)
+    ? { kind: "settle", at: DateTime.makeUnsafe(inactivityAtMs) }
     : null;
 }
 
@@ -341,7 +387,7 @@ export const make = Effect.gen(function* () {
           thread.projectId,
         ).settings;
         const decisionNow = yield* DateTime.now;
-        const settledAt = resolveAutoSettlementAt({
+        const decision = resolveAutoSettlementDecision({
           thread,
           pullRequest,
           nowMs: DateTime.toEpochMillis(decisionNow),
@@ -349,7 +395,30 @@ export const make = Effect.gen(function* () {
           autoSettleOnMerge: currentSettings.sidebarAutoSettleOnMerge,
           autoSettleKeepPullRequests: currentSettings.sidebarAutoSettleKeepPullRequests,
         });
-        if (settledAt === null) return thread;
+        if (decision === null) return thread;
+        if (decision.kind === "wake-for-merge") {
+          // One message per merge: the command id repeats, so a later sweep is a no-op.
+          const key = `${thread.id}:${decision.mergedAtMs}`;
+          const number = mergedPullRequestNumber(thread);
+          yield* orchestrator.dispatch({
+            type: "message.dispatch",
+            commandId: CommandId.make(`server:merge-wake:${key}`),
+            threadId: thread.id,
+            messageId: MessageId.make(`message:merge-wake:${key}`),
+            text: mergeWakeMessage(number),
+            notification: {
+              source: { kind: "monitor" },
+              outcome: "updated",
+              summary: number === null ? "Pull request merged" : `#${number}: merged`,
+            },
+            attachments: [],
+            dispatchMode: { type: "queue_after_active" },
+            createdBy: "agent",
+            creationSource: "server",
+          });
+          return null;
+        }
+        const settledAt = decision.at;
         const uuid = yield* crypto.randomUUIDv4();
         yield* orchestrator.dispatch({
           type: "thread.auto-settle",
@@ -439,7 +508,7 @@ export const make = Effect.gen(function* () {
       return group.some((thread) => {
         const { settings } = resolveProjectSettings(currentSettings, thread.projectId);
         return (
-          resolveAutoSettlementAt({
+          resolveAutoSettlementDecision({
             thread,
             pullRequest,
             nowMs: DateTime.toEpochMillis(decisionNow),

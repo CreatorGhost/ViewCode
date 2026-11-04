@@ -20,7 +20,7 @@ export const DEBUG_MODE_NOTE = `Debug mode is on for this thread: work from evid
 4. Do not change code to fix it until the evidence shows the cause.
 5. Report the evidence: what you ran, what you saw, and what it rules in or out.`;
 
-export const DEBUG_PLAYBOOK_MARKDOWN = `<!-- ViewCode debug playbook. The idea of an evidence-first debug mode comes from Synara (MIT). -->
+const DEBUG_PLAYBOOK_MARKDOWN = `<!-- ViewCode debug playbook. The idea of an evidence-first debug mode comes from Synara (MIT). -->
 
 # ViewCode debug mode
 

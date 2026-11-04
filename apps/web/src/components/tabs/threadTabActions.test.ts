@@ -3,6 +3,16 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { useThreadTabsStore } from "../../threadTabsStore";
+
+// Every thread here belongs to one project; the actions scope to the active thread's project.
+vi.mock("../../state/viewcodeThreadShells", () => ({
+  readViewCodeThreadShell: (ref: { environmentId: string; threadId: string }) => ({
+    environmentId: ref.environmentId,
+    id: ref.threadId,
+    projectId: "project",
+  }),
+}));
+
 import { buildThreadTabActions } from "./threadTabActions";
 
 const ref = (environment: string, thread: string) => ({

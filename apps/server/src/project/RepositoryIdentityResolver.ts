@@ -194,11 +194,21 @@ const resolveRepositoryIdentityCacheKey = Effect.fn("RepositoryIdentityResolver.
   },
 );
 
+/**
+ * `settled` is false when an SSH alias lookup went unanswered: the identity then carries the
+ * alias as its host, and an upstream on the real host loses to origin, so it is kept only as
+ * long as "no repository" is.
+ */
+interface ResolvedRepositoryIdentity {
+  readonly identity: RepositoryIdentity | null;
+  readonly settled: boolean;
+}
+
 const resolveRepositoryIdentityFromCacheKey = Effect.fn(
   "RepositoryIdentityResolver.resolveFromCacheKey",
 )(function* (
   cacheKey: string,
-): Effect.fn.Return<RepositoryIdentity | null, never, ProcessRunner.ProcessRunner> {
+): Effect.fn.Return<ResolvedRepositoryIdentity, never, ProcessRunner.ProcessRunner> {
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const remoteResult = yield* processRunner
     .run({
@@ -208,20 +218,28 @@ const resolveRepositoryIdentityFromCacheKey = Effect.fn(
     })
     .pipe(Effect.option);
   if (remoteResult._tag === "None" || remoteResult.value.code !== 0) {
-    return null;
+    return { identity: null, settled: true };
   }
 
   const remotes = parseRemoteFetchUrls(remoteResult.value.stdout);
   // The repository and its provider are keyed on the real host behind an SSH config alias.
-  const sshConfig = readSshConfig(processRunner);
+  let settled = true;
+  const sshConfig: SshConfigReader = (host) =>
+    readSshConfig(processRunner)(host).pipe(
+      Effect.tap((output) =>
+        Effect.sync(() => {
+          if (output === null) settled = false;
+        }),
+      ),
+    );
   const resolvedUrls = new Map<string, string>();
   for (const remoteName of ["upstream", "origin"]) {
     const remoteUrl = remotes.get(remoteName);
     if (remoteUrl) resolvedUrls.set(remoteName, yield* resolveSshAliasRemote(remoteUrl, sshConfig));
   }
   const remote = pickPrimaryRemote(remotes, resolvedUrls);
-  if (!remote) return null;
-  return buildRepositoryIdentity({
+  if (!remote) return { identity: null, settled: true };
+  const identity = buildRepositoryIdentity({
     ...remote,
     resolvedRemoteUrl:
       resolvedUrls.get(remote.remoteName) ??
@@ -229,6 +247,7 @@ const resolveRepositoryIdentityFromCacheKey = Effect.fn(
     originUrl: resolvedUrls.get("origin"),
     rootPath: cacheKey,
   });
+  return { identity, settled };
 });
 
 export const make = Effect.fn("RepositoryIdentityResolver.make")(function* (
@@ -239,33 +258,44 @@ export const make = Effect.fn("RepositoryIdentityResolver.make")(function* (
   const refine = options.refine ?? Effect.succeed;
   // Git errors and timeouts resolve to null, so they use the negative TTL like
   // "no repository" or "no remote". Only interrupts and defects skip the cache.
-  const timeToLive = (exit: Exit.Exit<unknown>) =>
-    Exit.match(exit, {
-      onSuccess: (value) =>
-        value === null
-          ? (options.negativeCacheTtl ?? DEFAULT_NEGATIVE_CACHE_TTL)
-          : (options.positiveCacheTtl ?? DEFAULT_POSITIVE_CACHE_TTL),
-      onFailure: () => Duration.zero,
-    });
+  const timeToLive =
+    <A>(isAnswer: (value: A) => boolean) =>
+    (exit: Exit.Exit<A>) =>
+      Exit.match(exit, {
+        onSuccess: (value) =>
+          isAnswer(value)
+            ? (options.positiveCacheTtl ?? DEFAULT_POSITIVE_CACHE_TTL)
+            : (options.negativeCacheTtl ?? DEFAULT_NEGATIVE_CACHE_TTL),
+        onFailure: () => Duration.zero,
+      });
 
   const repositoryRootCache = yield* Cache.makeWith<string, string | null>(
     (cwd) =>
       resolveRepositoryIdentityCacheKey(cwd).pipe(
         Effect.provideService(ProcessRunner.ProcessRunner, processRunner),
       ),
-    { capacity: cacheCapacity, timeToLive },
+    { capacity: cacheCapacity, timeToLive: timeToLive((root: string | null) => root !== null) },
   );
 
-  const repositoryIdentityCache = yield* Cache.makeWith<string, RepositoryIdentity | null>(
+  const repositoryIdentityCache = yield* Cache.makeWith<string, ResolvedRepositoryIdentity>(
     (cacheKey) =>
       resolveRepositoryIdentityFromCacheKey(cacheKey).pipe(
         Effect.provideService(ProcessRunner.ProcessRunner, processRunner),
-        Effect.filterOrElse(
-          (identity): identity is null => identity === null,
-          (identity) => refine(identity).pipe(Effect.orElseSucceed(() => identity)),
+        Effect.flatMap(({ identity, settled }): Effect.Effect<ResolvedRepositoryIdentity> =>
+          identity === null
+            ? Effect.succeed({ identity, settled })
+            : refine(identity).pipe(
+                Effect.orElseSucceed(() => identity),
+                Effect.map((refined) => ({ identity: refined, settled })),
+              ),
         ),
       ),
-    { capacity: cacheCapacity, timeToLive },
+    {
+      capacity: cacheCapacity,
+      timeToLive: timeToLive(
+        (resolved: ResolvedRepositoryIdentity) => resolved.identity !== null && resolved.settled,
+      ),
+    },
   );
 
   // Untraced because almost every call is a cache hit. The lookups that spawn
@@ -276,7 +306,7 @@ export const make = Effect.fn("RepositoryIdentityResolver.make")(function* (
       const cacheKey = yield* Cache.get(repositoryRootCache, cwd);
       if (cacheKey === null) return null;
       if (options?.refresh) yield* Cache.invalidate(repositoryIdentityCache, cacheKey);
-      return yield* Cache.get(repositoryIdentityCache, cacheKey);
+      return (yield* Cache.get(repositoryIdentityCache, cacheKey)).identity;
     },
   );
 

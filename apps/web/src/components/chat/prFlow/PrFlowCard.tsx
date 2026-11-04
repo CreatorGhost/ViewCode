@@ -14,12 +14,11 @@ import { Spinner } from "../../ui/spinner";
 import { ActivityShimmerOverlay } from "../ActivityShimmerOverlay";
 import {
   GRAPH_WIDTH,
-  type GraphNode,
   type GraphSegment,
   LANE_X,
   ROW_HEIGHT,
-  layoutGraph,
-} from "./prFlowGraph";
+  layoutPrFlowGraph,
+} from "@t3tools/client-runtime/pr-flow-graph";
 import {
   formatCheckDuration,
   type PrFlow,
@@ -55,6 +54,7 @@ export function PrFlowCard({
   compact = false,
   live = true,
   appear = false,
+  continuesFrom,
   onCollapse,
   onResolveConflicts,
   onMerge,
@@ -63,6 +63,11 @@ export function PrFlowCard({
   flow: PrFlow;
   compact?: boolean;
   live?: boolean;
+  /**
+   * The rows another card already showed for this pull request: the card that followed the git
+   * menu while it opened. Those stay still here and only what is new opens in.
+   */
+  continuesFrom?: ReadonlyArray<string> | undefined;
   /**
    * The card is news: it opens in and its rows arrive one after another, as rows that come later
    * do. For a pull request the conversation just got, which otherwise mounted as a hard cut.
@@ -76,18 +81,19 @@ export function PrFlowCard({
     !compact &&
     flow.checks !== null &&
     flow.checks.list.length > 0 &&
-    prFlowReached(flow.phase, "testing");
+    prFlowReached(flow.phase, "testing") &&
+    flow.phase !== "merged";
   return (
     <PrFlowLiveContext value={live}>
       <div
         className={cn(
-          "flex flex-col gap-1.5 rounded-xl border bg-card p-3 text-sm",
+          "@container/pr-flow flex min-w-0 flex-col gap-1.5 rounded-xl border bg-card p-3 text-sm",
           appear && "pr-flow-appear",
         )}
       >
         <PrFlowHeader flow={flow} onCollapse={onCollapse} />
         {compact || flow.rows.length === 0 ? null : (
-          <PrFlowRows flow={flow} status={status} appear={appear} />
+          <PrFlowRows flow={flow} status={status} appear={appear} continuesFrom={continuesFrom} />
         )}
         {showChecks && flow.checks ? (
           <PrFlowCheckChips checks={flow.checks.list} onOpen={onOpen} />
@@ -178,6 +184,15 @@ const LANE_TONE = {
   side: "text-success",
 } as const;
 
+const EDGE_TONE = { ...LANE_TONE, warning: "text-warning", merged: "text-branch" } as const;
+
+/**
+ * A branch chip beside a commit. On a narrow card it gives up its width before the commit's
+ * title does, and below 20rem it goes, so the title, author and age always fit.
+ */
+const REF_CHIP =
+  "hidden max-w-40 min-w-10 shrink-3 truncate rounded px-1.5 font-mono text-2xs leading-5 @xs/pr-flow:block";
+
 const REF_TONE = {
   head: "bg-info/10 text-info-foreground",
   base: "bg-muted text-muted-foreground",
@@ -188,93 +203,96 @@ function PrFlowRows({
   flow,
   status,
   appear,
+  continuesFrom,
 }: {
   flow: PrFlow;
   status: PrFlowStatus;
   appear: boolean;
+  continuesFrom: ReadonlyArray<string> | undefined;
 }) {
+  // The merge into the base is a row once there is a pull request to merge: it opens in while
+  // the git menu opens one.
+  const showTarget = prFlowReached(flow.phase, "opening");
   // Rows here when the card first drew stay still; rows that arrive later open in. A card that
-  // is itself news treats every row as arriving.
-  const [initialKeys] = useState(() => new Set(appear ? [] : flow.rows.map((row) => row.key)));
+  // is itself news treats every row as arriving, unless it continues another card's rows.
+  const [initialKeys] = useState(
+    () =>
+      new Set(
+        continuesFrom ??
+          (appear ? [] : [...(showTarget ? ["target"] : []), ...flow.rows.map((row) => row.key)]),
+      ),
+  );
   const nowMs = Date.parse(useNowMinute());
   const merged = flow.phase === "merged";
-  const conflictPhase = flow.phase === "conflicts" || flow.phase === "resolving";
-  const headTip = flow.rows.find((row) => row.kind === "merging" || row.lane === "head");
-  const baseTip = flow.rows.find((row) => row.kind === "commit" && row.lane === "base");
-  const nodeSha = (row: PrFlowRow) => (row.kind === "merging" ? "merging" : row.sha);
-  const nodes: ReadonlyArray<GraphNode> = [
-    {
-      key: "target",
-      sha: null,
-      lane: "base",
-      parents: [headTip, baseTip].flatMap((row) => (row === undefined ? [] : [nodeSha(row)])),
-      pending: !merged,
-    },
-    ...flow.rows.map((row): GraphNode => ({
-      key: row.key,
-      sha: nodeSha(row),
-      lane: row.kind === "merging" ? "head" : row.lane,
-      parents: row.parents,
-      pending: row.kind === "merging",
-    })),
-  ];
-  const segments = layoutGraph(nodes);
-  const targetTone = merged
-    ? "text-branch"
-    : conflictPhase && status.tone !== "busy"
-      ? "text-warning"
-      : undefined;
-  const segmentTone = (segment: GraphSegment) =>
-    segment.target && targetTone !== undefined
-      ? targetTone
-      : merged && segment.lane === "head"
-        ? "text-branch"
-        : LANE_TONE[segment.lane];
+  const { segments, rowOffset, edgeTone } = layoutPrFlowGraph(flow);
+  const headTip = flow.rows.find((row) => row.kind !== "commit" || row.lane === "head");
+  // The commit the git menu just made takes the uncommitted row's place: it swaps in rather than
+  // opening below a row that vanished.
+  const topKind = flow.rows[0]?.kind ?? null;
+  const [lastTopKind, setLastTopKind] = useState(topKind);
+  const [committedKey, setCommittedKey] = useState<string | null>(null);
+  if (lastTopKind !== topKind) {
+    setLastTopKind(topKind);
+    if (lastTopKind === "uncommitted" && headTip !== undefined) setCommittedKey(headTip.key);
+  }
+  const segmentTone = (segment: GraphSegment) => EDGE_TONE[edgeTone(segment)];
+  // Rows that arrive together open one after another, top first.
+  const arriving = [...(showTarget ? ["target"] : []), ...flow.rows.map((row) => row.key)].filter(
+    (key) => !initialKeys.has(key) && key !== committedKey,
+  );
   const base = flow.base ?? "base";
 
   return (
     <div className={cn("flex flex-col", merged && "pr-flow-wave")}>
-      <PrFlowRowFrame
-        index={0}
-        segments={segments[0] ?? []}
-        segmentTone={segmentTone}
-        node={<TargetNode flow={flow} />}
-      >
-        <span className="min-w-0 truncate text-muted-foreground">
-          {merged ? `Merged into ${base}` : `Merge into ${base}`}
-        </span>
-        <BlurSwap
-          swapKey={status.target}
-          render={
-            <span
-              className={cn(
-                "ml-auto shrink-0 text-xs",
-                status.tone === "warning"
-                  ? "text-warning-foreground"
-                  : status.tone === "merged"
-                    ? "text-branch"
-                    : status.target === "resolved" || status.tone === "success"
-                      ? "text-success-foreground"
-                      : "text-muted-foreground",
-              )}
-            />
-          }
+      {showTarget ? (
+        <PrFlowRowFrame
+          index={0}
+          arriving={!initialKeys.has("target")}
+          arriveIndex={arriving.indexOf("target")}
+          segments={segments[0] ?? []}
+          segmentTone={segmentTone}
+          node={<TargetNode flow={flow} />}
         >
-          {status.target}
-        </BlurSwap>
-      </PrFlowRowFrame>
+          <span className="min-w-0 truncate text-muted-foreground">
+            {merged ? `Merged into ${base}` : `Merge into ${base}`}
+          </span>
+          <BlurSwap
+            swapKey={status.target}
+            render={
+              <span
+                className={cn(
+                  "ml-auto shrink-0 text-xs",
+                  status.tone === "warning"
+                    ? "text-warning-foreground"
+                    : status.tone === "merged"
+                      ? "text-branch"
+                      : status.target === "resolved" || status.tone === "success"
+                        ? "text-success-foreground"
+                        : "text-muted-foreground",
+                )}
+              />
+            }
+          >
+            {status.target}
+          </BlurSwap>
+        </PrFlowRowFrame>
+      ) : null}
       {flow.rows.map((row, rowIndex) => (
         <PrFlowRowFrame
           key={row.key}
-          index={rowIndex + 1}
-          arriving={!initialKeys.has(row.key)}
-          segments={segments[rowIndex + 1] ?? []}
+          index={rowIndex + rowOffset}
+          arriving={!initialKeys.has(row.key) && row.key !== committedKey}
+          swapIn={row.key === committedKey}
+          arriveIndex={arriving.indexOf(row.key)}
+          segments={segments[rowIndex + rowOffset] ?? []}
           segmentTone={segmentTone}
           highlight={merged && row.kind === "commit" && row.lane === "head"}
           node={<RowNode row={row} flow={flow} />}
         >
           {row.kind === "merging" ? (
             <MergingRowContent row={row} head={flow.head} />
+          ) : row.kind === "uncommitted" ? (
+            <UncommittedRowContent row={row} head={flow.head} />
           ) : (
             <CommitRowContent row={row} flow={flow} nowMs={nowMs} />
           )}
@@ -284,9 +302,11 @@ function PrFlowRows({
   );
 }
 
-function PrFlowRowFrame({
+export function PrFlowRowFrame({
   index,
   arriving = false,
+  arriveIndex = 0,
+  swapIn = false,
   highlight = false,
   segments,
   segmentTone,
@@ -295,6 +315,10 @@ function PrFlowRowFrame({
 }: {
   index: number;
   arriving?: boolean;
+  /** Among the rows arriving together, this one's turn. */
+  arriveIndex?: number;
+  /** Takes the place of a row that just left: its content blurs in where that row was. */
+  swapIn?: boolean;
   highlight?: boolean;
   segments: ReadonlyArray<GraphSegment>;
   segmentTone: (segment: GraphSegment) => string;
@@ -304,13 +328,14 @@ function PrFlowRowFrame({
   return (
     <div
       className={arriving ? "pr-flow-open" : undefined}
-      style={{ "--pr-row": index } as CSSProperties}
+      style={{ "--pr-row": index, "--pr-arrive": Math.max(0, arriveIndex) } as CSSProperties}
     >
       <div>
         <div
           className={cn(
             "relative flex h-7 items-center gap-2 rounded-md pr-1",
             highlight && "bg-branch/10",
+            swapIn && "blur-swap",
           )}
         >
           <svg
@@ -328,7 +353,7 @@ function PrFlowRowFrame({
                 className={segmentTone(segment)}
                 stroke="currentColor"
                 strokeWidth={1.5}
-                strokeDasharray={segment.dashed ? "2 3" : undefined}
+                strokeDasharray={segment.dashed ? "3.5 3" : undefined}
               />
             ))}
             {node}
@@ -343,17 +368,44 @@ function PrFlowRowFrame({
 const MID = ROW_HEIGHT / 2;
 
 function TargetNode({ flow }: { flow: PrFlow }) {
+  const live = use(PrFlowLiveContext);
   const x = LANE_X.base;
   if (flow.phase === "merged") {
     return <circle cx={x} cy={MID} r={5.5} className="fill-branch" />;
   }
+  if (flow.phase === "ready" && prFlowFooterAction(flow) === "merge") {
+    return (
+      <g key="ready" className="text-success">
+        <circle cx={x} cy={MID} r={6} fill="currentColor" className="pr-flow-fade-in" />
+        <path
+          className="pr-flow-draw stroke-white"
+          pathLength={1}
+          d={`M${x - 2.6} ${MID + 0.2}l1.8 1.8 3.4-3.6`}
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </g>
+    );
+  }
   if (flow.phase === "conflicts") {
     return (
       <g className="text-warning">
+        {live ? (
+          <circle
+            ref={observeVisibleAnimation}
+            cx={x}
+            cy={MID}
+            r={8}
+            className="pr-flow-ripple"
+            stroke="currentColor"
+            strokeWidth={1.25}
+          />
+        ) : null}
         <circle cx={x} cy={MID} r={6} fill="currentColor" />
         <path
           d={`M${x} ${MID - 3}v3.4M${x} ${MID + 2.6}v.1`}
-          className="stroke-background"
+          className="stroke-white"
           strokeWidth={1.6}
           strokeLinecap="round"
         />
@@ -373,6 +425,20 @@ function TargetNode({ flow }: { flow: PrFlow }) {
 }
 
 function RowNode({ row, flow }: { row: PrFlowRow; flow: PrFlow }) {
+  if (row.kind === "uncommitted") {
+    // A dashed ring: changes that are not a commit yet.
+    return (
+      <circle
+        cx={LANE_X.head}
+        cy={MID}
+        r={4.5}
+        className="fill-card text-info"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeDasharray="2.4 2"
+      />
+    );
+  }
   if (row.kind === "merging") {
     const x = LANE_X.head;
     return (
@@ -421,7 +487,6 @@ function CommitRowContent({
   const conflictPhase = flow.phase === "conflicts" || flow.phase === "resolving";
   const conflicting = conflictPhase && row.conflicts > 0 && !row.resolved;
   const merged = flow.phase === "merged" && row.lane === "head";
-  const live = use(PrFlowLiveContext);
   const age = formatRelativeElapsed(Math.max(0, nowMs - Date.parse(row.authoredAt)));
   return (
     <>
@@ -437,36 +502,86 @@ function CommitRowContent({
       >
         {row.subject}
       </span>
-      {row.refs.slice(0, 2).map((ref) => (
-        <span
-          key={ref}
-          className={cn(
-            "max-w-40 shrink-0 truncate rounded px-1.5 font-mono text-2xs leading-5",
-            merged ? "bg-branch/10 text-branch" : REF_TONE[row.lane],
-          )}
-        >
-          {ref}
-        </span>
-      ))}
+      {row.refs
+        // While the changes on top are uncommitted, the branch's chip sits on them instead.
+        .filter((ref) => !(ref === flow.head && flow.rows[0]?.kind === "uncommitted"))
+        .slice(0, 2)
+        .map((ref) => (
+          <span
+            key={ref}
+            className={cn(REF_CHIP, merged ? "bg-branch/10 text-branch" : REF_TONE[row.lane])}
+          >
+            {ref}
+          </span>
+        ))}
       {conflicting ? (
-        <span
-          key="conflicts"
-          ref={live ? observeVisibleAnimation : undefined}
-          className={cn(
-            live && "pr-flow-glow pr-flow-glow-badge",
-            "blur-swap flex size-4.5 shrink-0 items-center justify-center rounded-full border border-warning/50 bg-warning-surface text-2xs text-warning-foreground tabular-nums",
-          )}
-        >
-          {row.conflicts}
-        </span>
+        <CommitConflictBadge key="conflicts" row={row} flow={flow} />
       ) : row.resolved && conflictPhase ? (
         <DrawnCheck key="resolved" className="size-4.5 shrink-0 text-success" ring />
       ) : null}
-      <span className="ml-auto shrink-0 pl-2 font-mono text-2xs text-muted-foreground">
-        {row.sha.slice(0, 7)}
+      <span className="ml-auto flex shrink-0 items-center gap-2 pl-2 text-muted-foreground">
+        <span className="hidden font-mono text-2xs @md/pr-flow:inline">{row.sha.slice(0, 7)}</span>
+        <span className="text-xs whitespace-nowrap">
+          {row.author} · {age.value === "just now" ? "now" : age.value}
+        </span>
       </span>
-      <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
-        {row.author} · {age.value === "just now" ? "now" : age.value}
+    </>
+  );
+}
+
+const CONFLICT_BADGE =
+  "blur-swap flex size-4.5 shrink-0 cursor-default items-center justify-center rounded-full border border-warning/45 bg-warning/6 text-2xs text-warning-foreground tabular-nums";
+
+/** A base commit's clash count; hovering it shows just the lines that commit clashes on. */
+function CommitConflictBadge({
+  row,
+  flow,
+}: {
+  row: Extract<PrFlowRow, { kind: "commit" }>;
+  flow: PrFlow;
+}) {
+  const files = flow.conflicts?.files.filter((file) => file.commit === row.sha) ?? [];
+  if (files.length === 0) return <span className={CONFLICT_BADGE}>{row.conflicts}</span>;
+  return (
+    <PreviewCard>
+      <PreviewCardTrigger
+        render={<span className={CONFLICT_BADGE} />}
+        aria-label={`${plural(row.conflicts, "conflict")} from ${row.subject}`}
+      >
+        {row.conflicts}
+      </PreviewCardTrigger>
+      <PreviewCardPopup side="top" align="start">
+        <ConflictLines
+          files={files}
+          base={flow.base ?? "the base"}
+          heading={
+            <>
+              <span className="font-medium">{row.subject}</span>{" "}
+              <span className="text-muted-foreground">clashes with your changes</span>
+            </>
+          }
+        />
+      </PreviewCardPopup>
+    </PreviewCard>
+  );
+}
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** The changes the git menu commits first, while it does. */
+function UncommittedRowContent({
+  row,
+  head,
+}: {
+  row: Extract<PrFlowRow, { kind: "uncommitted" }>;
+  head: string;
+}) {
+  return (
+    <>
+      <span className="min-w-0 truncate text-muted-foreground">Uncommitted changes</span>
+      {head.length === 0 ? null : <span className={cn(REF_CHIP, REF_TONE.head)}>{head}</span>}
+      <span className="ml-auto shrink-0 pl-2 text-xs whitespace-nowrap text-muted-foreground">
+        {plural(row.files, "file")}
       </span>
     </>
   );
@@ -485,14 +600,7 @@ function MergingRowContent({
       <ShimmerLabel live={live} text={row.subject}>
         <span className="block truncate text-muted-foreground">{row.subject}</span>
       </ShimmerLabel>
-      <span
-        className={cn(
-          "max-w-40 shrink-0 truncate rounded px-1.5 font-mono text-2xs leading-5",
-          REF_TONE.head,
-        )}
-      >
-        {head}
-      </span>
+      <span className={cn(REF_CHIP, REF_TONE.head)}>{head}</span>
       <BlurSwap
         swapKey={`${row.done}/${row.total}`}
         render={<span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums" />}
@@ -633,18 +741,31 @@ function PrFlowCheckChips({
   );
 }
 
-function ConflictLines({ conflicts, base }: { conflicts: PrFlowConflicts; base: string }) {
-  const theirs = [...new Set(conflicts.files.flatMap((file) => file.theirsAuthor ?? []))];
+function ConflictLines({
+  files,
+  base,
+  heading,
+}: {
+  files: PrFlowConflicts["files"];
+  base: string;
+  heading?: ReactNode;
+}) {
+  const theirs = [...new Set(files.flatMap((file) => file.theirsAuthor ?? []))];
   const shortName = (name: string | null) => name?.split(" ")[0] ?? "";
   return (
     <div className="flex max-h-96 w-96 max-w-full flex-col gap-2 overflow-y-auto p-3 text-xs">
       <p>
-        {theirs.length === 1 ? <span className="font-medium">{theirs[0]}</span> : base}{" "}
-        <span className="text-muted-foreground">
-          changed the same lines{theirs.length === 1 ? ` on ${base}` : " since this branch left it"}
-        </span>
+        {heading ?? (
+          <>
+            {theirs.length === 1 ? <span className="font-medium">{theirs[0]}</span> : base}{" "}
+            <span className="text-muted-foreground">
+              changed the same lines
+              {theirs.length === 1 ? ` on ${base}` : " since this branch left it"}
+            </span>
+          </>
+        )}
       </p>
-      {conflicts.files.map((file) =>
+      {files.map((file) =>
         file.hunks.length === 0 ? (
           <p key={file.path} className="border-t pt-2">
             <span className="font-medium">{file.path}</span>{" "}
@@ -707,52 +828,43 @@ function PrFlowFooter({
   const base = flow.base ?? "the base";
   const checks = flow.checks;
   const conflicts = flow.conflicts;
+  // Only the count is amber, and it opens the clashing lines when they are known; the node's
+  // ripple already says the card is waiting on the reader, so the line itself stays still.
   const label =
-    flow.phase === "conflicts" && conflicts !== null && conflicts.files.length > 0 ? (
+    flow.phase === "conflicts" ? (
       <>
-        <PreviewCard>
-          <PreviewCardTrigger
-            render={
-              <span className="cursor-default text-warning-foreground underline decoration-warning/50 decoration-dotted underline-offset-4" />
-            }
-          >
-            {status.short}
-          </PreviewCardTrigger>
-          <PreviewCardPopup side="top" align="start">
-            <ConflictLines conflicts={conflicts} base={base} />
-          </PreviewCardPopup>
-        </PreviewCard>
-        <span className="text-muted-foreground"> with {base}</span>
+        {conflicts !== null && conflicts.files.length > 0 ? (
+          <PreviewCard>
+            <PreviewCardTrigger
+              render={
+                <span className="cursor-default text-warning-foreground underline decoration-warning/50 decoration-dotted underline-offset-4" />
+              }
+            >
+              {status.short}
+            </PreviewCardTrigger>
+            <PreviewCardPopup side="top" align="start">
+              <ConflictLines files={conflicts.files} base={base} />
+            </PreviewCardPopup>
+          </PreviewCard>
+        ) : (
+          <span className="text-warning-foreground">{status.short}</span>
+        )}{" "}
+        with {base}
       </>
     ) : (
       status.label
     );
-  // Open conflicts wait on the reader; the rest is work in flight. Both shine until they settle.
-  const live = use(PrFlowLiveContext) && (status.tone === "busy" || flow.phase === "conflicts");
-  const liveText =
-    flow.phase === "conflicts" && conflicts !== null && conflicts.files.length > 0
-      ? `${status.short} with ${base}`
-      : status.label;
+  const live = use(PrFlowLiveContext) && status.tone === "busy";
   return (
-    <div className="flex min-h-8 items-center gap-2 px-0.5 pt-1">
+    // On a narrow card the action wraps to its own line rather than crushing the label.
+    <div className="flex min-h-8 flex-wrap items-center gap-x-2 gap-y-1.5 px-0.5 pt-1">
       <FooterIcon flow={flow} status={status} />
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <ShimmerLabel
-          live={live}
-          glow={flow.phase === "conflicts"}
-          text={liveText}
-          band={flow.phase === "conflicts" ? "pr-flow-warning-band" : undefined}
-        >
+      <div className="flex min-w-0 flex-1 basis-40 flex-col gap-1.5">
+        <ShimmerLabel live={live} text={status.label}>
           <BlurSwap
             swapKey={status.label}
             render={
-              <p
-                className={cn(
-                  "truncate",
-                  status.tone === "busy" && "text-muted-foreground",
-                  flow.phase === "conflicts" && "text-warning-foreground",
-                )}
-              />
+              <p className={cn("truncate", status.tone === "busy" && "text-muted-foreground")} />
             }
           >
             {label}
@@ -774,7 +886,7 @@ function PrFlowFooter({
           </span>
         ) : null}
       </div>
-      <BlurSwap swapKey={flow.phase} className="shrink-0">
+      <BlurSwap swapKey={flow.phase} className="ml-auto shrink-0">
         <FooterAction
           flow={flow}
           onResolveConflicts={onResolveConflicts}
@@ -788,20 +900,15 @@ function PrFlowFooter({
 
 /**
  * A label with the activity shimmer while `live`: the shared moving shine, running only while on
- * screen, and with `glow` a soft amber pulse behind it on the same beat. Settled, it is just the
- * label. `text` is what the shine draws, the label as plain text.
+ * screen. Settled, it is just the label. `text` is what the shine draws, the label as plain text.
  */
-function ShimmerLabel({
+export function ShimmerLabel({
   live,
-  glow = false,
   text,
-  band,
   children,
 }: {
   live: boolean;
-  glow?: boolean;
   text: string;
-  band?: string | undefined;
   children: ReactNode;
 }) {
   const cardLive = use(PrFlowLiveContext);
@@ -809,11 +916,17 @@ function ShimmerLabel({
   return (
     <span
       ref={shining ? observeVisibleAnimation : undefined}
-      className={cn("block w-fit max-w-full min-w-0", shining && glow && "pr-flow-glow")}
+      className="block w-fit max-w-full min-w-0"
     >
       <span className="relative block overflow-hidden whitespace-nowrap">
         {children}
-        {shining ? <ActivityShimmerOverlay className={band}>{text}</ActivityShimmerOverlay> : null}
+        {/* The shine's copy ends in the same ellipsis as the label, so a cut label never
+            shows letters past it. */}
+        {shining ? (
+          <ActivityShimmerOverlay className="truncate text-foreground">
+            {text}
+          </ActivityShimmerOverlay>
+        ) : null}
       </span>
     </span>
   );
@@ -851,7 +964,7 @@ function FooterAction({
   switch (prFlowFooterAction(flow)) {
     case "resolve":
       return onResolveConflicts === undefined ? null : (
-        <Button size="xs" variant="secondary" onClick={onResolveConflicts}>
+        <Button size="xs" variant="primary-soft" onClick={onResolveConflicts}>
           Resolve conflicts
         </Button>
       );
@@ -867,7 +980,8 @@ function FooterAction({
       return onMerge === undefined ? (
         <OpenButton flow={flow} onOpen={onOpen} />
       ) : (
-        <Button size="xs" onClick={onMerge}>
+        <Button size="xs" variant="primary-soft" onClick={onMerge}>
+          <PullRequestGlyph.merged aria-hidden />
           Merge
         </Button>
       );
@@ -923,23 +1037,25 @@ export function PrFlowCollapsedRow({
 }) {
   const presentation =
     state === "merged"
-      ? {
-          Icon: PullRequestGlyph.merged,
-          tone: "text-branch",
-          label: `Merged into ${base ?? "base"}`,
-        }
+      ? { Icon: PullRequestGlyph.merged, tone: "text-branch", label: "Merged" }
       : state === "closed"
         ? { Icon: PullRequestGlyph.closed, tone: "text-muted-foreground", label: "Closed" }
         : { Icon: PullRequestGlyph.pullRequest, tone: "text-success-foreground", label: "Open" };
   const host = hostOf(url);
   return (
-    <div className="flex h-10 items-center gap-2 rounded-xl border bg-card ps-3 pe-1.5 text-sm">
+    // On a narrow row the base, the diff stat and the host's name go first, so the title keeps room.
+    <div className="@container/pr-row flex h-10 min-w-0 items-center gap-2 rounded-xl border bg-card ps-3 pe-1.5 text-sm">
       <presentation.Icon aria-hidden className={cn("size-4 shrink-0", presentation.tone)} />
       <span className="shrink-0 font-medium">#{number}</span>
-      <span className={cn("shrink-0", presentation.tone)}>{presentation.label}</span>
+      <span className={cn("shrink-0", presentation.tone)}>
+        {presentation.label}
+        {state === "merged" ? (
+          <span className="hidden @md/pr-row:inline"> into {base ?? "base"}</span>
+        ) : null}
+      </span>
       <span className="min-w-0 truncate text-muted-foreground">{title}</span>
       {additions === null || deletions === null ? null : (
-        <span className="ml-auto shrink-0 font-mono text-xs">
+        <span className="ml-auto hidden shrink-0 font-mono text-xs @sm/pr-row:inline">
           <span className="text-diff-addition-foreground">+{additions}</span>{" "}
           <span className="text-diff-deletion-foreground">−{deletions}</span>
         </span>
@@ -948,11 +1064,16 @@ export function PrFlowCollapsedRow({
         <Button
           size="xs"
           variant="ghost-muted"
-          className={additions === null || deletions === null ? "ml-auto" : undefined}
+          aria-label={`Open on ${host.label}`}
+          className={
+            additions === null || deletions === null ? "ml-auto" : "ml-auto @sm/pr-row:ml-0"
+          }
           onClick={() => onOpen(url)}
         >
           {host.icon}
-          {host.label}
+          <span className={host.icon === null ? undefined : "hidden @xs/pr-row:inline"}>
+            {host.label}
+          </span>
         </Button>
       )}
       {onExpand === undefined ? null : (

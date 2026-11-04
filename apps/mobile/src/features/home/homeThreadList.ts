@@ -6,7 +6,12 @@ import {
   getThreadSortTimestamp,
   toSortableTimestamp,
 } from "@t3tools/client-runtime/viewcodeThreadSort";
-import type { EnvironmentId, ScopedProjectRef, SidebarProjectGroupingMode, SidebarProjectSortOrder } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ScopedProjectRef,
+  SidebarProjectGroupingMode,
+  SidebarProjectSortOrder,
+} from "@t3tools/contracts";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 

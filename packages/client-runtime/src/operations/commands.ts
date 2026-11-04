@@ -684,8 +684,17 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
     return yield* request(ORCHESTRATION_V2_WS_METHODS.launchThread, {
       commandId,
       creationSource: input.creationSource ?? "web",
-      ...(bootstrap?.viewcodeGoal !== undefined ? { viewcodeGoal: bootstrap.viewcodeGoal }
-        : bootstrap?.goal ? { viewcodeGoal: { objective: bootstrap.goal, pausedAt: null, updatedAt: bootstrap.createdAt } } : {}),
+      ...(bootstrap?.viewcodeGoal !== undefined
+        ? { viewcodeGoal: bootstrap.viewcodeGoal }
+        : bootstrap?.goal
+          ? {
+              viewcodeGoal: {
+                objective: bootstrap.goal,
+                pausedAt: null,
+                updatedAt: bootstrap.createdAt,
+              },
+            }
+          : {}),
       ...(bootstrap?.debugMode === undefined ? {} : { debugMode: bootstrap.debugMode }),
       threadId: input.threadId,
       ...(bootstrap === undefined ? { reuseExistingThread: true } : {}),

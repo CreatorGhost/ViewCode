@@ -204,8 +204,8 @@ export function stampTryingSince(
   return { ...next, tryingSince: since };
 }
 
-export const RECONNECT_BASE_MS = 1_000;
-export const RECONNECT_MAX_MS = 30_000;
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
 /** A connection that lasted at least this long earns a fresh backoff. */
 export const STABLE_CONNECTION_MS = 30_000;
 /**

@@ -75,9 +75,9 @@ import {
 /** Wait past the reset so the provider has certainly cleared the window. */
 export const USAGE_RESUME_DELAY_MS = USAGE_RESET_MARGIN_MS;
 /** A resume is never scheduled closer than this. */
-export const USAGE_RESUME_MIN_DELAY_MS = 5_000;
+const USAGE_RESUME_MIN_DELAY_MS = 5_000;
 /** Resumes attempted for one stretch of being out of usage before giving up. */
-export const USAGE_RESUME_MAX_ATTEMPTS = 2;
+const USAGE_RESUME_MAX_ATTEMPTS = 2;
 /** An overdue schedule found at startup runs this long after boot. */
 export const USAGE_RESUME_STARTUP_GRACE_MS = 5_000;
 /** A due resume finds the thread busy: it tries again this much later. */
@@ -85,7 +85,7 @@ export const USAGE_RESUME_BUSY_RETRY_MS = 60_000;
 /** Waits before each retry of a transiently throttled turn; then it stops. */
 export const TRANSIENT_RETRY_DELAYS_MS = [10_000, 30_000, 60_000] as const;
 /** What a resume after a usage limit reset records; phone notifications key on it. */
-export const USAGE_RESUME_AUTO_SUMMARY = "Trying to continue after the usage limit…";
+const USAGE_RESUME_AUTO_SUMMARY = "Trying to continue after the usage limit…";
 /** A reset further away than this is more likely a misread than a limit. */
 const MAX_RESET_HORIZON_MS = 14 * 24 * 60 * 60 * 1000;
 

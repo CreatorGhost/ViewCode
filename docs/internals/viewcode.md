@@ -10,8 +10,8 @@ remain the authority for the native runtime.
 ViewCode follows upstream by ordinary `git merge` again. The v2 port merges
 `13aa882c22d584de5388dfce3b3ca413387ba059` (0.1.0), replacing the cherry-pick-only
 policy used after common base `024d49520`. The latest merge includes upstream
-`8f026485df097cca71f80218a514f4d2e13bbf43`. Future updates start with
-`git fetch upstream main` and merge on a review branch. See
+`8f026485df097cca71f80218a514f4d2e13bbf43`. Every update follows
+[Merging upstream T3 Code](../operations/upstream-merge.md); conflict policy is in
 [NEXT_AGENT.md](../NEXT_AGENT.md#staying-mergeable-with-upstream-t3-code).
 
 Keep upstream names, directories, commands, events and provider contracts.
@@ -146,11 +146,28 @@ of the old database only after a verified upgrade and separate backup.
   that happens to report running. A failed child yields a useful failure reply,
   and a stopped/interrupted run does not produce a spurious completion reply.
 - Agents can reach only their own tree (root thread and all descendants). A hop
-  limit (24) stops ping-pong loops; spawning counts as a hop too. `t3_thread_send`
-  reaches any thread, so it enforces the same 24 from durable messages instead:
-  sends from other threads since the user last wrote in the caller. V2 uses native
+  limit (24) stops ping-pong loops; spawning counts as a hop too. V2 uses native
   `lineage.rootThreadId` and rejects missing, ambiguous or archived destinations.
   Do not infer tree authority from an optional legacy parent alias alone.
+- Upstream's `t3_thread_send`, `t3_thread_read` and thread-control tools reach
+  any thread. Two chats the user started separately once negotiated a shared
+  Docker VM for 30 messages with no one asking, so ViewCode bounds that path
+  (`mcp/peerExchange.ts`). Chats are related when they share a root or one tree
+  launched the other: an agent created the launched root and its opening message
+  names the launcher. A separate chat gets one exchange: the first message waits
+  for the user's Send in the sender's chat (the RockBot confirmation, flagged
+  `viewcodePeerExchange`), the receiver may answer it once without asking, and
+  anything further (thanks, status, an unchanged resend) asks again or is
+  refused. Request and reply are read from the durable messages themselves; the
+  reply carries `in-reply-to`, so no exchange table exists to drift.
+  The message travels in the agent envelope with a footer saying it is a peer,
+  not the user, so the provider does not treat it as instructions and clients draw
+  an agent card. Reading a separate chat asks once per caller run (in-memory
+  grant). `writesThreads` refuses separate chats outright; `writesThreadMetadata`
+  (rename, pin, settle, snooze) stays open; answering another chat's question is
+  refused. The 24-message hop guard still applies to related chats.
+  Resource scheduling between chats is not solved here: a shared Docker VM is
+  still contended, and a managed job queue would be the place for it.
 - Child creation and its own worktree use upstream delegated tasks. Their native
   preparation, cancellation and completion wake-up remain authoritative.
   A request accepted through client command intake must also schedule
@@ -523,7 +540,24 @@ closes any left from a restart.
   `cursor-agent` as the fallback where the SDK ships no native package. Detection and
   the launch gate use the same resolver and never run the binary. Both runtimes share
   one continuation key; a thread whose saved session belongs to the other runtime
-  fails resume and gets native resume fallback with a full handoff. Running the SDK in
+  fails resume and gets native resume fallback with a full handoff. A `cursor-agent acp`
+  process lives as long as its thread's session (the idle timer does not run while the Mac
+  sleeps), and the CLI can keep a lost sign-in or dead connection in memory after a wake
+  while a new process signs in fine. So a prompt that fails with a sign-in, Keychain or
+  network error replaces the process before the next turn (`restartRuntimeAfterPromptFailure`)
+  and re-checks status. A process can also leave `session/prompt` unanswered for good: only the
+  Cursor CLI runtime watches for that (`watchPromptStalls` in `cursorAgentAcpSupport.ts`, not
+  the shared ACP adapter). Ten minutes of awake time with no stdout from the agent ends the
+  turn and takes the same restart, or 90 seconds when the host woke or unlocked mid-prompt and
+  the agent has not written since (the wake reaches the runtime from the `BackgroundPolicy`
+  edge in `cursorStatusRecheck.ts`). A running tool call or a request we have not answered
+  pauses both, because `delegate_task` waits and builds are silent far longer. The prompt is
+  never resent. `about` says "Not logged in" when it cannot read its Keychain token
+  too; with `authInfo` still in `~/.cursor/cli-config.json` that is reported as unconfirmed,
+  not signed out. A status that is not ready is re-checked on wake or unlock, on a client
+  coming to the front and on a client's network coming back (`cursorStatusRecheck.ts`, from
+  `BackgroundPolicy` edges; the web report carries `networkType` for the last one), and a
+  failed model list keeps the last good one. Running the SDK in
   a child `node` process was rejected: the tools' parent would still be a generic
   `node`, which is what the EDR objects to, and it needs a new packaged entry and an
   IPC protocol for the SDK runner's callbacks.
@@ -588,8 +622,36 @@ pins one credential for a repository operation, including its mutations and
 stack-rebase ownership decisions. Repository visibility probes can choose a
 second authenticated account; explicit credentials remain authoritative. Never
 call `gh auth switch`. SSH aliases such as `github.com-work` must resolve to the
-actual API host while preserving repository/account selection. Test both
+actual API host while preserving repository/account selection. An Enterprise
+host without a `github` label is GitHub only because discovery claimed it, so
+the routed providers take its host from the provider context, never a
+github.com default (`GitHubRoutedSourceControlProvider.viewcode.test.ts`). Test both
 accounts with a repository inaccessible to the default account.
+
+Upstream's clients call the API from Node with a token taken from `gh`, but a
+managed machine's corporate CA, proxy or VPN may only be known to `gh`, which
+ViewCode used for every read before v2. So a request to a host other than
+github.com that fails before any HTTP answer is sent again through `gh api` with
+the same token, and that host goes through `gh` for the life of the server
+(`GitHubGhTransport.ts`, wrapped into the REST and GraphQL clients). github.com
+never falls back, an HTTP refusal is an answer rather than a transport failure,
+and the request error names the cause (an untrusted certificate, a refused
+connection) instead of a bare "could not be read".
+
+Enterprise Server has no pull request stacks, and it validates every field
+against its schema before `@include` is applied, so `stack @include(if: false)`
+still fails ("Field 'stack' doesn't exist on type 'PullRequest'"). Hosts other
+than github.com get the stack-free `Enterprise*` documents in
+`pullRequestEnterprise.graphql` and report `stacks`/`stackActions` false through
+`capabilitiesForHost` (`GitHubPullRequestApi.enterprise.viewcode.test.ts`). A new
+read that names a github.com-only field needs an Enterprise variant the same way.
+
+A fork's repository identity is its upstream (upstream's rule, `docs/internals/remote.md`), so the
+Pull requests list reads the fork's `origin` beside it and flags the upstream rows (`upstream` on
+the entry); clients give them their own group. One project can therefore hold two listed
+repositories: resolve a ref by its repository, never by project id alone. An identity built while
+`ssh -G` went unanswered still carries the alias as its host, and the cross-host rule then makes
+origin win over upstream, so the resolver keeps it only for the negative TTL.
 
 Posting findings requires the active user-authorized path; scheduled runs,
 agent-origin messages and review agents cannot silently post external comments.
@@ -608,8 +670,9 @@ this restriction disappear.
 
 ## Pull request card
 
-The chat's PR card (`apps/web/src/components/chat/prFlow/`, model in client-runtime `prFlow.ts`
-so the phone feed's `ThreadPullRequestFeedCard` reads the same phases and actions) combines the thread's PR link
+The chat's PR card (`apps/web/src/components/chat/prFlow/`, phone `features/threads/PrFlowCard.tsx`;
+model and graph layout in client-runtime `prFlow.ts` and `prFlowGraph.ts`, so both draw the same
+rows, lanes and edge colours) combines the thread's PR link
 snapshot (the host's state), the host's checks, the agent's running command, and
 `GitWorkflowService.pullRequestGraph`, which reads commits and conflicts from the thread's
 checkout. That read must never write to the worktree, so conflicts come from
@@ -618,6 +681,11 @@ graph returns `conflicts: null`, and the card only says "Conflicts with <base>",
 The read never fetches. `<remote>/<base>` is only as fresh as the git status poll's background
 fetch (`refreshStatusUpstreamIfStale`). Do not add a fetch per read; the card refetches after
 every git command the agent runs.
+
+The phone cannot pause an animation that scrolls off screen the way web's
+`observeVisibleAnimation` does, so its conflict node ripples three beats when the
+state appears and then rests. Web hovers become taps there: native sheets for the
+clashing lines, an alert for a check's details.
 
 The branch's fork point is the parent of its oldest first-parent commit, not `git merge-base`.
 After the agent merges the base in, `merge-base` would move to the base tip and the base commits
@@ -629,9 +697,27 @@ pull request linked by hand later sits where it was linked. Folded cards render 
 snapshot only and never mount the full card, so the graph and checks reads stay with the one
 current card per thread.
 
-A card the conversation just received (its link younger than `PR_APPEAR_WINDOW_MS`) mounts
-with `appear`: it rises in and every row arrives staggered. Without it the card, which replaces
-the creating card at the end of the chat, mounted as a hard cut and its rows counted as initial.
+While the git menu opens a pull request, the creating card at the end of the chat already draws
+the branch: it reads the same graph RPC against the base `branchChanges.baseRef` names, with the
+same input the pull request's card will use, so that card starts with the graph cached. When the
+link arrives, the pull request's card takes over the creating card's rows
+(`creatingRowsShown` in `ThreadPrFlowCard.tsx`): they stay put and only what is new opens in.
+Any other card the conversation just received (its link younger than `PR_APPEAR_WINDOW_MS`)
+mounts with `appear` and rises in. Either way it is never a hard cut.
+
+"Checking it merges cleanly" needs `justOpened` (the link is under two minutes old). Hosts can
+leave mergeability `unknown` for a long time, and a checkout on old Git cannot say either, so
+without that window the card would spin forever.
+
+The composer's **Create PR** chip runs `GitActionsControl`'s own quick action through its
+`composer-chip` presentation, so the default-branch prompt, permissions and toasts stay the git
+menu's. That presentation is a ViewCode change to an upstream file, guarded by
+`GitActionsControl.viewcode.test.ts`.
+
+The Review panel's review card (`ReviewCard` in `chat/ReviewProgress.tsx`) is drawn with the PR
+card's exported row frame, lanes and shimmer label: the reviewer on the head lane with its live
+step, its agents on the side lane. Keep the two cards one language; a change to the row frame or
+the lane tones is a change to both.
 
 "Resolving" survives reloads and other devices without stored state. The thread's latest user
 message being the Resolve prompt, while its run is active, means the agent is resolving.
@@ -649,6 +735,11 @@ send as usual. There is no loop or queue behind it.
 
 ## Desktop local mode and phone access
 
+- The desktop writes its backend's stdout/stderr to `server-child.log` as it
+  arrives (`DesktopObservability.ts`). Upstream keeps the last 1 MiB in memory and
+  writes it only after a crash, which lost every warning logged outside a span,
+  since only in-span messages reach `server.trace.ndjson`. A merge that restores
+  upstream's version fails `DesktopObservability.viewcode.test.ts`.
 - By default the desktop backend listens on a Unix socket (named pipe on
   Windows), reached by the window through the main process as
   `t3code-backend://<id>/`; providers reach MCP through a stdio bridge. No TCP
@@ -709,11 +800,20 @@ send as usual. There is no loop or queue behind it.
   stream as `viewcodeRelay`, like `managedTunnel`; the switch is the `viewcodeRelay.enabled`
   server setting and the host secret lives only in the secret store. The desktop backend is
   spawned with `--use-system-ca` so corporate TLS inspection does not break the socket.
-- Cloudflare's Durable Object caps each WebSocket message at 1 MiB. Provider
-  `workspaceSnapshots` stay in the server registry; config snapshots, provider
-  status updates and refresh replies omit them. Composers fetch one cwd's
-  snapshot through `server.getProviderWorkspaceSnapshot`. Splitting host relay
-  frames cannot help because the phone expects one WebSocket message.
+- Cloudflare's Durable Object caps each WebSocket message at 1 MiB. The forwarder
+  will not send a larger one: it closes the client's whole socket with 1009 and
+  names the RPC tag (`Message too big: <tag>`), so one oversized reply breaks every
+  request on that phone, sends included. Every server-to-client RPC message must
+  stay under it: bounded thread snapshots stop at `THREAD_SNAPSHOT_MAX_WIRE_BYTES`
+  even inside one long agent turn (Load earlier pages the rest over HTTP, which
+  the relay already chunks); replay and live batches split at
+  `RPC_STREAM_CHUNK_MAX_BYTES` (`rpcChunkBudget.ts`); config and provider status
+  messages carry only the newest workspace catalogs that fit
+  (`provider/providerWire.ts`). Clients hold back a subscription whose opening
+  data drew a 1009 rather than reconnect into the same close
+  (`isMessageTooBigFailure`). Splitting host frames alone cannot help, because the
+  phone expects one WebSocket message: it would need Durable Object reassembly,
+  a protocol capability check and a Worker redeploy.
 - Quick connect is set up from the app by the server (`relay/ViewCodeRelaySetup.ts`), which
   runs `npx --yes wrangler@4` from PATH. A desktop without Node 22+ still works where the server
   is Electron-as-node (not Apple Silicon, whose backend is standalone ViewCode
@@ -779,6 +879,12 @@ send as usual. There is no loop or queue behind it.
 
 ## Sidebar
 
+- A merged pull request does not settle its thread straight away
+  (`orchestration-v2/viewcodeMergeSettlement.ts`). A merge is often one step of the task, and
+  the agent's next steps waited for it, so upstream's rule settled threads with work left. The
+  sweep sends the agent one message (a repeated command id, so later sweeps are no-ops) and
+  settles once a run has ended after the merge. Merges older than six hours settle as before, so
+  an update never wakes every old thread at once.
 - The shape is fixed by the user: rail, project folders, chats, each chat's agents.
   Do not regroup by time. Grouping, sorting and the attention counts live in
   client-runtime `state/threadArrangement.ts` so web and mobile arrange a folder alike.
@@ -825,7 +931,7 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   classes; nothing re-renders when it changes. Layer strengths come from
   `shellTint.ts` per theme, written beside the palette by `themePalette.ts`; its
   test holds every built-in theme to readable contrast under the tint, so a new
-  theme must pass it. The wash is a whisper (5 % to 1.5 % on dark): at the
+  theme must pass it. The wash is a whisper (7.5 % to 2.5 % on dark): at the
   design's 10 % the whole left side read as a grey-tinted plane (user decision).
   The project colour stays strong on the rail tile, the folder badge, the edge
   bar and the open row. The composer change is limited to the glow's colour and
@@ -841,6 +947,13 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   keyboard is up.
 - Project colour lives on the folder badges and the composer glow. The top bar and the
   tabs carry none (user decision: a coloured header read as a second layer).
+- The tab strip is per project, like the rail and the sidebar. `threadTabsStore` still keeps
+  one list per environment (a tab on another machine never shows here), and
+  `OpenThreadTabs` shows the tabs that share the active thread's project; the strip shows
+  as many as fit its measured width, at most six, and folds the rest into a "+N" menu, the
+  active tab always shown; with no room for a tab and the menu it draws the active tab alone.
+  Tabs were cut at the strip's edge when a panel narrowed the chat column. Every open thread
+  across projects in one strip was unreadable past a handful (user decision).
   The ViewCode default ("Obsidian", id `viewcode-teal`) is one neutral black family with no
   cast: window `#080808`, sheet `#0e0e0e`, raised `#161616`. Separation comes from hairlines and
   the composer, which is the one raised card; teal sits only on actions. Its light half is warm
@@ -932,6 +1045,13 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   Cursor (`cursor`, `project/CursorHistory.ts`). Nothing is imported by
   default: sessions are picked one by one. Agents reach the same flow through
   the `history` MCP toolkit.
+- **A bare `AgentSessionScanner.layer` lists only Claude Code and Codex.** The
+  Cursor and T3 Code readers are optional services, so a scanner built without
+  them skips both sources and only logs a warning when it is built. server.ts
+  provides one `project/ViewCodeAgentSessionScanner.ts` layer to the v2
+  importer, the MCP tools and the WebSocket handlers, which also keeps one
+  import read lock; `runtimeLayer.ts` must not build its own
+  (`runtimeLayer.viewcode.test.ts`).
 - **Never open T3's source database read-write.** T3 Code may be running.
   The legacy reader attaches the file with `mode=ro` to a private temp database,
   copies the needed rows in one read transaction, detaches the source, and reads
@@ -1026,6 +1146,13 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
   be a class: with SVG labels only a class's `tspan` rule reaches subgraph
   titles and beats an author's own low-contrast `color`.
 
+- Mobile draws diagrams in a WebView (`apps/mobile/src/components/MermaidCodeBlock.tsx`)
+  with Mermaid from jsDelivr, pinned to the web app's version by URL and SRI hash in
+  `mermaidDiagram.ts`. Bumping `mermaid` in `apps/web` means updating both there; the
+  hash is `openssl dgst -sha384 -binary dist/mermaid.min.js | openssl base64 -A`. The
+  markdown module only exposes `renderCodeBlock`, withheld for a trailing fence that
+  has not closed yet, so a streaming diagram is never rendered half-written.
+
 ## Read aloud
 
 - The speaker button reads one assistant message, the same one Copy copies:
@@ -1058,6 +1185,30 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
 - Utterances stay under 250 characters: Chromium's `speechSynthesis` cuts off
   or stalls long ones, and drops events for utterances it garbage-collects, so
   the queue stays referenced until it ends.
+- Speak mode (`speakMode`: off, summary, full; off by default) is a server
+  setting, unlike voice and speed: in "summary" the server writes each
+  completed turn's `spokenSummary` onto its final assistant message, so every
+  client reads the same words and none generates its own. Checkpoint capture,
+  where a run becomes `completed`, enqueues `spoken-summary.generate`
+  (`orchestration-v2/ViewCodeSpokenSummary.ts`). It runs in its own outbox lane
+  like titles, so a slow model never holds back the next turn, and a failure only
+  leaves the field absent. The model is the cheap one of the provider instance
+  that ran the turn (Haiku for an Opus turn, through the same account), else the
+  title model. The summary is stripped of markdown and capped at 60 words in
+  `provider-core/server/spokenSummary.ts`, because small models ignore format
+  rules and a voice reads every symbol.
+- The web client speaks from ChatView, so only a thread on screen is read
+  (`hooks/useSpeakMode.ts`, `lib/speakMode.logic.ts`). A turn that had already
+  finished when the thread was opened, or while speak mode was off, stays
+  silent: opening a chat or turning speak mode on never reads an old reply.
+  With speak mode off the thread is not even built for it, so streaming costs
+  nothing.
+- Mobile reads with the system voice (`expo-speech`, `apps/mobile/src/features/speech`).
+  Speak mode speaks only a reply that settles while its thread is open and the app is
+  in front: replies already there when the thread opens are never read, a summary is
+  read when it arrives after the turn, and leaving the thread or backgrounding the
+  app stops speech. Android caps one utterance near 4,000 characters, so text is
+  queued in chunks under that.
 
 ## Dictation (web and desktop)
 
@@ -1185,6 +1336,15 @@ T3 binaries, so enabling that path would replace the fork. Manual npm guidance
 uses the optional installation package identity and preserves `viewcode-app`.
 
 ## Traps (things that cost hours)
+
+- **Upstream merges drop ViewCode fixes without a conflict** when upstream
+  rewrites or deletes the file a fix lived in, and a ViewCode case inside an
+  upstream test file goes with it: `58e4b0a77` lost the 1 MiB catalog guard in
+  `ws.ts` together with `server.test.ts`. Guard ViewCode behaviour in
+  upstream-owned code with a `*.viewcode.test.ts(x)` beside it, which upstream
+  never has, and merge by [the procedure](../operations/upstream-merge.md). A guard
+  covers a function, not its call sites: wiring in a rewritten upstream file still
+  needs the review the merge check lists.
 
 - **Running as root in a sandbox:** Claude refuses `bypassPermissions` as root;
   start the isolated test server with `IS_SANDBOX=1` when that sandbox requires it.

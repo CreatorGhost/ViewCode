@@ -23,7 +23,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
 const SHIM_DIR = "computer-use/bin";
-export const COMPUTER_CLI_NAME = "viewcode-computer";
+const COMPUTER_CLI_NAME = "viewcode-computer";
 
 const shQuote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
 

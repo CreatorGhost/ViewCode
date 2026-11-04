@@ -1,7 +1,5 @@
 import { reviewFindingsSentText } from "@t3tools/client-runtime/agent-review";
-import {
-  normalizeCompactToolLabel,
-} from "@t3tools/client-runtime/work-log/presentation";
+import { normalizeCompactToolLabel } from "@t3tools/client-runtime/work-log/presentation";
 import {
   REVIEW_FINDINGS_ACTIVITY_KIND,
   type OrchestrationThreadActivity,
@@ -59,17 +57,30 @@ export function reviewWorkLine(
   workspaceRoot: string | undefined,
   nativeEntries?: ReadonlyArray<WorkLogEntry>,
 ): string | null {
-  const entries: ReadonlyArray<WorkLogEntry> = nativeEntries ?? activities.slice(-RECENT_ACTIVITIES).map((activity) => {
-    const payload = activity.payload !== null && typeof activity.payload === "object" ? activity.payload as Record<string,unknown> : {};
-    return { id:activity.id, createdAt:activity.createdAt, label:activity.summary,
-      tone:activity.tone === "tool" ? "tool" : activity.tone === "error" ? "error" : "info", sourceActivityKind:activity.kind,
-      ...(typeof payload.title === "string" ? {toolTitle:payload.title} : {}),
-      ...(typeof payload.detail === "string" ? {detail:payload.detail} : {}), toolData:payload,
-    };
-  });
+  const entries: ReadonlyArray<WorkLogEntry> =
+    nativeEntries ??
+    activities.slice(-RECENT_ACTIVITIES).map((activity) => {
+      const payload =
+        activity.payload !== null && typeof activity.payload === "object"
+          ? (activity.payload as Record<string, unknown>)
+          : {};
+      return {
+        id: activity.id,
+        createdAt: activity.createdAt,
+        label: activity.summary,
+        tone: activity.tone === "tool" ? "tool" : activity.tone === "error" ? "error" : "info",
+        sourceActivityKind: activity.kind,
+        ...(typeof payload.title === "string" ? { toolTitle: payload.title } : {}),
+        ...(typeof payload.detail === "string" ? { detail: payload.detail } : {}),
+        toolData: payload,
+      };
+    });
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index]!;
-    if (entry.sourceActivityKind === REVIEW_FINDINGS_ACTIVITY_KIND || mentionsSubmitFindings(entry)) {
+    if (
+      entry.sourceActivityKind === REVIEW_FINDINGS_ACTIVITY_KIND ||
+      mentionsSubmitFindings(entry)
+    ) {
       return findingsSentLine(activities);
     }
     if (!workLogEntryIsToolLike(entry) || entry.tone === "thinking") continue;

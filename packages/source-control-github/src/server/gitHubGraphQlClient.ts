@@ -10,6 +10,7 @@ import { GraphQLClientError, GraphQLMiddleware, GraphQLProtocol } from "effect/g
 import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
 import { collectUint8StreamText } from "@t3tools/provider-core/server/collectStreamText";
 
+import * as GitHubGhTransport from "./GitHubGhTransport.ts";
 import * as GitHubRequestPolicy from "./GitHubRequestPolicy.ts";
 
 const DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -199,7 +200,10 @@ const layerProtocol = GraphQLProtocol.layerHttp({
     Layer.effect(
       HttpClient.HttpClient,
       Effect.gen(function* () {
-        const client = yield* HttpClient.HttpClient;
+        // ViewCode: the same gh fallback as REST, so GraphQL reads reach an Enterprise host too.
+        const client = (yield* GitHubGhTransport.GitHubGhTransport).wrap(
+          yield* HttpClient.HttpClient,
+        );
         return HttpClient.transformResponse(client, (effect) =>
           capResponse(effect).pipe(
             Effect.provideService(HttpClient.TracerDisabledWhen, () => true),

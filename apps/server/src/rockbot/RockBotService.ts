@@ -15,7 +15,7 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 
 /** The first chat's id, so two clients opening RockBot at once get the same thread. */
-export const ROCKBOT_THREAD_ID = ThreadId.make("rockbot");
+const ROCKBOT_THREAD_ID = ThreadId.make("rockbot");
 
 /** RockBot starts on the model of the work the user touched last. */
 export function latestModelSource(
@@ -80,7 +80,7 @@ export class RockBotService extends Context.Service<
 const dispatchError = (message: string) => (cause: unknown) =>
   new OrchestrationDispatchCommandError({ message, cause });
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
   const crypto = yield* Crypto.Crypto;

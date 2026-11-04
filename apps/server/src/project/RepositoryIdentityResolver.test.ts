@@ -504,6 +504,63 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolver SSH aliases", (it) => {
     }).pipe(Effect.provide(resolverLayer));
   });
 
+  it.effect("asks again soon when an SSH alias lookup went unanswered", () => {
+    let sshAnswers = false;
+    let sshCalls = 0;
+    const processRunner = Layer.succeed(ProcessRunner.ProcessRunner, {
+      run: (input) =>
+        Effect.sync(() => {
+          if (input.command === "ssh") sshCalls++;
+          const failedSsh = input.command === "ssh" && !sshAnswers;
+          return {
+            stdout:
+              input.command === "ssh"
+                ? failedSsh
+                  ? ""
+                  : "user git\nhostname github.com\nport 22\n"
+                : input.args.includes("rev-parse")
+                  ? "/repo\n"
+                  : [
+                      "origin\tgit@github-unanswered-test:CreatorGhost/ViewCode.git (fetch)",
+                      "upstream\thttps://github.com/pingdotgg/t3code.git (fetch)",
+                    ].join("\n"),
+            stderr: "",
+            code: ChildProcessSpawner.ExitCode(failedSsh ? 255 : 0),
+            timedOut: false,
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            stdoutInvalidUtf8: false,
+            stderrInvalidUtf8: false,
+          };
+        }),
+    });
+    const resolverLayer = Layer.effect(
+      RepositoryIdentityResolver.RepositoryIdentityResolver,
+      RepositoryIdentityResolver.make({
+        negativeCacheTtl: Duration.minutes(1),
+        positiveCacheTtl: Duration.minutes(15),
+      }),
+    ).pipe(Layer.provide(processRunner));
+    return Effect.gen(function* () {
+      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+      // Without the alias resolved, origin looks like another host and wins over upstream.
+      const unresolved = yield* resolver.resolve("/repo");
+      expect(unresolved?.canonicalKey).toBe("github-unanswered-test/creatorghost/viewcode");
+
+      sshAnswers = true;
+      yield* TestClock.adjust(Duration.seconds(61));
+      const resolved = yield* resolver.resolve("/repo");
+      expect(resolved?.canonicalKey).toBe("github.com/pingdotgg/t3code");
+      expect(resolved?.origin?.canonicalKey).toBe("github.com/creatorghost/viewcode");
+
+      // A settled answer is kept for the positive TTL, not re-asked every minute.
+      const callsAfterAnswer = sshCalls;
+      yield* TestClock.adjust(Duration.minutes(2));
+      expect(yield* resolver.resolve("/repo")).toEqual(resolved);
+      expect(sshCalls).toBe(callsAfterAnswer);
+    }).pipe(Effect.provide(Layer.merge(TestClock.layer(), resolverLayer)));
+  });
+
   it.effect("prefers upstream when origin's SSH alias points at upstream's host", () => {
     const processRunner = Layer.succeed(ProcessRunner.ProcessRunner, {
       run: (input) =>

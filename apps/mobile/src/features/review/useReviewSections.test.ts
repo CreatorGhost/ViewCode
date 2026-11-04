@@ -1,5 +1,13 @@
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
-import { AuthFilesystemReadScope, CheckpointRef, EnvironmentId, MessageId, ThreadId, RunId, type AuthSessionState } from "@t3tools/contracts";
+import {
+  AuthFilesystemReadScope,
+  CheckpointRef,
+  EnvironmentId,
+  MessageId,
+  ThreadId,
+  RunId,
+  type AuthSessionState,
+} from "@t3tools/contracts";
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 
 const state = vi.hoisted(() => ({

@@ -5320,10 +5320,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
       }}
       data-chat-provider-unavailable="true"
-      className="shrink-0"
+      // Gives way with an ellipsis when a panel narrows the column, instead of being cut
+      // where the footer's scroll clips it.
+      className="min-w-0 shrink"
     >
       <CircleAlertIcon className="size-4" />
-      {providerSetupInstanceId ? "Open provider settings" : "No provider available"}
+      <span className="truncate">
+        {providerSetupInstanceId ? "Open provider settings" : "No provider available"}
+      </span>
     </ComposerControl>
   ) : (
     <>
@@ -7580,6 +7584,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       leadInstanceId={selectedInstanceId}
                       instanceEntries={providerInstanceEntries}
                       contextWindow={activeContextWindow}
+                      compactDisabled={
+                        compactDisabled || noProviderAvailable || isSendBusy || isConnecting
+                      }
+                      compactDisabledReason={resolvedCompactDisabledReason}
+                      compacting={isCompacting}
+                      threadKey={activeThreadId ?? "draft"}
+                      {...(compactCommandAvailable
+                        ? { onCompact: compactThreadContextStable }
+                        : {})}
                     />
                   )}
                   <ComposerFooterPrimaryActions

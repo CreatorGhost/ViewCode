@@ -4627,7 +4627,7 @@ it.effect("asks on its own for a repository a search answered nothing for", () =
       {
         projectId: "p2" as ProjectId,
         projectTitle: "docs",
-        message: "acme/docs could not be read.",
+        message: "acme/docs could not be read: HTTP 404.",
       },
     ]);
     assert.deepStrictEqual(
@@ -7919,4 +7919,189 @@ it.effect.each([false, true])(
       assert.strictEqual(all.entries.find((row) => row.number === 11)?.viewerLogin, "work-user");
       assert.strictEqual(all.viewers["github.com"], "personal-user");
     }),
+);
+
+function forkProject(): OrchestrationProjectShell {
+  const shell = project({
+    id: "fork",
+    title: "ViewCode",
+    workspaceRoot: "/viewcode",
+    repository: "pingdotgg/t3code",
+  });
+  return {
+    ...shell,
+    repositoryIdentity: {
+      ...shell.repositoryIdentity!,
+      locator: {
+        source: "git-remote",
+        remoteName: "upstream",
+        remoteUrl: "https://github.com/pingdotgg/t3code.git",
+      },
+      origin: {
+        canonicalKey: "github.com/creatorghost/viewcode",
+        displayName: "CreatorGhost/ViewCode",
+      },
+    },
+  };
+}
+
+it.effect("lists a fork's own pull requests beside its upstream's, marking the upstream rows", () =>
+  Effect.gen(function* () {
+    const statsAsked: Array<ReadonlyArray<string>> = [];
+    const service = yield* makeService({
+      projects: [forkProject()],
+      providers: [
+        fakeProvider(SourceControlProviderKind.make("github"), {
+          listChangeRequests: ({ repository }) =>
+            Effect.succeed({
+              items: [
+                changeRequest(
+                  repository === "CreatorGhost/ViewCode" ? 70 : 16655,
+                  "2026-10-20T00:00:00Z",
+                ),
+              ],
+              truncated: false,
+              continues: false,
+            }),
+          getChangeRequestPreview: ({ repository }) =>
+            Effect.succeed({ ...changeRequest(70, "2026-10-20T00:00:00Z"), title: repository }),
+          listChangeRequestStats: ({ changeRequests }) =>
+            Effect.sync(() => {
+              statsAsked.push(changeRequests.map((ref) => `${ref.repository}#${ref.number}`));
+              return changeRequests.map((ref) => ({ ...ref, additions: 1, deletions: 0 }));
+            }),
+        }),
+      ],
+    });
+
+    const result = yield* service.list({ state: "open" });
+
+    assert.deepStrictEqual(
+      result.entries
+        .map((entry) => [entry.repository, entry.number, entry.upstream ?? false])
+        .toSorted(),
+      [
+        ["CreatorGhost/ViewCode", 70, false],
+        ["pingdotgg/t3code", 16655, true],
+      ],
+    );
+    assert.deepStrictEqual(result.errors, []);
+    assert.strictEqual(result.providers[0]?.projectCount, 1);
+
+    // A fork row opens against the fork, not the upstream the project is identified by.
+    const preview = yield* service.preview({
+      projectId: "fork" as ProjectId,
+      repository: "CreatorGhost/ViewCode",
+      number: 70,
+    });
+    assert.strictEqual(preview.title, "CreatorGhost/ViewCode");
+
+    const stats = yield* service.listStats({
+      refs: [
+        { projectId: "fork" as ProjectId, repository: "CreatorGhost/ViewCode", number: 7 },
+        { projectId: "fork" as ProjectId, repository: "pingdotgg/t3code", number: 7 },
+      ],
+    });
+    assert.deepStrictEqual(statsAsked, [["CreatorGhost/ViewCode#7", "pingdotgg/t3code#7"]]);
+    assert.deepStrictEqual(stats.stats.map((stat) => stat.repository).toSorted(), [
+      "CreatorGhost/ViewCode",
+      "pingdotgg/t3code",
+    ]);
+  }),
+);
+
+it.effect("says a repository still keyed on its SSH alias was never matched to an account", () =>
+  Effect.gen(function* () {
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "web", workspaceRoot: "/web", repository: "acme/web" }),
+        project({
+          id: "p2",
+          title: "tsw-bff",
+          workspaceRoot: "/bff",
+          repository: "BAD-GCP/tsw-bff",
+          host: "github-work",
+          remoteUrl: "git@github-work:BAD-GCP/tsw-bff.git",
+        }),
+      ],
+      providers: [
+        fakeProvider(SourceControlProviderKind.make("github"), {
+          getViewer: ({ host }) =>
+            host === "github.com"
+              ? Effect.succeed("bilal")
+              : Effect.fail(unusable(SourceControlProviderKind.make("github"), "unauthenticated")),
+        }),
+      ],
+    });
+
+    const result = yield* service.list({ state: "open" });
+
+    assert.deepStrictEqual(result.errors, [
+      {
+        projectId: "p2" as ProjectId,
+        projectTitle: "tsw-bff",
+        message:
+          "BAD-GCP/tsw-bff could not be read: github-work is an SSH alias that did not resolve to a real host, so no signed-in account was tried. Check that `ssh -G github-work` shows its HostName.",
+      },
+    ]);
+  }),
+);
+
+it.effect("says why a host could not be read, and which account to sign in to", () =>
+  Effect.gen(function* () {
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "web", workspaceRoot: "/web", repository: "acme/web" }),
+        project({
+          id: "p2",
+          title: "tsw-mfe-lovable",
+          workspaceRoot: "/mfe",
+          repository: "BAD-GCP/tsw-mfe",
+        }),
+        project({
+          id: "p3",
+          title: "enterprise",
+          workspaceRoot: "/enterprise",
+          repository: "acme/api",
+          host: "github.acme.dev",
+        }),
+      ],
+      providers: [
+        fakeProvider(SourceControlProviderKind.make("github"), {
+          getViewer: ({ host }) =>
+            host === "github.com"
+              ? Effect.succeed("bilal")
+              : Effect.fail(unusable(SourceControlProviderKind.make("github"), "unauthenticated")),
+          listChangeRequests: ({ repository }) =>
+            repository === "BAD-GCP/tsw-mfe"
+              ? Effect.fail(
+                  new PullRequestProviderError({
+                    provider: SourceControlProviderKind.make("github"),
+                    operation: "routeIdentity",
+                    reason: "not-found",
+                    detail:
+                      "GitHub could not find the requested resource, or the credential cannot see it.",
+                  }),
+                )
+              : Effect.succeed({ items: [], truncated: false, continues: false }),
+        }),
+      ],
+    });
+
+    const result = yield* service.list({ state: "open" });
+
+    assert.deepStrictEqual(
+      result.errors.map((error) => [error.projectId, error.message]).toSorted(),
+      [
+        [
+          "p2",
+          "No signed-in GitHub account can see BAD-GCP/tsw-mfe, or it no longer exists. Sign in to GitHub as an account that can see it with `gh auth login`, then refresh.",
+        ],
+        [
+          "p3",
+          "acme/api on github.acme.dev could not be read: GitHub has no working credential for this host. Run `gh auth login`, or check the account and hosts in Settings → Source Control.",
+        ],
+      ],
+    );
+  }),
 );

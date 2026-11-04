@@ -262,7 +262,10 @@ Provider commands must start the message to run. ViewCode commands such as
 [Goals and debug mode](./goals-and-debug-mode.md).
 
 Send `/compact` in an existing conversation to reduce context usage when the
-provider supports it. Web and desktop also offer compaction from the context meter.
+provider supports it. On web and desktop, the ring beside the send button opens a card
+with the thread's context (used, free and the space reserved for compaction), the
+provider's plan limits and a **Compact now** button; it reports how many tokens a
+compaction freed.
 
 ## Goals
 

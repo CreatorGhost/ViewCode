@@ -8,11 +8,19 @@ import {
   displayLimitWindows,
   formatResetsIn,
   type LimitAccount,
+  type LimitPace,
   type LimitPool,
   type LimitPoolMember,
   type LimitPoolWindow,
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
+import {
+  buildRailUsageCardRows,
+  railPlanLabel,
+  railTokenRows,
+  usageProviderForDriver,
+} from "@t3tools/shared/usagePace";
+import type { ServerProviderUsageWindow } from "@t3tools/contracts";
 import { AlertTriangleIcon, ExternalLinkIcon, TicketIcon } from "lucide-react";
 import { Fragment, type ReactNode, useState } from "react";
 
@@ -27,13 +35,22 @@ import { Button } from "../ui/button";
 import { OpenAI } from "../Icons";
 import { Alert, AlertTitle } from "../ui/alert";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
-import {
-  PaceIcon,
-  ResetCreditDialog,
-  barColor,
-  resetCreditsSummary,
-  useResetCredit,
-} from "./UsageLimits";
+import type { RailRingTone } from "../rail/appRail.logic";
+import { ResetCreditDialog, resetCreditsSummary, useResetCredit } from "./UsageLimits";
+import { TONE_FILL, TokenRowList, type TokenUsageWindows } from "./UsageWindowRow";
+
+/** `formatResetsIn` reads "resets in 4h" mid-sentence; a row's trailing label starts a phrase. */
+function resetsInLabel(window: ServerProviderUsageWindow | null | undefined, now: number) {
+  const text = window ? formatResetsIn(window, now) : null;
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : null;
+}
+
+/** The pooled pace as the rail's tone: ahead of the window is running out early. */
+const POOL_PACE_TONE: Record<LimitPace, RailRingTone> = {
+  ahead: "critical",
+  on: "low",
+  under: "healthy",
+};
 
 function accountInitials(email: string): string {
   const [local = "", domain = ""] = email.split("@");
@@ -202,30 +219,30 @@ function SegmentPopover({
 }
 
 /**
- * The confirm is a sibling of the popover, not a child: dialogs stack under
- * popovers, and the popover closes as the confirm opens.
+ * One account's share of a window, drawn as the thin track the rail card and Synara use:
+ * remaining quota in its health colour, a tick where an even pace would be by now. The
+ * confirm is a sibling of the popover, not a child: dialogs stack under popovers, and the
+ * popover closes as the confirm opens.
  */
 function PoolSegment({
   account,
   window,
   reset,
-  color,
   now,
   index,
-  showAccountName,
 }: {
   readonly account: LimitAccount;
   readonly window: LimitPoolMember["window"];
   readonly reset: LimitPoolWindow["resets"][number] | undefined;
-  readonly color: string;
   readonly now: number;
   readonly index: number;
-  readonly showAccountName: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const row = buildRailUsageCardRows([window], now)[0];
   const remaining = remainingPercent(window);
   const resetsIn = formatResetsIn(window, now);
   const credits = account.limits.resetCredits?.availableCount ?? 0;
+  const showMarker = row?.markerPercent !== null && remaining > 0 && remaining < 100;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
@@ -235,58 +252,30 @@ function PoolSegment({
             type="button"
             style={{ gridColumn: index, gridRow: 1 }}
             aria-label={`${account.displayName ?? (account.email ? accountInitials(account.email) : account.driver)}: ${remaining}% left${resetsIn ? `, ${resetsIn}` : ""}${credits ? `, ${credits} reset ${credits === 1 ? "credit" : "credits"} banked` : ""}`}
-            className="relative h-5 min-w-0 cursor-pointer overflow-hidden rounded-md bg-muted text-start outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background data-[popup-open]:ring-1 data-[popup-open]:ring-inset data-[popup-open]:ring-border @2xl/pool:h-8"
+            className="relative h-2 min-w-0 cursor-pointer overflow-hidden rounded-full bg-muted outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-[popup-open]:ring-1 data-[popup-open]:ring-inset data-[popup-open]:ring-ring/60"
           />
         }
       >
-        <div
-          aria-hidden
-          className="absolute inset-y-0 left-0 rounded-md opacity-35"
-          style={{ width: `${remaining}%`, backgroundColor: color }}
-        />
-        {remaining < 100 && reset ? (
+        {remaining > 0 ? (
           <div
             aria-hidden
-            className="absolute inset-y-0 right-0 opacity-20"
-            style={{
-              width: `${100 - remaining}%`,
-              backgroundImage: `repeating-linear-gradient(135deg, ${color} 0 1px, transparent 1px 5px)`,
-            }}
+            className={cn(
+              "absolute inset-y-0 left-0 rounded-full",
+              TONE_FILL[row?.tone ?? "healthy"],
+            )}
+            style={{ width: `${remaining}%` }}
           />
         ) : null}
-        <span
-          aria-hidden
-          className="absolute inset-0 flex items-center justify-center text-3xs leading-none font-semibold text-foreground/80 tabular-nums @2xl/pool:hidden"
-        >
-          {index}
-        </span>
-        <div className="relative hidden h-full min-w-0 items-center gap-1.5 px-2 text-xs @2xl/pool:flex">
-          {showAccountName ? (
-            <AccountName
-              account={account}
-              className="min-w-0 truncate font-medium text-foreground"
-            />
-          ) : null}
-          <span className="shrink-0 font-semibold text-foreground tabular-nums">{remaining}%</span>
-          <span className="ms-auto flex shrink-0 items-center gap-1.5 rounded-sm bg-background/85 px-1.5 py-0.5 text-2xs text-foreground tabular-nums">
-            {resetsIn?.replace("resets in ", "↻ ") ?? ""}
-            {credits ? (
-              <>
-                {resetsIn ? (
-                  <span aria-hidden className="text-muted-foreground">
-                    ·
-                  </span>
-                ) : null}
-                <span aria-hidden className="inline-flex items-center gap-0.5 font-semibold">
-                  <TicketIcon className="size-3" aria-hidden />
-                  {credits}
-                </span>
-              </>
-            ) : null}
-          </span>
-        </div>
+        {showMarker && row ? (
+          <div
+            aria-hidden
+            className="absolute inset-y-0 flex w-2 -translate-x-1/2 items-center justify-center bg-card"
+            style={{ left: `${row.markerPercent}%` }}
+          >
+            <span className={cn("h-full w-0.5 rounded-full", TONE_FILL[row.paceTone])} />
+          </div>
+        ) : null}
       </PopoverTrigger>
-      <LegendRow account={account} window={window} color={color} now={now} index={index} />
       {account.redeem ? (
         <RedeemableSegmentPopup
           account={account}
@@ -312,16 +301,15 @@ function PoolSegment({
   );
 }
 
+/** Under a pooled window, who each track belongs to: account, what is left, reset and banked credits. */
 function LegendRow({
   account,
   window,
-  color,
   now,
   index,
 }: {
   readonly account: LimitAccount;
   readonly window: LimitPoolMember["window"];
-  readonly color: string;
   readonly now: number;
   readonly index: number;
 }) {
@@ -329,41 +317,22 @@ function LegendRow({
   const resetsIn = formatResetsIn(window, now);
   const credits = account.limits.resetCredits?.availableCount ?? 0;
   return (
-    <PopoverTrigger
-      style={{ gridColumn: "1 / -1", gridRow: index + 1 }}
-      render={<Button variant="ghost" size="compact" />}
-      className="min-w-0 @2xl/pool:hidden"
+    <span
+      style={{ gridColumn: index, gridRow: 2 }}
+      className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground tabular-nums"
     >
-      <span className="relative inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-3xs leading-none font-semibold text-foreground/80 tabular-nums">
-        <span
-          aria-hidden
-          className="absolute inset-0 rounded-sm opacity-35"
-          style={{ backgroundColor: color }}
-        />
-        <span className="sr-only">Segment </span>
-        <span className="relative">{index}</span>
-      </span>
-      <AccountName account={account} className="min-w-0 truncate font-medium text-foreground" />
-      <span className="shrink-0 font-semibold text-foreground tabular-nums">{remaining}%</span>
-      <span className="ms-auto flex shrink-0 items-center gap-1.5 text-2xs text-muted-foreground tabular-nums">
-        {resetsIn?.replace("resets in ", "↻ ") ?? ""}
-        {credits ? (
-          <>
-            {resetsIn ? <span aria-hidden>·</span> : null}
-            <span
-              aria-hidden
-              className="inline-flex items-center gap-0.5 font-semibold text-foreground"
-            >
-              <TicketIcon className="size-3" aria-hidden />
-              {credits}
-            </span>
-            <span className="sr-only">
-              {credits} reset {credits === 1 ? "credit" : "credits"} banked
-            </span>
-          </>
-        ) : null}
-      </span>
-    </PopoverTrigger>
+      <AccountAvatar account={account} className="size-4" />
+      <AccountName account={account} className="min-w-0 truncate" />
+      <span className="shrink-0 font-medium text-foreground">{remaining}%</span>
+      {resetsIn ? <span className="ms-auto shrink-0">{resetsInLabel(window, now)}</span> : null}
+      {credits ? (
+        <span className="inline-flex shrink-0 items-center gap-0.5 text-foreground">
+          <TicketIcon className="size-3" aria-hidden />
+          {credits}
+          <span className="sr-only"> reset {credits === 1 ? "credit" : "credits"} banked</span>
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -415,111 +384,166 @@ function RedeemableSegmentPopup({
   );
 }
 
-function PoolBar({
-  pool,
-  color,
-  now,
-}: {
-  readonly pool: LimitPoolWindow;
-  readonly color: string;
-  readonly now: number;
-}) {
+function PoolBar({ pool, now }: { readonly pool: LimitPoolWindow; readonly now: number }) {
   const restores = new Map(pool.resets.map((reset) => [reset.member.account.key, reset]));
+  const pooled = pool.columns.length > 1;
   return (
-    <div className="@container/pool min-w-0">
-      <div
-        className="grid gap-x-1 gap-y-1"
-        style={{ gridTemplateColumns: `repeat(${pool.columns.length}, minmax(0, 1fr))` }}
-      >
-        {pool.columns.map((member, position) =>
-          member.window ? (
+    <div
+      className="grid gap-x-3 gap-y-1.5"
+      style={{ gridTemplateColumns: `repeat(${pool.columns.length}, minmax(0, 1fr))` }}
+    >
+      {pool.columns.map((member, position) =>
+        member.window ? (
+          <Fragment key={member.account.key}>
             <PoolSegment
-              key={member.account.key}
               account={member.account}
               window={member.window}
               reset={restores.get(member.account.key)}
-              color={color}
               now={now}
               index={position + 1}
-              showAccountName={pool.columns.length > 1}
             />
-          ) : null,
-        )}
-      </div>
+            {pooled ? (
+              <LegendRow
+                account={member.account}
+                window={member.window}
+                now={now}
+                index={position + 1}
+              />
+            ) : null}
+          </Fragment>
+        ) : null,
+      )}
     </div>
   );
 }
 
-function PoolWindowCard({
+/**
+ * One window as Synara's Usage settings draw it: label with a pace dot against the reset, the
+ * track, then what is left against the run-out. A pooled window lists its accounts under it.
+ */
+function PoolWindowRow({
   pool,
-  color,
   now,
   label,
   description,
 }: {
   readonly pool: LimitPoolWindow;
-  readonly color: string;
   readonly now: number;
   readonly label?: string | undefined;
   readonly description?: string | undefined;
 }) {
+  const single = pool.columns.length === 1 ? pool.columns[0]?.window : undefined;
+  const row = single ? buildRailUsageCardRows([single], now)[0] : undefined;
   const nextRefill = pool.resets.find((reset) => reset.restoresPercent > 0);
+  const resetText = row
+    ? row.reset
+    : nextRefill
+      ? `${resetsInLabel(nextRefill.member.window, now) ?? ""} · +${nextRefill.restoresPercent}%`
+      : null;
+  const paceTone = row ? row.paceTone : pool.pace ? POOL_PACE_TONE[pool.pace] : null;
   return (
-    <div className="grid items-center gap-x-6 gap-y-3 rounded-lg border border-border/60 p-4 md:grid-cols-[11rem_minmax(0,1fr)]">
-      <div className="flex flex-col gap-1">
-        <span className="text-sm font-medium text-foreground">{label ?? pool.label}</span>
-        <span className="flex items-baseline gap-2">
-          <span className="text-3xl font-semibold text-foreground tabular-nums">
-            {pool.remainingPercent}%
-          </span>
-          <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-            <span>left</span>
-            {pool.pace ? <PaceIcon pace={pool.pace} /> : null}
-          </span>
+    <div className="flex flex-col gap-2 text-sm">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="flex min-w-0 items-center gap-2 font-medium text-foreground">
+          <span className="truncate">{label ?? pool.label}</span>
+          {paceTone ? (
+            <span
+              aria-hidden
+              className={cn("size-1.5 shrink-0 rounded-full", TONE_FILL[paceTone])}
+            />
+          ) : null}
         </span>
-        {nextRefill && pool.columns.length > 1 ? (
-          <span className="text-xs font-medium text-foreground tabular-nums">
-            ↻ +{nextRefill.restoresPercent}%
+        {resetText ? (
+          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{resetText}</span>
+        ) : null}
+      </div>
+      <PoolBar pool={pool} now={now} />
+      <div className="flex items-baseline justify-between gap-3 text-xs tabular-nums">
+        <span className="text-foreground">{pool.remainingPercent}% left</span>
+        {row?.paceEta ? (
+          <span className="text-muted-foreground">
+            {row.paceAmount ? `${row.paceAmount} · ` : ""}
+            {row.paceEta}
           </span>
         ) : null}
       </div>
-      <PoolBar pool={pool} color={color} now={now} />
-      {description ? (
-        <p className="text-xs text-muted-foreground md:col-span-2">{description}</p>
-      ) : null}
+      {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
     </div>
   );
 }
 
-function PoolSection({ pool, now }: { readonly pool: LimitPool; readonly now: number }) {
-  const color = barColor(pool.driver);
+/**
+ * One card per provider, its windows stacked inside, then 24h / 7d / 30d tokens, as Synara's
+ * Usage settings draw them.
+ */
+function PoolSection({
+  pool,
+  now,
+  tokenUsage,
+}: {
+  readonly pool: LimitPool;
+  readonly now: number;
+  readonly tokenUsage: TokenUsageWindows | undefined;
+}) {
   const label = providerClients.get(pool.driver)?.label ?? String(pool.driver);
   const windows = displayLimitWindows(pool);
+  const plans = new Set(pool.accounts.map((account) => account.plan).filter(Boolean));
+  const shared = plans.size === 1 ? [...plans][0] : undefined;
+  const plan = shared ? railPlanLabel(shared, label) : null;
+  // The email stays behind the popover's reveal, so a shared screen does not show it: the
+  // instance's own name when it was renamed, otherwise it is just the default account.
+  const only = pool.accounts.length === 1 ? pool.accounts[0] : undefined;
+  const accountLabel = only
+    ? only.displayName && only.displayName.toLowerCase() !== label.toLowerCase()
+      ? only.displayName
+      : "Default account"
+    : `${pool.accounts.length} accounts`;
+  const provider = usageProviderForDriver(pool.driver);
+  const tokenRows = provider && tokenUsage ? railTokenRows(provider, tokenUsage) : [];
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="flex items-center gap-2 text-sm font-medium text-foreground">
-        <ProviderInstanceIcon
-          driverKind={pool.driver}
-          displayName={label}
-          indicatorBackground="var(--background)"
-          className="size-5"
-          iconClassName="size-4 text-foreground/80"
-        />
-        {label}
+    <section className="flex flex-col gap-4 rounded-xl border bg-card p-4">
+      <h2 className="flex items-center justify-between gap-3">
+        <span className="flex min-w-0 items-center gap-2.5">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-lg border bg-muted/60">
+            <ProviderInstanceIcon
+              driverKind={pool.driver}
+              displayName={label}
+              indicatorBackground="var(--card)"
+              className="size-4"
+              iconClassName="size-4 text-foreground/80"
+            />
+          </span>
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate text-sm font-semibold text-foreground">{label}</span>
+            <span className="truncate text-xs text-muted-foreground">{accountLabel}</span>
+          </span>
+        </span>
+        {plan ? (
+          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+            {plan}
+          </span>
+        ) : null}
       </h2>
-      {windows.map((window) => {
-        const details = pool.driver === "cursor" ? cursorUsageWindowDetails(window.id) : undefined;
-        return (
-          <PoolWindowCard
-            key={`${window.kind}:${window.id}`}
-            pool={window}
-            color={color}
-            now={now}
-            label={details?.label}
-            description={details?.description}
-          />
-        );
-      })}
+      <div className="flex flex-col gap-4">
+        {windows.map((window) => {
+          const details =
+            pool.driver === "cursor" ? cursorUsageWindowDetails(window.id) : undefined;
+          return (
+            <PoolWindowRow
+              key={`${window.kind}:${window.id}`}
+              pool={window}
+              now={now}
+              label={details?.label}
+              description={details?.description}
+            />
+          );
+        })}
+      </div>
+      {tokenRows.length > 0 ? (
+        <div className="flex flex-col gap-3 border-t border-border/60 pt-4 text-xs">
+          <TokenRowList rows={tokenRows} />
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -528,10 +552,13 @@ export function UsageLimitsPooled({
   presentations,
   now,
   cursorPrompt,
+  tokenUsage,
 }: {
   readonly presentations: Parameters<typeof collectLimitAccounts>[0];
   readonly now: number;
   readonly cursorPrompt?: ReactNode;
+  /** One 24h / 7d / 30d read shared by every card (`useTokenUsageWindows`), never one per provider. */
+  readonly tokenUsage?: TokenUsageWindows;
 }) {
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
   const notices = collectLimitNotices(presentations);
@@ -551,7 +578,7 @@ export function UsageLimitsPooled({
       {pools.map((pool, index) => (
         <Fragment key={pool.driver}>
           {index === cursorPromptAt ? cursorPrompt : null}
-          <PoolSection pool={pool} now={now} />
+          <PoolSection pool={pool} now={now} tokenUsage={tokenUsage} />
         </Fragment>
       ))}
       {cursorPromptAt === pools.length ? cursorPrompt : null}

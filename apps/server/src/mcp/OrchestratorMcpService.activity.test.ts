@@ -82,10 +82,12 @@ function baseThread(input: {
     interactionMode: "default" as const,
     branch: null,
     worktreePath: null,
+    // One agent tree: these tests cover reach and modes. A separate chat the user started is
+    // ViewCode's peer boundary, covered in peerExchange.test.ts and the toolkit tests.
     lineage: {
       parentThreadId: null,
       relationshipToParent: null,
-      rootThreadId: input.threadId,
+      rootThreadId: parentThreadId,
     },
     archivedAt: null,
     deletedAt: null,

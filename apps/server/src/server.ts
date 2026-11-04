@@ -2,9 +2,7 @@ import * as UsageResume from "./agents/UsageResume.ts";
 import * as UsageResumeRuntime from "./agents/UsageResumeRuntime.ts";
 import * as ViewCodeRelayLayers from "./server/viewcodeRelayLayers.ts";
 import { resolveLocalTarget } from "./relay/viewCodeRelayHealth.ts";
-import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
-import * as CursorHistory from "./project/CursorHistory.ts";
-import * as T3CodeHistory from "./project/T3CodeHistory.ts";
+import * as ViewCodeAgentSessionScanner from "./project/ViewCodeAgentSessionScanner.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Clock from "effect/Clock";
@@ -108,6 +106,7 @@ import * as CodexInstallation from "./provider/CodexInstallation.ts";
 import * as ProviderInstanceRegistry from "./provider/ProviderInstanceRegistry.ts";
 import * as ProviderAdapterRegistry from "./orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ProviderRegistry from "./provider/ProviderRegistry.ts";
+import * as CursorStatusRecheck from "./provider/viewcode/cursorStatusRecheck.ts";
 import * as ProviderUsageLimitsIngestion from "./provider/ProviderUsageLimitsIngestion.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
@@ -486,6 +485,7 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
 );
 
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
+  Layer.provide(ViewCodeAgentSessionScanner.layer),
   Layer.provide(ViewCodeComputerUseLayers.layerRuntimeResponse),
   Layer.provide(layerScheduledTaskWebhookOrigin),
   Layer.provide(ProviderEventIngestor.layerAnalytics),
@@ -619,6 +619,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ).pipe(Layer.provide(DelegatedTaskQuestionReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   ProviderUsageLimitsIngestion.layer,
   layerProviderInstallationRefresh,
+  CursorStatusRecheck.layer,
   ReplayMarkers.layer,
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
 ).pipe(
@@ -737,11 +738,7 @@ const layerMakeRoutes = Layer.mergeAll(
     Ws.layer,
   ),
   McpHttpServer.layer.pipe(
-    Layer.provide(
-      AgentSessionScanner.layer.pipe(
-        Layer.provide(Layer.merge(CursorHistory.layer, T3CodeHistory.layer)),
-      ),
-    ),
+    Layer.provide(ViewCodeAgentSessionScanner.layer),
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
     Layer.provide(RockBotConfirmation.layer),

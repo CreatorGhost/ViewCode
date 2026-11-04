@@ -2,7 +2,8 @@ import { defineConfig } from "@effect/graphql-generator/Config";
 
 // `schema/github.graphql` is github.com's public schema
 // (https://docs.github.com/public/fpt/schema.docs.graphql). Enterprise Server lacks some of its
-// fields, such as pull request stacks, so a document asks for those under `@include`.
+// fields, such as pull request stacks, and rejects a document naming them even under
+// `@include(if: false)`, so other hosts get the stack-free documents in pullRequestEnterprise.graphql.
 export default defineConfig({
   schema: "./schema/github.graphql",
   documents: ["src/**/*.graphql"],

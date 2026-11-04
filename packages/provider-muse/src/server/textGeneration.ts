@@ -19,6 +19,10 @@ import { museModelCapabilities, resolveMuseReasoningEffort } from "./modelCatalo
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 import { investigationUnsupported } from "@t3tools/provider-core/server/textGenerationOperations";
 import {
+  buildSpokenSummaryPrompt,
+  sanitizeSpokenSummary,
+} from "@t3tools/provider-core/server/spokenSummary";
+import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildPrContentPrompt,
@@ -342,11 +346,22 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
   });
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
+  const generateSpokenSummary: ProviderTextGeneration["generateSpokenSummary"] = Effect.fn(
+    "MuseTextGeneration.generateSpokenSummary",
+  )(function* (input) {
+    const generated = yield* runMuseJson({
+      operation: "generateSpokenSummary",
+      ...buildSpokenSummaryPrompt(input),
+      modelSelection: input.modelSelection,
+    });
+    return { summary: sanitizeSpokenSummary(generated.summary) };
+  });
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateReviewGuide,
+    generateSpokenSummary,
   } satisfies ProviderTextGeneration;
 });

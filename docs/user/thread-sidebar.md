@@ -182,7 +182,9 @@ The **Un-settle** and **Wake** buttons work the same way in their sections.
 Press `Escape` while dragging to cancel.
 
 By default, environments settle inactive threads after three days and settle
-threads whose pull request merged. A closed pull request can also settle an idle
+threads whose pull request merged. When the pull request merges, the thread's agent
+first gets a message to finish anything that waited for the merge, and the thread
+settles after that turn ends. A closed pull request can also settle an idle
 thread. Work in progress, pending questions or approvals, and live background work
 prevent automatic settlement. An open pull request does not prevent inactivity
 settlement unless you turn on **Keep threads with a PR** in **Settings → General**,
@@ -288,6 +290,13 @@ open a thread's menu, choose **New child agent**, and enter its name and task.
 The child uses the parent's model and its own worktree. The parent needs an active
 native run or at least one finished native turn; for an empty or imported thread,
 send a message first. Agents can also delegate tasks and message one another.
+
+Chats you started separately stay apart. Before an agent messages or reads another of your
+chats, it asks you in its own chat; choose **Send** or **Allow** only when that chat really
+needs it. The other chat may answer once without asking, and anything more asks you again.
+Their messages show as small agent cards, not as your own words. An agent cannot stop,
+reconfigure or answer the questions of a chat you started separately. It can still talk freely
+to the chats it launched for you and to its own child agents.
 
 Child threads appear under their parent in the sidebar. Stop on a thread also
 stops the subagents it delegated to. Provider-native subagents that cannot accept
