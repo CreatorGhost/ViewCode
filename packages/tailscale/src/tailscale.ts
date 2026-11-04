@@ -77,7 +77,7 @@ export const findTailscaleExecutable = Effect.fnUntraced(function* <R>(input: {
 });
 
 /** Set to `1` (or `true`) to stop ViewCode from ever running the `tailscale` CLI. */
-export const TAILSCALE_DISABLE_ENV = "VIEWCODE_DISABLE_TAILSCALE";
+const TAILSCALE_DISABLE_ENV = "VIEWCODE_DISABLE_TAILSCALE";
 
 /**
  * Why Tailscale may not run: IT's admin policy (`tailscale.allowed: false`),
@@ -86,7 +86,7 @@ export const TAILSCALE_DISABLE_ENV = "VIEWCODE_DISABLE_TAILSCALE";
 export const TailscaleBlockReason = Schema.Literals(["policy", "environment", "setting"]);
 export type TailscaleBlockReason = typeof TailscaleBlockReason.Type;
 
-export function isTailscaleDisabledByEnvironment(env: NodeJS.ProcessEnv): boolean {
+function isTailscaleDisabledByEnvironment(env: NodeJS.ProcessEnv): boolean {
   const value = readEnvironmentValue(env, TAILSCALE_DISABLE_ENV)?.toLowerCase();
   return value === "1" || value === "true" || value === "yes";
 }

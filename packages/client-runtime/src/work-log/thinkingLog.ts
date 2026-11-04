@@ -78,11 +78,11 @@ export interface WorkLogChipSet {
   readonly moreCount: number;
 }
 
-export const WORK_LOG_VISIBLE_CHIPS = 4;
+const WORK_LOG_VISIBLE_CHIPS = 4;
 export const EMPTY_WORK_LOG_CHIPS: WorkLogChipSet = { chips: [], moreCount: 0 };
 
 /** A step's chips: the files it read, changed or found, and the pages it searched or fetched. */
-export function workLogEntryChips(entry: WorkLogPresentationEntry): WorkLogChip[] {
+function workLogEntryChips(entry: WorkLogPresentationEntry): WorkLogChip[] {
   const action = toolGroupAction(entry);
   switch (action) {
     case "read":
@@ -233,7 +233,7 @@ export function workLogTurnFoldOpen<Id>(
  * What makes two steps the same kind of step. Thoughts, status updates and approval prompts have
  * no kind of their own (null): they belong to the call they lead into.
  */
-export function workLogStepKey(entry: WorkLogPresentationEntry): string | null {
+function workLogStepKey(entry: WorkLogPresentationEntry): string | null {
   if (
     entry.itemType === "reasoning" ||
     entry.itemType === "approval_request" ||
@@ -342,7 +342,7 @@ export function searchOutputFilePaths(text: string, maxPaths = MAX_SEARCH_HITS):
   return [...paths];
 }
 
-export function fileChipName(path: string): string {
+function fileChipName(path: string): string {
   const normalized = path.replaceAll("\\", "/").replace(/\/+$/, "");
   return normalized.slice(normalized.lastIndexOf("/") + 1) || normalized;
 }

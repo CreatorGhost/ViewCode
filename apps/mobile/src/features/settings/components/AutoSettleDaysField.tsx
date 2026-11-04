@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS, MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS } from "@t3tools/contracts";
+import {
+  MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
+  MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
+} from "@t3tools/contracts";
 
 import { AppTextInput } from "../../../components/AppText";
 

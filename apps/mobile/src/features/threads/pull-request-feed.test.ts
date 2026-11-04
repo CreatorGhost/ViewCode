@@ -1,8 +1,6 @@
-import { type PrFlowSources, prFlowFromPullRequest } from "@t3tools/client-runtime/pr-flow";
-import type { PullRequestCheck } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { insertPullRequestFeedEntries, pullRequestCardPresentation } from "./pull-request-feed";
+import { insertPullRequestFeedEntries } from "./pull-request-feed";
 
 const entry = (id: string, type: string, createdAt: string) => ({ id, type, createdAt });
 const at = (minute: number) => `2026-10-20T10:${String(minute).padStart(2, "0")}:00.000Z`;
@@ -53,84 +51,5 @@ describe("insertPullRequestFeedEntries", () => {
 
   it("returns the same feed when the thread has no pull requests", () => {
     expect(insertPullRequestFeedEntries(FEED, { pullRequests: [], currentKey: null })).toBe(FEED);
-  });
-});
-
-const OPEN = {
-  number: 12,
-  url: "https://github.com/acme/app/pull/12",
-  title: "Add retries",
-  state: "open",
-  headBranch: "feat/retries",
-  baseBranch: "main",
-} as const;
-const IDLE: PrFlowSources = {
-  graph: null,
-  checks: null,
-  resolveAsked: false,
-  merging: false,
-  command: null,
-};
-const check = (name: string, status: PullRequestCheck["status"]): PullRequestCheck => ({
-  name,
-  status,
-  description: null,
-  url: null,
-});
-const present = (
-  pr: Partial<Parameters<typeof prFlowFromPullRequest>[0]>,
-  sources: Partial<PrFlowSources> = {},
-) => {
-  const flow = prFlowFromPullRequest({ ...OPEN, ...pr }, { ...IDLE, ...sources });
-  if (flow === null) throw new Error("expected a flow");
-  return pullRequestCardPresentation(flow);
-};
-
-describe("pullRequestCardPresentation", () => {
-  it("glows and warns while the pull request conflicts with its base", () => {
-    const card = present({ mergeability: "conflicting" });
-    expect(card.conflictGlow).toBe(true);
-    expect(card.status.label).toBe("Conflicts with main");
-    expect(card.status.tint).toBe("accent-warning-foreground");
-    expect(present({ mergeability: "mergeable" }).conflictGlow).toBe(false);
-  });
-
-  it("summarises checks and names the failed ones before the running ones", () => {
-    const card = present(
-      {},
-      {
-        checks: [
-          check("lint", "success"),
-          check("e2e", "pending"),
-          check("unit", "failure"),
-          check("docs", "skipped"),
-        ],
-      },
-    );
-    expect(card.checks?.label).toBe("1 of 4 checks failed");
-    expect(card.namedChecks.map((item) => `${item.name}:${item.result}`)).toEqual([
-      "unit:failed",
-      "e2e:running",
-    ]);
-    expect(card.moreChecks).toBe(0);
-  });
-
-  it("says when checks are still running, and how many passed once done", () => {
-    expect(
-      present({}, { checks: [check("lint", "success"), check("e2e", "pending")] }).checks?.label,
-    ).toBe("Checks running, 1 of 2 done");
-    expect(
-      present({}, { checks: [check("lint", "success"), check("docs", "skipped")] }).checks?.label,
-    ).toBe("1 passed, 1 skipped");
-    expect(present({}, { checks: [check("lint", "success")] }).checks?.label).toBe(
-      "1 check passed",
-    );
-    expect(present({}).checks).toBeNull();
-  });
-
-  it("reads as merged once the host merged it", () => {
-    const card = present({ state: "merged" });
-    expect(card.status.label).toBe("Merged into main");
-    expect(card.status.tint).toBe("accent-adaptive-violet-600-400");
   });
 });

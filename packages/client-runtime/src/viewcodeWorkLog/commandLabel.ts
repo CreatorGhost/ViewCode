@@ -1383,7 +1383,7 @@ export function commandDisplayText(command: string): string {
 }
 
 /** Replaces each control character with its control picture; the length does not change. */
-export function withVisibleControlCharacters(text: string): string {
+function withVisibleControlCharacters(text: string): string {
   return text.replace(CONTROL_CHARACTERS, (character) =>
     character === "\u007f" ? "␡" : String.fromCharCode(0x2400 + character.charCodeAt(0)),
   );

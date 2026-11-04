@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import {
+  isUnresolvedSshAlias,
   followsSshHostname,
   parseSshConfigHostname,
   resolveSshAliasRemote,
@@ -31,6 +32,18 @@ describe("sshAliasRemote", () => {
     expect(withSshRemoteHost("ssh://git@work-gh:22/Acme/app.git", "work-gh", "github.com")).toBe(
       "ssh://git@github.com:22/Acme/app.git",
     );
+  });
+
+  it("tells a host still spelled as its SSH alias from a real one", () => {
+    expect(isUnresolvedSshAlias("git@github-work:BAD-GCP/tsw-bff.git", "github-work")).toBe(true);
+    expect(isUnresolvedSshAlias("git@github.com-work:Org/app.git", "github.com-work")).toBe(true);
+    // Resolved: the repository's host is no longer the remote's.
+    expect(isUnresolvedSshAlias("git@github-work:Org/app.git", "github.com")).toBe(false);
+    expect(isUnresolvedSshAlias("git@github.com:Org/app.git", "github.com")).toBe(false);
+    expect(isUnresolvedSshAlias("git@gitlab.company.com:Org/app.git", "gitlab.company.com")).toBe(
+      false,
+    );
+    expect(isUnresolvedSshAlias("https://github-work/Org/app.git", "github-work")).toBe(false);
   });
 
   it("reads the real host from ssh -G output", () => {

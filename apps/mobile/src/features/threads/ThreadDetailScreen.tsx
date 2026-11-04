@@ -106,11 +106,16 @@ import { ThreadCreationFailedCard } from "./ThreadCreationFailedCard";
 import { UsageResumeCard } from "./UsageResumeCard";
 
 import { ActiveAgentsStrip } from "../agents/ActiveAgentsStrip";
+import { ComposerPullRequestChips } from "./ComposerPullRequestChips";
 import {
   FLOATING_WORKING_CONTROL_COVERAGE,
   FloatingWorkingControl,
 } from "./floating-working-control";
-import { connectionFloatingStatus, type FloatingWorkingStatus } from "./floating-working-status";
+import {
+  connectionFloatingStatus,
+  threadSyncNoticeStatus,
+  type FloatingWorkingStatus,
+} from "./floating-working-status";
 import {
   derivePendingUserInputMaxHeight,
   ESTIMATED_KEYBOARD_HEIGHT,
@@ -125,6 +130,7 @@ import {
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
 import type { ComposerCheckout } from "./composerChrome";
+import { useSpokenReplies } from "../speech/useSpokenReplies";
 import { ThreadFeed } from "./ThreadFeed";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
@@ -176,6 +182,8 @@ export interface ThreadDetailScreenProps {
   readonly connectionStateLabel: EnvironmentConnectionPhase;
   /** Message sync status for the selected thread (drives the composer status pill). */
   readonly threadSyncStatus?: EnvironmentThreadStatus;
+  /** The thread subscription's last error, if any. */
+  readonly threadSyncError?: string | null;
   /** Non-null when older turns exist beyond the loaded window. */
   readonly loadEarlier?: { readonly loading: boolean; readonly onLoadEarlier: () => void } | null;
   readonly environmentId: EnvironmentId;
@@ -422,6 +430,21 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       selectedThreadKind,
     ],
   );
+  // ViewCode: the pull request's chips sit above the composer, over the Active agents bar.
+  const { onOpenGit } = props;
+  const composerTopAccessory = useMemo(
+    () => (
+      <>
+        <ComposerPullRequestChips
+          environmentId={props.environmentId}
+          threadId={selectedThreadIdForAgents}
+          onOpenGit={onOpenGit}
+        />
+        {activeAgentsBar}
+      </>
+    ),
+    [activeAgentsBar, onOpenGit, props.environmentId, selectedThreadIdForAgents],
+  );
   const contentPresentationKind = props.contentPresentation.kind;
   // The raw sync status enters "synchronizing" on every full fetch, cached or
   // not. Whether messages are already on screen decides the pill label: no
@@ -454,6 +477,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     });
     if (connectionStatus !== null) {
       return connectionStatus;
+    }
+    const syncNotice = threadSyncNoticeStatus({
+      threadSyncError: props.threadSyncError ?? null,
+      onPress: () => Alert.alert("Can't load this chat", props.threadSyncError ?? ""),
+    });
+    if (syncNotice !== null) {
+      return syncNotice;
     }
     if (props.activePendingApproval !== null || props.activePendingUserInput !== null) {
       return null;
@@ -762,6 +792,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   );
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
   useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed);
+  useSpokenReplies({
+    environmentId: props.environmentId,
+    threadId: props.selectedThread.id,
+    feed: props.selectedThreadFeed,
+    latestTurn: props.selectedThread.latestTurn ?? null,
+  });
   const selectedProviderSkills = useMemo(() => {
     const provider = props.serverConfig?.providers.find(
       (candidate) => candidate.instanceId === selectedInstanceId,
@@ -1211,7 +1247,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     onEditorFocusChange={handleComposerFocusChange}
                     // The glued bars step aside while the keyboard is up so the
                     // draft keeps the room; the composer's own toolbar stays.
-                    topAccessory={composerKeyboardOpen ? null : activeAgentsBar}
+                    topAccessory={composerKeyboardOpen ? null : composerTopAccessory}
                     checkout={composerKeyboardOpen ? null : (props.composerCheckout ?? null)}
                     onPressCheckoutBranch={props.onOpenGit}
                   />

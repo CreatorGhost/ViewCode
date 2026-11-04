@@ -432,7 +432,9 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
           accessibilityLabel={pendingTask.title}
           accessibilityRole="button"
           key={pendingTask.key}
-          className={sidebarPane ? "bg-drawer" : props.inFolderCard ? "bg-card" : "bg-screen"}
+          className={
+            sidebarPane ? "bg-drawer" : props.inFolderCard ? "bg-grouped-card" : "bg-screen"
+          }
           interactionClassName={sidebarPane ? "bg-thread-hover" : "bg-row-hover"}
           onPress={() => onSelectPendingTask(pendingTask)}
           style={

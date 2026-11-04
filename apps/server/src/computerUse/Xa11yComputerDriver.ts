@@ -643,7 +643,7 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
 });
 
 /** Set to main to override the default macOS Helper host. */
-export const DRIVER_HOST_ENV = "VIEWCODE_COMPUTER_DRIVER_HOST";
+const DRIVER_HOST_ENV = "VIEWCODE_COMPUTER_DRIVER_HOST";
 
 /**
  * The `<Name> Helper.app` executable Electron ships beside a macOS app's main

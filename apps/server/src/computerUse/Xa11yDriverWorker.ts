@@ -103,7 +103,7 @@ const withMenus = async (
   return [...children, ...(await menus.list(pid).catch(() => []))];
 };
 
-export const makeXa11yApi = (xa11y: Xa11yModule): Omit<Xa11yApi, "authorizeInput"> => ({
+const makeXa11yApi = (xa11y: Xa11yModule): Omit<Xa11yApi, "authorizeInput"> => ({
   listApps: async () => {
     const apps = await xa11y.App.list();
     for (const app of apps) {

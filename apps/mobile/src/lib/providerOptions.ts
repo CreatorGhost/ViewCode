@@ -1,4 +1,8 @@
-import type { ModelCapabilities, ProviderOptionDescriptor, ProviderOptionSelection } from "@t3tools/contracts";
+import type {
+  ModelCapabilities,
+  ProviderOptionDescriptor,
+  ProviderOptionSelection,
+} from "@t3tools/contracts";
 import {
   buildProviderOptionSelectionsFromDescriptors,
   getProviderOptionCurrentLabel,

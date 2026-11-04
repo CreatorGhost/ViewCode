@@ -109,13 +109,16 @@ function usageWindowEquals(a: ServerProviderUsageWindow, b: ServerProviderUsageW
 export function resolveUsageLimitsAfterProbe(input: {
   readonly published: ServerProviderUsageLimits | undefined;
   readonly probed: ServerProviderUsageLimits | undefined;
+  readonly now?: number;
 }): ServerProviderUsageLimits | undefined {
   const { published, probed } = input;
   if (probed?.unavailable?.reason === "probeFailed" && published && !published.unavailable) {
     return { ...published, refreshError: probed.unavailable.message ?? "Could not refresh usage." };
   }
-  // A successful read with no windows means none is active yet; it must not
-  // wipe bars a turn event already established.
+  // A successful read with no windows means none is active yet (Claude and Grok
+  // read that way after an idle spell); it must not wipe bars a turn event already
+  // established. A kept window whose reset has passed is certainly stale, though,
+  // and goes: kept bars once showed a "limit reached" the account was past.
   if (
     probed &&
     !probed.unavailable &&
@@ -124,8 +127,13 @@ export function resolveUsageLimitsAfterProbe(input: {
     !published.unavailable &&
     published.windows.length > 0
   ) {
+    const now = input.now ?? Date.parse(probed.checkedAt);
+    const live = published.windows.filter(
+      (window) => window.resetsAt === undefined || Date.parse(window.resetsAt) > now,
+    );
+    if (live.length === 0) return probed;
     const { refreshError: _cleared, ...rest } = published;
-    return rest;
+    return live.length === published.windows.length ? rest : { ...rest, windows: live };
   }
   return probed;
 }

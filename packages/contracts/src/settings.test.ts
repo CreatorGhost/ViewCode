@@ -613,7 +613,7 @@ describe("ClientSettings appearance contrast", () => {
 
 describe("ClientSettings panel animations", () => {
   it("defaults to a short slide", () => {
-    expect(decodeClientSettings({}).panelAnimationMs).toBe(200);
+    expect(decodeClientSettings({}).panelAnimationMs).toBe(300);
   });
 
   it("slides for a client that saved the old 0ms default under the previous key", () => {
@@ -621,7 +621,7 @@ describe("ClientSettings panel animations", () => {
       ...encodeClientSettings(decodeClientSettings({})),
       panelAnimationDurationMs: 0,
     };
-    expect(decodeClientSettings(saved).panelAnimationMs).toBe(200);
+    expect(decodeClientSettings(saved).panelAnimationMs).toBe(300);
   });
 
   it.each([0, 400])("accepts a panel animation duration: %s", (value) => {

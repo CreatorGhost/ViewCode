@@ -118,7 +118,7 @@ export const PanelAnimationDurationMs = Schema.Int.check(
   }),
 );
 export type PanelAnimationDurationMs = typeof PanelAnimationDurationMs.Type;
-const DEFAULT_PANEL_ANIMATION_DURATION_MS: PanelAnimationDurationMs = 200;
+const DEFAULT_PANEL_ANIMATION_DURATION_MS: PanelAnimationDurationMs = 300;
 
 export const MIN_INTERFACE_FONT_SIZE = 12;
 export const MAX_INTERFACE_FONT_SIZE = 20;
@@ -280,7 +280,7 @@ export const DEFAULT_CHAT_DENSITY: ChatDensity = "comfortable";
 /** Maximum width of the chat timeline and composer; "full" fills wide screens. */
 export const ChatWidth = Schema.Literals(["comfortable", "narrow", "normal", "wide", "full"]);
 export type ChatWidth = typeof ChatWidth.Type;
-export const DEFAULT_CHAT_WIDTH: ChatWidth = "normal";
+const DEFAULT_CHAT_WIDTH: ChatWidth = "normal";
 
 // ViewCode read aloud (Settings -> Appearance -> Read aloud). A voice names its
 // engine: the browser's system voices (a null voiceURI is the system default)
@@ -297,12 +297,19 @@ export const ReadAloudVoice = Schema.Union([
   }),
 ]);
 export type ReadAloudVoice = typeof ReadAloudVoice.Type;
-export const MIN_READ_ALOUD_RATE = 0.8;
-export const MAX_READ_ALOUD_RATE = 2;
+const MIN_READ_ALOUD_RATE = 0.8;
+const MAX_READ_ALOUD_RATE = 2;
 export const ReadAloudRate = Schema.Number.check(
   Schema.isBetween({ minimum: MIN_READ_ALOUD_RATE, maximum: MAX_READ_ALOUD_RATE }),
 );
-export const DEFAULT_READ_ALOUD_RATE = 1;
+const DEFAULT_READ_ALOUD_RATE = 1;
+/**
+ * ViewCode speak mode: what a client reads aloud when a reply finishes. "summary"
+ * also makes the server write each turn's spoken summary, so it is a server
+ * setting shared by every client of the environment, not a per-device one.
+ */
+export const SpeakMode = Schema.Literals(["off", "summary", "full"]);
+export type SpeakMode = typeof SpeakMode.Type;
 
 export const ModelFavorite = Schema.Struct({
   provider: ProviderInstanceId,
@@ -1299,6 +1306,8 @@ export const ServerSettings = Schema.Struct({
    * shows the reset time but schedules nothing.
    */
   resumeAfterUsageLimit: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  // ViewCode: see `SpeakMode`.
+  speakMode: SpeakMode.pipe(Schema.withDecodingDefault(Effect.succeed("off" as const))),
   /**
    * Desktop only: while a usage-limit resume is scheduled, ask the OS not to
    * suspend the computer. The display may still sleep. There is no scheduled
@@ -1676,6 +1685,7 @@ export const ServerSettingsPatch = Schema.Struct({
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   resumeAfterUsageLimit: Schema.optionalKey(Schema.Boolean),
+  speakMode: Schema.optionalKey(SpeakMode),
   keepAwakeForUsageResume: Schema.optionalKey(Schema.Boolean),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   projectAgentBrowserAccessOverrides: Schema.optionalKey(

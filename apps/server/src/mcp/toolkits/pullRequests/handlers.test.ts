@@ -212,10 +212,13 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
             ? { ...v2PullRequestThread(thread), activeRunId: RunId.make("run:mcp-test") }
             : null,
         ),
-      getThreadRecords: () => Effect.succeed({
-        ...McpToolAccessTestkit.idleThreadProjection(McpToolAccessTestkit.liveThreadShell(THREAD_ID)),
-        messages: options.messages ?? [],
-      }),
+      getThreadRecords: () =>
+        Effect.succeed({
+          ...McpToolAccessTestkit.idleThreadProjection(
+            McpToolAccessTestkit.liveThreadShell(THREAD_ID),
+          ),
+          messages: options.messages ?? [],
+        }),
       getShellSnapshot: () => Effect.succeed({ threads: [] } as never),
       dispatch,
     }),

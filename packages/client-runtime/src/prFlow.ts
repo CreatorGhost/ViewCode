@@ -20,6 +20,7 @@ export type PrFlowPhase =
   | "committing"
   | "pushing"
   | "opening"
+  | "checking"
   | "conflicts"
   | "resolving"
   | "testing"
@@ -31,6 +32,7 @@ const PR_FLOW_PHASES: ReadonlyArray<PrFlowPhase> = [
   "committing",
   "pushing",
   "opening",
+  "checking",
   "conflicts",
   "resolving",
   "testing",
@@ -52,6 +54,8 @@ export interface PrFlowConflictFile {
   readonly hunks: ReadonlyArray<GitConflictHunk>;
   /** Fixed in the merge in progress. */
   readonly resolved: boolean;
+  /** The base commit row whose badge counts this file's clashes, when one is shown. */
+  readonly commit: string | null;
 }
 
 export interface PrFlowConflicts {
@@ -112,7 +116,15 @@ export interface PrFlowMergeRow {
   readonly parents: ReadonlyArray<string>;
 }
 
-export type PrFlowRow = PrFlowCommitRow | PrFlowMergeRow;
+/** The changes "Create PR" commits first, while it does, above the branch's last commit. */
+export interface PrFlowUncommittedRow {
+  readonly kind: "uncommitted";
+  readonly key: string;
+  readonly files: number;
+  readonly parents: ReadonlyArray<string>;
+}
+
+export type PrFlowRow = PrFlowCommitRow | PrFlowMergeRow | PrFlowUncommittedRow;
 
 export interface PrFlow {
   readonly phase: PrFlowPhase;
@@ -213,6 +225,13 @@ export function prFlowStatus(flow: PrFlow): PrFlowStatus {
         label: flow.step ?? "Opening the pull request",
         short: "Creating PR",
         target: "",
+      };
+    case "checking":
+      return {
+        tone: "busy",
+        label: "Checking it merges cleanly",
+        short: "Checking",
+        target: "checking",
       };
     case "conflicts":
       return {
@@ -464,22 +483,20 @@ function prFlowRows(
   const you = (name: string) =>
     graph.viewerName !== null && name === graph.viewerName ? "You" : name;
   const unresolved = graph.resolving === null ? null : new Set<string>(graph.resolving.unresolved);
-  const files = (graph.conflicts?.files ?? []).map(
-    (file): PrFlowConflictFile & { readonly baseCommits: ReadonlyArray<string> } => ({
-      path: file.path,
-      count: file.count,
-      theirsAuthor: file.theirsAuthor === null ? null : you(file.theirsAuthor),
-      oursAuthor: file.oursAuthor === null ? null : you(file.oursAuthor),
-      hunks: file.hunks,
-      baseCommits: file.baseCommits,
-      resolved: unresolved !== null && !unresolved.has(file.path),
-    }),
-  );
   const shown = new Set(graph.base.map((commit) => commit.sha));
+  const files = (graph.conflicts?.files ?? []).map((file): PrFlowConflictFile => ({
+    path: file.path,
+    count: file.count,
+    theirsAuthor: file.theirsAuthor === null ? null : you(file.theirsAuthor),
+    oursAuthor: file.oursAuthor === null ? null : you(file.oursAuthor),
+    hunks: file.hunks,
+    resolved: unresolved !== null && !unresolved.has(file.path),
+    commit: file.baseCommits.find((candidate) => shown.has(candidate)) ?? null,
+  }));
   const brought = new Map<string, { count: number; open: number }>();
   for (const file of files) {
-    const sha = file.baseCommits.find((candidate) => shown.has(candidate));
-    if (sha === undefined) continue;
+    const sha = file.commit;
+    if (sha === null) continue;
     const entry = brought.get(sha) ?? { count: 0, open: 0 };
     entry.count += file.count;
     if (!file.resolved) entry.open += file.count;
@@ -536,7 +553,7 @@ function prFlowRows(
           unit: "conflict",
           total: files.reduce((sum, file) => sum + file.count, 0),
           resolved: files.reduce((sum, file) => sum + (file.resolved ? file.count : 0), 0),
-          files: files.map(({ baseCommits: _baseCommits, ...file }) => file),
+          files,
         }
       : graph.resolving !== null && graph.resolving.total > 0
         ? {
@@ -593,6 +610,11 @@ export interface PrFlowSources {
   readonly merging: boolean;
   /** The command the thread's agent is running now. */
   readonly command: string | null;
+  /**
+   * The thread got the pull request moments ago. Until the host or the checkout says whether it
+   * merges cleanly, the card says it is checking; later, an unknown answer is not news.
+   */
+  readonly justOpened?: boolean | undefined;
 }
 
 /**
@@ -615,6 +637,11 @@ export function prFlowFromPullRequest(
   const checks = sources.checks === null ? null : prFlowChecks(sources.checks);
   const checksRunning =
     checks !== null && checks.total > 0 ? checks.done < checks.total : pr.checksState === "pending";
+  const checking =
+    open &&
+    sources.justOpened === true &&
+    pr.mergeability !== "mergeable" &&
+    (graph === null || graph.conflicts === null);
   const phase: PrFlowPhase =
     pr.state === "merged"
       ? "merged"
@@ -624,9 +651,11 @@ export function prFlowFromPullRequest(
           ? "resolving"
           : conflicting
             ? "conflicts"
-            : checksRunning
-              ? "testing"
-              : "ready";
+            : checking
+              ? "checking"
+              : checksRunning
+                ? "testing"
+                : "ready";
   const laid =
     graph === null
       ? null
@@ -663,27 +692,58 @@ export function prFlowFromPullRequest(
   };
 }
 
-/** The flow while the git menu opens a pull request, before the host has one. */
+/**
+ * The flow while the git menu opens a pull request, before the host has one. With the checkout's
+ * graph against the base it will target, the card already shows the branch: the changes being
+ * committed on top, then its commits and the base since the fork.
+ */
 export function prFlowCreating(input: {
   readonly title: string;
   readonly head: string;
   readonly stepLabel: string | null;
   /** Commits the push will send, from the checkout's status. */
   readonly commitsToPush: number | null;
+  readonly graph?: GitPullRequestGraph | null | undefined;
+  /** The base the pull request will target, when known. */
+  readonly base?: string | null | undefined;
+  /** Changed files the commit step will take, from the checkout's status. */
+  readonly uncommittedFiles?: number | null | undefined;
 }): PrFlow {
+  const phase = prFlowCreatingPhase(input.stepLabel);
+  const graph = input.graph ?? null;
+  const base = input.base ?? null;
+  const commits =
+    graph === null
+      ? []
+      : prFlowRows(graph, { base: base ?? "base", head: input.head, resolving: false }).rows;
+  const files = input.uncommittedFiles ?? 0;
+  const uncommitted: ReadonlyArray<PrFlowUncommittedRow> =
+    phase === "committing" && files > 0 && graph !== null
+      ? [
+          {
+            kind: "uncommitted",
+            key: "uncommitted",
+            files,
+            // On a branch with no commits of its own yet, the changes sit on the fork.
+            parents: [graph.head[0]?.sha ?? graph.fork?.sha].filter(
+              (sha): sha is string => sha !== undefined,
+            ),
+          },
+        ]
+      : [];
   return {
-    phase: prFlowCreatingPhase(input.stepLabel),
+    phase,
     title: input.title,
     number: null,
     url: null,
     head: input.head,
-    base: null,
+    base,
     additions: null,
     deletions: null,
     mergedAt: null,
     draft: false,
     reviewDecision: null,
-    rows: [],
+    rows: [...uncommitted, ...commits],
     headCommits: input.commitsToPush,
     conflicts: null,
     checks: null,

@@ -155,7 +155,7 @@ type SocketBackendSettings = Pick<
  * across the VM boundary, so both keep the backend on TCP, as does the
  * `T3CODE_DESKTOP_BACKEND_TCP` escape hatch.
  */
-export const allowsSocketBackend = (input: {
+const allowsSocketBackend = (input: {
   readonly settings: SocketBackendSettings;
   readonly forceTcp: boolean;
 }): boolean =>

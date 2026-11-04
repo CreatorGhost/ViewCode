@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { IsoDateTime, ProviderInstanceId, type PullRequestReviewGuideResult } from "@t3tools/contracts";
+import {
+  IsoDateTime,
+  ProviderInstanceId,
+  type PullRequestReviewGuideResult,
+} from "@t3tools/contracts";
 import { guideNoticeState, reviewGuideState } from "./reviewGuideState";
 
 const guide: NonNullable<PullRequestReviewGuideResult["guide"]> = {

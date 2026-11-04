@@ -22,7 +22,7 @@ import {
   visibleThreadPullRequests,
 } from "@t3tools/shared/threadPullRequests";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
 
 import { makeQueuedMessageMetadata } from "../../lib/commandMetadata";
@@ -98,6 +98,9 @@ const prFlowLocalAtom = Atom.family((_threadKey: string) =>
   ),
 );
 
+/** How long after the thread got a pull request an unknown mergeability reads as "checking". */
+const JUST_OPENED_MS = 2 * 60_000;
+
 const selectRunningCommand = (thread: EnvironmentThread | null) =>
   thread === null ? null : prFlowRunningCommand(thread.projection);
 const selectGitCommandsKey = (thread: EnvironmentThread | null) =>
@@ -111,6 +114,19 @@ const selectUserMessages = (thread: EnvironmentThread | null) =>
         (count, item) => count + (item.type === "user_message" ? 1 : 0),
         0,
       );
+
+/** Whether `linkedAt` is under `JUST_OPENED_MS` old, turning false when the window ends. */
+function useJustOpened(linkedAt: string | null) {
+  const [now, setNow] = useState(Date.now);
+  const linkedMs = linkedAt === null ? Number.NaN : Date.parse(linkedAt);
+  const remaining = linkedMs + JUST_OPENED_MS - now;
+  useEffect(() => {
+    if (!(remaining > 0)) return;
+    const timer = setTimeout(() => setNow(Date.now()), remaining);
+    return () => clearTimeout(timer);
+  }, [remaining]);
+  return remaining > 0;
+}
 
 /**
  * One of the thread's pull requests as web's PR card reads it: the host's state from the link
@@ -191,6 +207,7 @@ export function useThreadPullRequestFlow(
   }, [live, mergeInProgress, refreshGraph]);
 
   const asked = local.asked;
+  const justOpened = useJustOpened(link?.linkedAt ?? null);
   const flow: PrFlow | null =
     link === null || snapshot === null
       ? null
@@ -204,6 +221,8 @@ export function useThreadPullRequestFlow(
               (asked?.number === link.number && asked.userMessages === userMessages),
             merging: local.merging === pullRequestKey,
             command,
+            // As on web: "Checking it merges cleanly" only while the pull request is new.
+            justOpened,
           },
         );
 

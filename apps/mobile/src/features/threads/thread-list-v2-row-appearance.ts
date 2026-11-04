@@ -48,7 +48,7 @@ export function getThreadListV2RowAppearance(
     : undefined;
 
   return {
-    className: sidebarPane ? undefined : inFolderCard ? "bg-card" : "bg-screen",
+    className: sidebarPane ? undefined : inFolderCard ? "bg-grouped-card" : "bg-screen",
     interactionClassName: sidebarPane ? "bg-thread-hover" : "bg-row-hover",
     interactionOpacity: selected ? 0 : 1,
     foregroundClassName: sidebarPane ? "text-drawer-foreground" : "text-foreground",
@@ -68,12 +68,14 @@ export function getThreadListV2RowAppearance(
     cardStyle: sidebarPane ? { ...style, ...THREAD_LIST_V2_SIDEBAR_ROW_STYLE } : undefined,
     swipeContainerStyle,
     swipeBackgroundColor:
-      theme[sidebarPane ? "--color-drawer" : inFolderCard ? "--color-card" : "--color-screen"],
+      theme[
+        sidebarPane ? "--color-drawer" : inFolderCard ? "--color-grouped-card" : "--color-screen"
+      ],
     // Provider badges blend into the surface beneath them.
     providerIconSurfaceColor: sidebarPane
       ? selected
         ? selectedBackgroundColor
         : theme["--color-drawer"]
-      : theme[inFolderCard ? "--color-card" : "--color-screen"],
+      : theme[inFolderCard ? "--color-grouped-card" : "--color-screen"],
   };
 }

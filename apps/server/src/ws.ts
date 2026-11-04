@@ -181,6 +181,7 @@ import * as ViewCodePushRpc from "./server/viewcodePushRpc.ts";
 import { makeViewCodeProviderRpcHandlers } from "./provider/viewcode/viewcodeProviderRpc.ts";
 import { guardAcpRegistryPrepare } from "./provider/viewcode/acpRegistryPolicy.ts";
 import { detectProviders } from "./provider/viewcode/providerDetection.ts";
+import { boundWorkspaceSnapshotsForWire } from "./provider/providerWire.ts";
 import * as ProviderInstanceRegistry from "./provider/ProviderInstanceRegistry.ts";
 import { AdminPolicyRef } from "@t3tools/shared/viewcodeAdminPolicy";
 import { isProviderDriverKind } from "@t3tools/contracts";
@@ -272,8 +273,7 @@ import {
   withUsageLimitsCommands,
 } from "@t3tools/shared/usageLimits";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
-import * as CursorHistory from "./project/CursorHistory.ts";
-import * as T3CodeHistory from "./project/T3CodeHistory.ts";
+import * as ViewCodeAgentSessionScanner from "./project/ViewCodeAgentSessionScanner.ts";
 import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 
@@ -1685,7 +1685,9 @@ const layerWsRpc = (
       const loadServerConfig = (options: { readonly usageLimitsCommand: boolean }) =>
         Effect.gen(function* () {
           const keybindingsConfig = yield* keybindings.loadConfigState;
-          const currentProviders = yield* providerRegistry.getProviders;
+          const currentProviders = boundWorkspaceSnapshotsForWire(
+            yield* providerRegistry.getProviders,
+          );
           const providers = options.usageLimitsCommand
             ? withUsageLimitsCommands(currentProviders, yield* usageLimitSources.current)
             : currentProviders;
@@ -2337,7 +2339,7 @@ const layerWsRpc = (
                 providers = yield* providerRegistry.refreshInstance(instance.instanceId);
               }
             }
-            return { providers };
+            return { providers: boundWorkspaceSnapshotsForWire(providers) };
           }),
         [WS_METHODS.mcpAppsCallTool]: (input) => mcpAppRequests.callTool(input),
         [WS_METHODS.mcpAppsToolInfo]: (input) => mcpAppRequests.toolInfo(input),
@@ -3053,7 +3055,7 @@ const layerWsRpc = (
                 Stream.concat(
                   Stream.fromEffect(providerRegistry.getProviders),
                   providerRegistry.streamChanges,
-                ),
+                ).pipe(Stream.map(boundWorkspaceSnapshotsForWire)),
                 usageLimitSources.streamChanges.pipe(
                   Stream.changesWith(
                     usageLimitsCommand ? sameUsageLimitCommandCoverage : () => true,
@@ -3282,11 +3284,7 @@ export const layer = Layer.unwrap(
               // their defects, not the rest of the server's.
               Layer.provide(DefectReporter.layer),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
-              Layer.provide(
-                AgentSessionScanner.layer.pipe(
-                  Layer.provide(Layer.merge(CursorHistory.layer, T3CodeHistory.layer)),
-                ),
-              ),
+              Layer.provide(ViewCodeAgentSessionScanner.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
               // One server-lifetime service means clients share the same PR caches, and a WS

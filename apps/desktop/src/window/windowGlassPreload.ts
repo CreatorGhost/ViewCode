@@ -49,8 +49,10 @@ export function exposeWindowGlass(): void {
   let state = isWindowGlassState(initial) ? initial : UNSUPPORTED;
   const listeners = new Set<(state: WindowGlassState) => void>();
 
+  // CI's verify-preload-bundle runs this file in a bare VM with no DOM.
+  const hasDom = typeof document !== "undefined";
   const applyAttribute = () => {
-    const root = document.documentElement;
+    const root = hasDom ? document.documentElement : null;
     if (!root) return;
     if (state.active) root.dataset.windowGlass = "true";
     else delete root.dataset.windowGlass;
@@ -74,7 +76,7 @@ export function exposeWindowGlass(): void {
     void setEnabled(enabled);
   }
   applyAttribute();
-  window.addEventListener("DOMContentLoaded", applyAttribute, { once: true });
+  if (hasDom) window.addEventListener("DOMContentLoaded", applyAttribute, { once: true });
   ipcRenderer.on(WINDOW_GLASS_STATE_CHANNEL, (_event, next: unknown) => {
     if (isWindowGlassState(next)) publish(next);
   });

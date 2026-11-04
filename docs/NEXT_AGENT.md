@@ -13,14 +13,9 @@ upstream `13aa882c22d584de5388dfce3b3ca413387ba059` (0.1.0), followed by
 base was `024d49520`; the intervening cherry-pick policy is retired. Check the
 actual graph with `git merge-base HEAD upstream/main` before the next update.
 
-```sh
-git fetch upstream main
-git switch -c viewcode/upstream-update dev
-git merge upstream/main
-```
-
-Use a review branch; do not merge into `dev` or publish a release without the
-owner's instruction. Resolve orchestration conflicts against upstream's native
+Every merge follows [Merging upstream T3 Code](operations/upstream-merge.md): a
+review branch, the merge check, the ViewCode guard tests and a smoke test. A clean
+merge can still drop ViewCode fixes. Resolve orchestration conflicts against upstream's native
 `apps/server/src/orchestration-v2/`, provider packages, and shared client runtime.
 ViewCode extensions live in small modules with thin integration hooks. Keep
 upstream names and layout; wire contracts gain optional fields. Theme work uses

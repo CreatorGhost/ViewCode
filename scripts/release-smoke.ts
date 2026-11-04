@@ -17,11 +17,13 @@ const workspaceFiles = [
   "apps/desktop/package.json",
   "apps/web/package.json",
   "apps/mobile/package.json",
+  "apps/mobile/modules/t3-markdown-text/package.json",
   "apps/mobile/modules/t3-source-text/package.json",
   "apps/mobile/modules/t3-review-diff/package.json",
   "apps/mobile/modules/t3-terminal/package.json",
   "apps/marketing/package.json",
   "infra/relay/package.json",
+  "infra/viewcode-relay/package.json",
   "oxlint-plugin-t3code/package.json",
   "packages/client-runtime/package.json",
   "packages/contracts/package.json",
@@ -64,6 +66,13 @@ function copyWorkspaceManifestFixture(targetRoot: string): void {
       recursive: true,
     });
   }
+
+  // The smoke resolves from scratch, so a dependency whose range has moved past its patched
+  // version leaves that patch unused; the smoke checks version bumps, not patches.
+  NodeFS.appendFileSync(
+    NodePath.resolve(targetRoot, "pnpm-workspace.yaml"),
+    "\nallowUnusedPatches: true\n",
+  );
 
   const patchesDirectory = NodePath.resolve(repoRoot, "patches");
   if (NodeFS.existsSync(patchesDirectory)) {

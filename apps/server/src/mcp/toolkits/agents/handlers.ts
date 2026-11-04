@@ -92,4 +92,3 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = McpToolAccess.toLayer(AgentsToolkit, make);
-export const AgentsToolkitHandlersLive = layer;

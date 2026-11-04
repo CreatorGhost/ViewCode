@@ -1,4 +1,3 @@
-import type { CodeViewDiffItem } from "@pierre/diffs/react";
 import { reviewedChangeLabel, reviewNoChangesText } from "@t3tools/client-runtime/agent-review";
 import type { EnvironmentId, LocalReviewScope, ProjectId } from "@t3tools/contracts";
 
@@ -48,8 +47,16 @@ export function ReviewChangeView({
   }))();
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <p className="border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs">
-        Reviewing {reviewedChangeLabel(target, scope, diff.base)}
+      <p className="flex items-baseline gap-2 border-b border-border/60 px-3 py-2 text-xs">
+        <span className="min-w-0 flex-1 truncate">
+          <span className="text-muted-foreground">Reviewing </span>
+          <span className="font-medium">{reviewedChangeLabel(target, scope, diff.base)}</span>
+        </span>
+        {items.length > 0 ? (
+          <span className="shrink-0 text-muted-foreground tabular-nums">
+            {items.length === 1 ? "1 file" : `${items.length} files`}
+          </span>
+        ) : null}
       </p>
       {diff.partial || diff.error !== null ? (
         <p className="border-b border-border/60 px-3 py-1.5 text-muted-foreground text-xs">

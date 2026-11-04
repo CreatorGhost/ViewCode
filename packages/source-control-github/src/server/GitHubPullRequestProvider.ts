@@ -45,6 +45,13 @@ const CAPABILITIES: PullRequestCapabilities = {
   labels: true,
 };
 
+/** ViewCode: GitHub Enterprise Server has no pull request stacks, so it offers none. */
+const CAPABILITIES_WITHOUT_STACKS: PullRequestCapabilities = {
+  ...CAPABILITIES,
+  stacks: false,
+  stackActions: false,
+};
+
 /**
  * Asking somebody else for a review needs write access, which is the one thing here an author
  * cannot do on their own pull request: GitHub shows an outside contributor the reviewer control
@@ -236,6 +243,10 @@ export const make = Effect.gen(function* () {
   const provider: PullRequestProviderApi = {
     kind: SourceControlProviderKind.make("github"),
     capabilities: CAPABILITIES,
+    capabilitiesForHost: (host) =>
+      GitHubPullRequestApi.hostHasPullRequestStacks(host)
+        ? CAPABILITIES
+        : CAPABILITIES_WITHOUT_STACKS,
     mergeMessageRewrite: removeAgentCredits,
     getRoutingIdentity: (input) =>
       cli.getRoutingIdentity(input).pipe(Effect.mapError(fail("routeIdentity"))),

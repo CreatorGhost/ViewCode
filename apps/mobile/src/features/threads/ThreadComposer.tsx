@@ -1304,38 +1304,50 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                         tone={currentRuntimeMode === "full-access" ? "warning" : undefined}
                       />
                     </ControlPillMenu>
-                    <View className="min-w-0 shrink flex-row items-center">
-                      <ComposerInlineControl
-                        accessibilityLabel="Model and reasoning settings"
-                        filled
-                        renderIcon={(size) => (
-                          <ProviderIcon provider={currentModelOption?.providerDriver} size={size} />
-                        )}
-                        label={modelChipLabel({
-                          label: currentModelOption?.label ?? currentModelSelection.model,
-                          capabilities: currentModelOption?.capabilities,
-                          selections: currentModelSelection.options,
-                        })}
-                        maxWidth="100%"
-                        onPress={openSettings}
-                      />
-                      {threadGoal.goal !== null ? (
+                    {/* React Native children keep their width unless told to shrink: the model
+                    chip is the one that truncates, the Goal and Debug chips keep theirs, and the
+                    group clips, so nothing paints over the mic and send buttons. */}
+                    <View className="min-w-0 shrink flex-row items-center overflow-hidden">
+                      <View className="min-w-0 shrink">
                         <ComposerInlineControl
-                          accessibilityLabel={`Goal: ${threadGoal.goal.objective}`}
-                          icon="target"
-                          label={isThreadGoalPaused(threadGoal.goal) ? "Paused" : "Goal"}
-                          onPress={threadGoal.openGoalActions}
+                          accessibilityLabel="Model and reasoning settings"
+                          filled
+                          renderIcon={(size) => (
+                            <ProviderIcon
+                              provider={currentModelOption?.providerDriver}
+                              size={size}
+                            />
+                          )}
+                          label={modelChipLabel({
+                            label: currentModelOption?.label ?? currentModelSelection.model,
+                            capabilities: currentModelOption?.capabilities,
+                            selections: currentModelSelection.options,
+                          })}
+                          maxWidth="100%"
+                          onPress={openSettings}
                         />
+                      </View>
+                      {threadGoal.goal !== null ? (
+                        <View className="shrink-0">
+                          <ComposerInlineControl
+                            accessibilityLabel={`Goal: ${threadGoal.goal.objective}`}
+                            icon="target"
+                            label={isThreadGoalPaused(threadGoal.goal) ? "Paused" : "Goal"}
+                            onPress={threadGoal.openGoalActions}
+                          />
+                        </View>
                       ) : null}
                       {threadGoal.debugMode ? (
-                        <ComposerInlineControl
-                          accessibilityLabel="Debug mode is on"
-                          accessibilityHint="Leave debug mode"
-                          icon="ant"
-                          label="Debug"
-                          selected
-                          onPress={threadGoal.confirmLeaveDebugMode}
-                        />
+                        <View className="shrink-0">
+                          <ComposerInlineControl
+                            accessibilityLabel="Debug mode is on"
+                            accessibilityHint="Leave debug mode"
+                            icon="ant"
+                            label="Debug"
+                            selected
+                            onPress={threadGoal.confirmLeaveDebugMode}
+                          />
+                        </View>
                       ) : null}
                     </View>
                   </View>

@@ -2,7 +2,6 @@ import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThr
 
 import { useMemo } from "react";
 
-
 import {
   normalizeProviderAccentColor,
   resolveProviderInstanceDisplayName,

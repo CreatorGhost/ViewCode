@@ -63,9 +63,9 @@ import {
 
 const USAGE_RESUME_AUTO_SUMMARY = "Trying to continue after the usage limit…";
 
-export const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
+const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 /** The Android channel the app creates for agent alerts. */
-export const PUSH_ANDROID_CHANNEL = "agent-alerts";
+const PUSH_ANDROID_CHANNEL = "agent-alerts";
 const MAX_LEAD_HOPS = 24;
 
 export const PushDevice = Schema.Struct({
@@ -83,7 +83,7 @@ const encodeDevices = Schema.encodeSync(DevicesJson);
 const decodeUsageResumePayload = Schema.decodeUnknownOption(UsageResumePayload);
 
 /** One registration per client session; a token re-registered from a new pairing moves with it. */
-export function upsertPushDevice(
+function upsertPushDevice(
   devices: ReadonlyArray<PushDevice>,
   device: PushDevice,
 ): ReadonlyArray<PushDevice> {
@@ -96,7 +96,7 @@ export function upsertPushDevice(
 }
 
 /** Devices whose client session is still active. */
-export function keepActivePushDevices(
+function keepActivePushDevices(
   devices: ReadonlyArray<PushDevice>,
   activeSessionIds: ReadonlySet<string>,
 ): ReadonlyArray<PushDevice> {
@@ -104,7 +104,7 @@ export function keepActivePushDevices(
 }
 
 /** Tokens that want this category, each once. */
-export function pushRecipients(
+function pushRecipients(
   devices: ReadonlyArray<PushDevice>,
   category: keyof PushNotificationCategories,
 ): ReadonlyArray<PushDevice> {
@@ -155,7 +155,7 @@ const ExpoPushResponse = Schema.Struct({
   ),
 });
 
-export const expoPushSenderLayer = Layer.effect(
+const expoPushSenderLayer = Layer.effect(
   ExpoPushSender,
   Effect.gen(function* () {
     const client = yield* HttpClient.HttpClient;

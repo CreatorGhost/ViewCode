@@ -47,7 +47,7 @@ applies to the web and desktop clients.
 
 ## Motion
 
-The main sidebar, right panel, and terminal drawer slide open and closed in 200 ms by default. Use the
+The main sidebar, right panel, and terminal drawer slide open and closed in 300 ms by default. Use the
 **Panel animations** slider to change the speed, up to 400 ms, or set it to 0 ms to open and close them
 immediately. Motion is off when reduced motion is enabled in your operating system. Moving between
 threads always snaps to the selected thread's panel state without replaying its transitions.
@@ -72,6 +72,20 @@ Under **Read aloud** in **Settings → Appearance** you can:
   MB, the fullest sound), or **System voice (no download)**. Choosing a size downloads it once.
 - Choose the voice and speed, and select **Preview** to hear them.
 - Select **Remove downloaded voice** to delete every downloaded size and free the space.
+- Set **Speak replies** to read each reply aloud when its turn finishes, without pressing anything.
+
+**Speak replies** reads only the chat you have open, and only turns that finish while it is open.
+**Summary** reads a short spoken version of the reply, which the turn's provider writes with its
+smaller model a moment after the turn ends; the chat still shows the full reply. **Full reply**
+reads the whole reply. The setting is saved on the server, so every device connected to it does the
+same. Change it from the speaker menu in the chat's top bar or with **Speak mode** in the command
+palette, and stop a reading the way you stop any other.
+
+On the phone, tap the speaker button beside Copy under a finished reply; tap it again to stop. The
+phone uses its system voice.
+
+On the phone, set **Speak replies** in **Settings → Agent behavior**. **Full reply** there skips the
+reply's code, and nothing is read while the app is in the background.
 
 Speech runs on your device; your replies are never sent anywhere. Natural voices speak English. On
 macOS, download more system voices in **System Settings → Accessibility → Spoken Content → System

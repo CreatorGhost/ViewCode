@@ -10,7 +10,11 @@ import {
   type ReviewStartedRecord,
 } from "@t3tools/client-runtime/review-findings";
 
-import type { OrchestrationThreadActivity, ReviewFindingRating, ScopedThreadRef } from "@t3tools/contracts";
+import type {
+  OrchestrationThreadActivity,
+  ReviewFindingRating,
+  ScopedThreadRef,
+} from "@t3tools/contracts";
 import {
   type PostedReviewFinding,
   postedReviewFindings,

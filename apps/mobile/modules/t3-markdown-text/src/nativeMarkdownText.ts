@@ -1224,3 +1224,8 @@ export function nativeMarkdownWithHtml(
   };
   return { ...document, children: (document.children ?? []).flatMap(transform) };
 }
+
+/** True when the text ends on a closing ``` or ~~~ fence line, so a trailing code block is done. */
+export function markdownEndsWithClosedFence(markdown: string): boolean {
+  return /(^|\n)[ \t]*(`{3,}|~{3,})[ \t]*$/.test(markdown.trimEnd());
+}

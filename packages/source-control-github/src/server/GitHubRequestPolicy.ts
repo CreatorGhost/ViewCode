@@ -37,8 +37,66 @@ export class GitHubApiRequestError extends Schema.TaggedError<GitHubApiRequestEr
   { host: Schema.String, operation: Schema.String, cause: Schema.Defect() },
 ) {
   override get message(): string {
-    return `Could not reach GitHub at ${this.host}.`;
+    const reason = transportReason(this.cause);
+    return reason === null
+      ? `Could not reach GitHub at ${this.host}.`
+      : `Could not reach GitHub at ${this.host}: ${reason}.`;
   }
+}
+
+const TLS_TRUST_CODES = new Set([
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "CERT_UNTRUSTED",
+]);
+const CONNECTION_REASONS: Record<string, string> = {
+  ENOTFOUND: "its name did not resolve",
+  EAI_AGAIN: "its name did not resolve",
+  ECONNREFUSED: "the connection was refused",
+  ECONNRESET: "the connection was reset",
+  EHOSTUNREACH: "the host is unreachable",
+  ENETUNREACH: "the network is unreachable",
+  ETIMEDOUT: "the connection timed out",
+  UND_ERR_CONNECT_TIMEOUT: "the connection timed out",
+  CERT_HAS_EXPIRED: "its certificate has expired",
+  ERR_TLS_CERT_ALTNAME_INVALID: "its certificate does not name this host",
+};
+
+/**
+ * ViewCode: why a request never got an answer, in words a "could not be read" can carry: the
+ * Node error code a fetch failure wraps (TLS trust, DNS, refused) or the transport's own
+ * description. Never the URL or headers, which can carry a token.
+ */
+function transportReason(cause: unknown): string | null {
+  let description: string | null = null;
+  let current: unknown = cause;
+  for (let depth = 0; depth < 8 && typeof current === "object" && current !== null; depth++) {
+    const record = current as {
+      code?: unknown;
+      description?: unknown;
+      cause?: unknown;
+      reason?: unknown;
+    };
+    if (description === null && typeof record.description === "string")
+      description = record.description;
+    const code = typeof record.code === "string" ? record.code : null;
+    const known =
+      code === null
+        ? current instanceof Cause.TimeoutError
+          ? "the request timed out"
+          : null
+        : TLS_TRUST_CODES.has(code)
+          ? `its TLS certificate is not trusted by the server's Node.js (${code})`
+          : CONNECTION_REASONS[code] === undefined
+            ? null
+            : `${CONNECTION_REASONS[code]} (${code})`;
+    if (known !== null) return description === null ? known : `${known}; ${description}`;
+    current = record.reason ?? record.cause;
+  }
+  return description;
 }
 
 export class GitHubApiAuthenticationError extends Schema.TaggedError<GitHubApiAuthenticationError>()(

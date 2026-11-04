@@ -94,7 +94,7 @@ const MODIFIERS: Readonly<Record<string, number>> = {
   alt: 1 << 19,
   option: 1 << 19,
 };
-export const backgroundKey = (keys: string) => {
+const backgroundKey = (keys: string) => {
   const parts = keys.split("+");
   const code = KEY_CODES[parts.pop() ?? ""];
   if (code === undefined || parts.some((part) => MODIFIERS[part] === undefined)) return null;

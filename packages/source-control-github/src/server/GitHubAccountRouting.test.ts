@@ -27,7 +27,11 @@ function harness(options: { readonly limited?: boolean; readonly writeStatus?: n
       const path = new URL(request.url).pathname;
       const account = request.headers.authorization?.replace("Bearer credential-", "") ?? "missing";
       requests.push({ path, method: request.method, account });
-      const repository = path.startsWith("/repos/work/private") ? "work" : "personal";
+      const repository = path.startsWith("/repos/work/private")
+        ? "work"
+        : path.startsWith("/repos/nobody/")
+          ? "nobody"
+          : "personal";
       const status =
         request.method !== "GET"
           ? (options.writeStatus ?? 200)
@@ -360,5 +364,49 @@ it.effect(
       ).toBe(true);
       expect(commands.some((args) => args.includes("switch"))).toBe(false);
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(layer, mockApi, NodeServices.layer)));
+  },
+);
+
+it.effect(
+  "reports a repository no signed-in account can see as not found, after asking each",
+  () => {
+    for (const name of [
+      "GH_TOKEN",
+      "GITHUB_TOKEN",
+      "GH_ENTERPRISE_TOKEN",
+      "GITHUB_ENTERPRISE_TOKEN",
+    ])
+      vi.stubEnv(name, "");
+    const { layer, requests } = harness();
+    const mockApi = Layer.mock(GitHubPullRequestApi.GitHubPullRequestApi)({
+      getViewerLogin: () => Effect.succeed("personal"),
+      listActorAvatars: () => Effect.succeed(new Map()),
+      listPullRequests: () => Effect.die("an unreadable repository must not be listed"),
+    });
+    return Effect.gen(function* () {
+      const provider = yield* GitHubRoutedPullRequestProvider.make;
+      const error = yield* provider
+        .listChangeRequests({
+          cwd: "/repo",
+          host: "github.com",
+          repository: "nobody/secret",
+          state: "open",
+          involvement: "all",
+          viewer: "personal",
+          limit: 20,
+        })
+        .pipe(Effect.flip);
+      // The service turns this reason into "No signed-in GitHub account can see …".
+      expect(error.reason).toBe("not-found");
+      expect(
+        requests
+          .filter((request) => request.path === "/repos/nobody/secret")
+          .map((request) => request.account),
+      ).toEqual(["personal", "work"]);
+    }).pipe(
+      Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
+      Effect.scoped,
+      Effect.provide(Layer.mergeAll(layer, mockApi, NodeServices.layer)),
+    );
   },
 );

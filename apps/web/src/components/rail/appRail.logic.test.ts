@@ -4,6 +4,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
 } from "@t3tools/contracts";
+import { CURSOR_KEYCHAIN_USAGE_OFF_MESSAGE } from "@t3tools/shared/usageLimits";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
@@ -111,6 +112,27 @@ describe("buildRailUsageRings", () => {
       ),
     );
     expect(rings).toHaveLength(0);
+  });
+
+  it("keeps a Mac Cursor account waiting for the Keychain opt-in as an off ring", () => {
+    const checkedAt = new Date(0).toISOString();
+    const usageLimits = (message: string) => ({
+      checkedAt,
+      windows: [],
+      unavailable: { reason: "unsupported", message },
+    });
+    const rings = buildRailUsageRings([
+      entry("cursor-off", "cursor", [], {
+        snapshot: { usageLimits: usageLimits(CURSOR_KEYCHAIN_USAGE_OFF_MESSAGE) },
+      } as unknown as Partial<ProviderInstanceEntry>),
+      entry("cursor-other", "cursor", [], {
+        snapshot: { usageLimits: usageLimits("Cursor could not read usage limits.") },
+      } as unknown as Partial<ProviderInstanceEntry>),
+    ]);
+    expect(rings.map((ring) => [ring.entry.instanceId, ring.usageOff])).toEqual([
+      ["cursor-off", true],
+    ]);
+    expect(rings[0]?.window).toBeNull();
   });
 });
 

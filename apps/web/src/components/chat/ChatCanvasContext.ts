@@ -3,6 +3,8 @@ import type { ChatCanvasPreview, resolveChatCanvasLayout } from "./chatCanvasLay
 import type { PreviewMiniPlayerObstacles } from "../preview/previewMiniPlayerLayout";
 
 export const ChatCanvasContext = createContext<{
+  /** The canvas box. `container` is its stored size; read this for a live one (see ChatCanvas). */
+  element: HTMLDivElement | null;
   container: { width: number; height: number };
   lane: { padding: number; minChatWidth: number };
   layout: ReturnType<typeof resolveChatCanvasLayout>;

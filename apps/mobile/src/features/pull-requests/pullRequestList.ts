@@ -8,6 +8,8 @@ import type {
   PullRequestListState,
 } from "@t3tools/contracts";
 
+import { splitUpstreamPullRequestGroups } from "@t3tools/client-runtime/pull-request-list-groups";
+
 export const PR_LIST_PAGE_SIZE = 20;
 export interface PullRequestListControls {
   readonly state: PullRequestListState;
@@ -46,6 +48,8 @@ export type PullRequestListItem =
       readonly kind: "project";
       readonly key: string;
       readonly label: string;
+      /** The repositories the rows come from, where the project's name does not say it. */
+      readonly repositoryLabel: string | null;
       readonly count: number;
       readonly collapsed: boolean;
     }
@@ -57,7 +61,8 @@ export const pullRequestListItemKey = (item: PullRequestListItem) =>
 /**
  * The rows under one header per project, as the desktop list draws them: projects run by their
  * most recently updated row and rows keep the order they came in. A collapsed project keeps its
- * header and drops its rows. One project needs no header to say whose rows they are.
+ * header and drops its rows. One project needs no header to say whose rows they are, unless some
+ * of them are a fork's upstream's, which the header has to say.
  */
 export function groupPullRequestListByProject(
   entries: readonly EnvironmentPullRequestListEntry[],
@@ -78,22 +83,27 @@ export function groupPullRequestListByProject(
     project.entries.push(entry);
     if (entry.updatedAt.localeCompare(project.newest) > 0) project.newest = entry.updatedAt;
   }
-  if (projects.size <= 1) return entries.map((entry) => ({ kind: "row", entry }));
-  return [...projects]
-    .sort(([, left], [, right]) => right.newest.localeCompare(left.newest))
-    .flatMap(([key, project]): PullRequestListItem[] => {
-      const isCollapsed = collapsed.has(key);
-      return [
-        {
-          kind: "project",
-          key,
-          label: project.label,
-          count: project.entries.length,
-          collapsed: isCollapsed,
-        },
-        ...(isCollapsed ? [] : project.entries.map((entry) => ({ kind: "row" as const, entry }))),
-      ];
-    });
+  const groups = splitUpstreamPullRequestGroups(
+    [...projects]
+      .sort(([, left], [, right]) => right.newest.localeCompare(left.newest))
+      .map(([key, project]) => ({ key, label: project.label, entries: project.entries })),
+  );
+  if (groups.length <= 1 && !groups.some((group) => group.upstream))
+    return entries.map((entry) => ({ kind: "row", entry }));
+  return groups.flatMap((group): PullRequestListItem[] => {
+    const isCollapsed = collapsed.has(group.key);
+    return [
+      {
+        kind: "project",
+        key: group.key,
+        label: group.label,
+        repositoryLabel: group.repositoryLabel,
+        count: group.entries.length,
+        collapsed: isCollapsed,
+      },
+      ...(isCollapsed ? [] : group.entries.map((entry) => ({ kind: "row" as const, entry }))),
+    ];
+  });
 }
 
 /** Provider refreshes and diff-count batches recreate entries; unchanged rows can stay mounted. */
@@ -107,6 +117,7 @@ export function pullRequestListRowsAreEqual(
       previous.projectId === next.projectId &&
       previous.host === next.host &&
       previous.repository === next.repository &&
+      previous.upstream === next.upstream &&
       previous.number === next.number &&
       previous.title === next.title &&
       previous.url === next.url &&

@@ -12,7 +12,10 @@
  */
 import * as NodeChildProcess from "node:child_process";
 
-import { ExecutablePath as HostProcessExecutablePath, Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
+import {
+  ExecutablePath as HostProcessExecutablePath,
+  Platform as HostProcessPlatform,
+} from "@t3tools/shared/HostProcess";
 import { resolveCommandPath, resolveSpawnCommand } from "@t3tools/shared/shell";
 import { WRANGLER_PACKAGE } from "@t3tools/shared/viewcodeRelaySetup";
 import * as Data from "effect/Data";
@@ -69,14 +72,14 @@ export type PrepareWrangler = (
   Scope.Scope | FileSystem.FileSystem | Path.Path
 >;
 
-export const NODE_MISSING_MESSAGE =
+const NODE_MISSING_MESSAGE =
   "Quick connect setup needs Node.js (nodejs.org). Install it, then try again.";
 const NODE_TOO_OLD_MESSAGE =
   "Quick connect setup needs Node.js 22 or newer (nodejs.org). Update it, then try again.";
 const DESKTOP_NODE_TOO_OLD_MESSAGE =
   "This version of ViewCode cannot run Cloudflare's tools by itself. Install Node.js 22 or newer (nodejs.org), or update ViewCode, then try again.";
 /** Shown while the one-time npm download runs. */
-export const TOOL_DOWNLOAD_MESSAGE = "Getting the Cloudflare tool ready…";
+const TOOL_DOWNLOAD_MESSAGE = "Getting the Cloudflare tool ready…";
 /** wrangler 4 refuses older Node. */
 const WRANGLER_MIN_NODE_MAJOR = 22;
 const WORKER_MISSING_MESSAGE =
@@ -86,13 +89,13 @@ const WORKER_MISSING_MESSAGE =
 const MAX_OUTPUT_CHARS = 64_000;
 
 /** `v22.15.1` → [22, 15]; null when unreadable. */
-export function parseNodeVersion(text: string): readonly [number, number] | null {
+function parseNodeVersion(text: string): readonly [number, number] | null {
   const match = /v?(\d+)\.(\d+)\.\d+/u.exec(text);
   return match ? [Number(match[1]), Number(match[2])] : null;
 }
 
 /** `--use-system-ca` exists (and is allowed in NODE_OPTIONS) from Node 22.15 / 23.8. */
-export function supportsSystemCa([major, minor]: readonly [number, number]): boolean {
+function supportsSystemCa([major, minor]: readonly [number, number]): boolean {
   return major > 23 || (major === 23 && minor >= 8) || (major === 22 && minor >= 15);
 }
 

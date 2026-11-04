@@ -148,14 +148,15 @@ make your first commit before pushing.
 
 ## Create a pull request
 
-Use a thread's Git actions to commit, push, and create a pull request. ViewCode can generate commit
-messages, review titles, and descriptions from your changes.
+Use a thread's Git actions, or **Create PR** above the composer, to commit, push, and create a
+pull request. ViewCode can generate commit messages, review titles, and descriptions from your
+changes. The size of your branch's changes sits beside it; select it to open the diff.
 
 The thread's pull request then shows as a card in the chat, at the point where the thread got it,
 with its state beside the composer and a short version at the top of the Review panel. The card
 follows the pull request as it changes: your branch's commits against the base's commits since you
 branched, which base commits conflict with yours (hover the conflict count to see the clashing
-lines), each check as it finishes, and what the agent is doing while it works on the pull request.
+lines, or tap it on the phone), each check as it finishes, and what the agent is doing while it works on the pull request.
 
 Once a pull request is merged or closed, its card folds to one line and the composer chip goes
 away. A thread that opens several pull requests shows a card for each, and only the newest open
@@ -187,6 +188,11 @@ uses the project's instructions and recent commit subjects.
 Open **Pull requests** to review changes and comments, request reviewers, check out a branch,
 or merge. You can edit review titles and descriptions and your own comments where the host allows it.
 GitLab calls these merge requests.
+
+For a fork, a checkout whose `upstream` remote is on the same host as `origin`, the list shows the
+fork's own pull requests and, under a separate heading marked upstream, the upstream repository's.
+A repository the list cannot read is named above the list with the reason, such as no signed-in
+account being able to see it or an SSH host alias that could not be resolved.
 
 On mobile, **Pull requests** lists reviews across your connected environments. Open a review
 to read its description, activity, commits, and changed files. Line comments stay as drafts
@@ -248,9 +254,14 @@ asking agent's child and changes nothing.
 
 The **Review** panel beside a chat (web and desktop) shows the change at once, while the review
 works, with how long it has run and what it is doing. Findings appear on the diff as the reviewer
-verifies them, marked **Still reviewing…** until its last set arrives. The issues are listed first;
-the panel goes to the first one, and a row or the arrows go to the next, with each finding under the
-lines it is about (findings without a place in the diff are listed under **General**). Files
+verifies them, marked **Still reviewing** until its last set arrives. Every review block opens with
+what it reviewed, the pull request's number and title or this chat's changes, under a label saying
+what the block is: **Reviewing now**, **Latest review**, or **Earlier review** while a newer review
+runs and its own findings have not arrived. An earlier review folds to that row; click it to open
+its findings, and again to fold them. The issues are listed
+first, grouped by severity and naming only the file (the full path shows on hover); the panel goes
+to the first one, and a row or the arrows go to the next, with each finding under the lines it is
+about (findings without a place in the diff are listed under **General**). Files
 without findings stay folded; **Show all files** opens them. A review that fails says why, with
 **Try again** to start it again as it was asked; one that ends without findings says so, with
 **Try again** too, and a running review has **Stop**. **Fix with agent** sends your chat a message

@@ -18,6 +18,8 @@ export interface ThreadPendingApproval {
   readonly responseCapability: "live" | "not_resumable";
   /** RockBot asking before it sends to another thread: `appName` says where, `detail` what. */
   readonly rockbotConfirm?: true;
+  /** With `rockbotConfirm`: an ordinary chat asking before it reaches a separate chat. */
+  readonly peerExchange?: true;
 }
 
 export interface ThreadUserInputQuestion extends Omit<
@@ -107,6 +109,7 @@ export function derivePendingThreadRequests(
         : {}),
       responseCapability: responseCapability === "live" ? "live" : "not_resumable",
       ...(request.viewcodeRockBotConfirm === true ? { rockbotConfirm: true as const } : {}),
+      ...(request.viewcodePeerExchange === true ? { peerExchange: true as const } : {}),
     });
   }
 

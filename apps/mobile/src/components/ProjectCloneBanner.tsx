@@ -1,4 +1,8 @@
-import { projectCloneDisplayName, projectCloneProgressSummary, type ProjectCloneSnapshot } from "@t3tools/contracts";
+import {
+  projectCloneDisplayName,
+  projectCloneProgressSummary,
+  type ProjectCloneSnapshot,
+} from "@t3tools/contracts";
 import { ActivityIndicator, Pressable, View } from "react-native";
 
 import { cn } from "../lib/cn";

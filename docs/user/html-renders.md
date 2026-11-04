@@ -8,4 +8,4 @@ Agents can place local images in a page by file path. ViewCode embeds them when 
 
 ## Diagrams
 
-Flowcharts, sequence, state and class diagrams, timelines and similar diagrams come as Mermaid instead, drawn right in the reply on web and desktop, with every provider and without ViewCode's tools. Diagrams follow your theme. Click one to open it full size, where you can zoom, pan, copy it as an image, or download it as PNG or SVG.
+Flowcharts, sequence, state and class diagrams, timelines and similar diagrams come as Mermaid instead, drawn right in the reply on web, desktop and the phone, with every provider and without ViewCode's tools. Diagrams follow your theme. Click one to open it full size, where you can zoom, pan, copy it as an image, or download it as PNG or SVG. On the phone, a diagram appears once its block has finished streaming; tap it to open it full screen and pinch to zoom. The phone downloads the diagram renderer the first time, so without internet it shows the diagram's code instead.

@@ -1,9 +1,17 @@
-import type { OrchestrationThread, EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+import type {
+  OrchestrationThread,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/viewcodeThread";
 
 import { useAtomValue } from "@effect/atom-react";
 import { useRoute, type RouteProp } from "@react-navigation/native";
 import { useMemo, useRef, useState } from "react";
-import { EnvironmentId, ThreadId, type ScopedProjectRef, type ScopedThreadRef } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ThreadId,
+  type ScopedProjectRef,
+  type ScopedThreadRef,
+} from "@t3tools/contracts";
 
 import * as Option from "effect/Option";
 

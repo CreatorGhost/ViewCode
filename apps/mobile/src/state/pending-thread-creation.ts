@@ -1,6 +1,7 @@
-import type { EnvironmentThreadShell, OrchestrationThread } from "@t3tools/client-runtime/viewcodeThread";
-
-
+import type {
+  EnvironmentThreadShell,
+  OrchestrationThread,
+} from "@t3tools/client-runtime/viewcodeThread";
 
 import { DEFAULT_PROVIDER_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";

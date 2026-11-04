@@ -2931,9 +2931,29 @@ describe("orchestrator MCP toolkit", () => {
             expect(foreignOrganizeCall.isError).toBe(false);
             expect((yield* orchestrator.getThreadShell(foreignThreadId))?.pinnedAt).not.toBeNull();
 
-            const foreignReadCall = yield* invoke("t3_thread_read", {
+            // A chat the user started separately: reading it asks the user first (ViewCode).
+            const foreignReadFiber = yield* invoke("t3_thread_read", {
               threadId: foreignThreadId,
+            }).pipe(Effect.forkChild);
+            const askingToRead = yield* waitForProjection(
+              orchestrator,
+              parentThreadId,
+              (projection) =>
+                projection.runtimeRequests.some(
+                  (request) =>
+                    request.viewcodePeerExchange === true && request.status === "pending",
+                ),
+            );
+            yield* orchestrator.dispatch({
+              type: "runtime-request.respond",
+              commandId: CommandId.make("command:mcp-foreign-project:allow-read"),
+              threadId: parentThreadId,
+              requestId: askingToRead.runtimeRequests.find(
+                (request) => request.viewcodePeerExchange === true && request.status === "pending",
+              )!.id,
+              decision: "accept",
             });
+            const foreignReadCall = yield* Fiber.join(foreignReadFiber);
             expect(foreignReadCall.structuredContent).toMatchObject({
               thread: { threadId: foreignThreadId, projectId: "project:mcp-foreign" },
             });

@@ -1,13 +1,4 @@
-import {
-  type PrFlow,
-  type PrFlowCheck,
-  type PrFlowTimelinePullRequest,
-  type PrFlowTone,
-  prFlowStatus,
-} from "@t3tools/client-runtime/pr-flow";
-
-import type { AppSymbolName } from "../../components/AppSymbol";
-import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
+import type { PrFlowTimelinePullRequest } from "@t3tools/client-runtime/pr-flow";
 
 /** One of the thread's pull requests as a card in the conversation, where the thread got it. */
 export interface PullRequestFeedEntry {
@@ -77,79 +68,4 @@ export function insertPullRequestFeedEntries<Entry extends FeedEntryLike>(
     });
   }
   return result;
-}
-
-const TONES = {
-  busy: { icon: "clock", tint: "accent-icon-muted", text: "text-foreground-muted" },
-  warning: {
-    icon: "exclamationmark.triangle",
-    tint: "accent-warning-foreground",
-    text: "text-warning-foreground",
-  },
-  success: {
-    icon: "checkmark.circle",
-    tint: "accent-adaptive-emerald-600-400",
-    text: "text-adaptive-emerald-600-400",
-  },
-  merged: {
-    icon: PullRequestGlyph.merged,
-    tint: "accent-adaptive-violet-600-400",
-    text: "text-adaptive-violet-600-400",
-  },
-} as const satisfies Record<PrFlowTone, { icon: AppSymbolName; tint: string; text: string }>;
-
-/** Checks named on the card; the rest are counted. */
-const SHOWN_CHECKS = 4;
-const CHECK_ORDER: Record<PrFlowCheck["state"], number> = {
-  failed: 0,
-  running: 1,
-  passed: 2,
-  skipped: 3,
-};
-
-function checksPassedLabel(list: ReadonlyArray<PrFlowCheck>): string {
-  const passed = list.filter((check) => check.state === "passed").length;
-  if (passed === list.length) return `${passed} ${passed === 1 ? "check" : "checks"} passed`;
-  return `${passed} passed, ${list.length - passed} skipped`;
-}
-
-/**
- * What the phone's card says: the status line in its tone, a checks summary with the checks worth
- * reading by name (failed, then running), and whether the card wears the conflict glow.
- */
-export function pullRequestCardPresentation(flow: PrFlow) {
-  const status = prFlowStatus(flow);
-  const checks = flow.checks;
-  const listed =
-    checks === null
-      ? []
-      : checks.list
-          .filter((check) => check.state === "failed" || check.state === "running")
-          .sort((left, right) => CHECK_ORDER[left.state] - CHECK_ORDER[right.state]);
-  return {
-    status: { label: status.label, ...TONES[status.tone] },
-    checks:
-      checks === null || checks.total === 0
-        ? null
-        : checks.failed > 0
-          ? ({
-              label: `${checks.failed} of ${checks.total} checks failed`,
-              icon: "exclamationmark.circle",
-              tint: "accent-danger-foreground",
-            } as const)
-          : checks.done < checks.total
-            ? ({
-                label: `Checks running, ${checks.done} of ${checks.total} done`,
-                icon: "clock",
-                tint: "accent-warning-foreground",
-              } as const)
-            : ({
-                label: checksPassedLabel(checks.list),
-                icon: "checkmark.circle",
-                tint: "accent-adaptive-emerald-600-400",
-              } as const),
-    namedChecks: listed.slice(0, SHOWN_CHECKS),
-    moreChecks: Math.max(0, listed.length - SHOWN_CHECKS),
-    conflictGlow: flow.phase === "conflicts" || flow.phase === "resolving",
-  } as const;
 }

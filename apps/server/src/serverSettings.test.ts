@@ -335,61 +335,69 @@ it.layer(NodeServices.layer)("server settings", (it) => {
   it.effect("follows a settings link that is repointed to another directory", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const config = yield* ServerConfig.ServerConfig;
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const service = yield* ServerSettingsModule.ServerSettingsService;
+        // The service writes migrated settings back through the link, so it must stop
+        // before this folder is removed or the removal races its write.
         const dotfiles = yield* fs.makeTempDirectoryScoped({ prefix: "t3-settings-dotfiles-" });
-        const firstSettingsPath = path.join(dotfiles, "first", "settings.json");
-        const secondSettingsPath = path.join(dotfiles, "second", "settings.json");
-        yield* fs.makeDirectory(path.dirname(firstSettingsPath), { recursive: true });
-        yield* fs.makeDirectory(path.dirname(secondSettingsPath), { recursive: true });
-        yield* fs.writeFileString(firstSettingsPath, `{ "responseStreamingMode": "turn" }`);
-        yield* fs.writeFileString(secondSettingsPath, `{ "responseStreamingMode": "paragraph" }`);
-        yield* fs.remove(config.settingsPath, { force: true });
-        yield* fs.symlink(firstSettingsPath, config.settingsPath);
-        yield* service.start;
+        yield* Effect.gen(function* () {
+          const config = yield* ServerConfig.ServerConfig;
+          const service = yield* ServerSettingsModule.ServerSettingsService;
+          const firstSettingsPath = path.join(dotfiles, "first", "settings.json");
+          const secondSettingsPath = path.join(dotfiles, "second", "settings.json");
+          yield* fs.makeDirectory(path.dirname(firstSettingsPath), { recursive: true });
+          yield* fs.makeDirectory(path.dirname(secondSettingsPath), { recursive: true });
+          yield* fs.writeFileString(firstSettingsPath, `{ "responseStreamingMode": "turn" }`);
+          yield* fs.writeFileString(secondSettingsPath, `{ "responseStreamingMode": "paragraph" }`);
+          yield* fs.remove(config.settingsPath, { force: true });
+          yield* fs.symlink(firstSettingsPath, config.settingsPath);
+          yield* service.start;
 
-        const repointChanges = yield* service.subscribeChanges;
-        yield* fs.remove(config.settingsPath);
-        yield* fs.symlink(secondSettingsPath, config.settingsPath);
-        const repointed = yield* repointChanges.pipe(Stream.runHead, Effect.timeout("2 seconds"));
-        assert.equal(Option.getOrUndefined(repointed)?.responseStreamingMode, "paragraph");
+          const repointChanges = yield* service.subscribeChanges;
+          yield* fs.remove(config.settingsPath);
+          yield* fs.symlink(secondSettingsPath, config.settingsPath);
+          const repointed = yield* repointChanges.pipe(Stream.runHead, Effect.timeout("2 seconds"));
+          assert.equal(Option.getOrUndefined(repointed)?.responseStreamingMode, "paragraph");
 
-        const editChanges = yield* service.subscribeChanges;
-        yield* writeFileStringAtomically({
-          filePath: secondSettingsPath,
-          contents: `{ "responseStreamingMode": "turn" }`,
-        });
-        const edited = yield* editChanges.pipe(Stream.runHead, Effect.timeout("2 seconds"));
-        assert.equal(Option.getOrUndefined(edited)?.responseStreamingMode, "turn");
+          const editChanges = yield* service.subscribeChanges;
+          yield* writeFileStringAtomically({
+            filePath: secondSettingsPath,
+            contents: `{ "responseStreamingMode": "turn" }`,
+          });
+          const edited = yield* editChanges.pipe(Stream.runHead, Effect.timeout("2 seconds"));
+          assert.equal(Option.getOrUndefined(edited)?.responseStreamingMode, "turn");
+        }).pipe(Effect.provide(layerServerSettings()));
       }),
-    ).pipe(TestClock.withLive, Effect.provide(layerServerSettings())),
+    ).pipe(TestClock.withLive),
   );
 
   it.effect("reloads when a dangling settings link gets its destination", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const config = yield* ServerConfig.ServerConfig;
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
-        const service = yield* ServerSettingsModule.ServerSettingsService;
+        // The service writes migrated settings back through the link, so it must stop
+        // before this folder is removed or the removal races its write.
         const dotfiles = yield* fs.makeTempDirectoryScoped({ prefix: "t3-settings-dotfiles-" });
-        const linkedSettingsPath = path.join(dotfiles, "not-yet", "settings.json");
-        yield* fs.remove(config.settingsPath, { force: true });
-        yield* fs.symlink(linkedSettingsPath, config.settingsPath);
-        yield* service.start;
-        const changes = yield* service.subscribeChanges;
+        yield* Effect.gen(function* () {
+          const config = yield* ServerConfig.ServerConfig;
+          const service = yield* ServerSettingsModule.ServerSettingsService;
+          const linkedSettingsPath = path.join(dotfiles, "not-yet", "settings.json");
+          yield* fs.remove(config.settingsPath, { force: true });
+          yield* fs.symlink(linkedSettingsPath, config.settingsPath);
+          yield* service.start;
+          const changes = yield* service.subscribeChanges;
 
-        yield* writeFileStringAtomically({
-          filePath: linkedSettingsPath,
-          contents: `{ "responseStreamingMode": "paragraph" }`,
-        });
+          yield* writeFileStringAtomically({
+            filePath: linkedSettingsPath,
+            contents: `{ "responseStreamingMode": "paragraph" }`,
+          });
 
-        const change = yield* changes.pipe(Stream.runHead, Effect.timeout("2 seconds"));
-        assert.equal(Option.getOrUndefined(change)?.responseStreamingMode, "paragraph");
+          const change = yield* changes.pipe(Stream.runHead, Effect.timeout("2 seconds"));
+          assert.equal(Option.getOrUndefined(change)?.responseStreamingMode, "paragraph");
+        }).pipe(Effect.provide(layerServerSettings()));
       }),
-    ).pipe(TestClock.withLive, Effect.provide(layerServerSettings())),
+    ).pipe(TestClock.withLive),
   );
 
   it.effect("preserves context when reading a provider environment secret fails", () => {

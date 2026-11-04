@@ -1,4 +1,3 @@
-import type { ProjectId } from "@t3tools/contracts";
 import type { OrchestrationThreadShell } from "./viewcodeThread.ts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 
@@ -134,45 +133,6 @@ export function activeThreadAnchorTimestampMs(thread: {
     toSortableTimestamp(thread.unsettledAt ?? undefined) ?? 0,
     toSortableTimestamp(thread.latestUserMessageAt ?? undefined) ?? 0,
   );
-}
-
-export function sortThreads<T extends { readonly id: string } & ThreadSortInput>(
-  threads: readonly T[],
-  sortOrder: SidebarThreadSortOrder,
-): T[] {
-  if (threads.length < 2) return [...threads];
-  return threads
-    .map((thread) => ({ thread, timestamp: getThreadSortTimestamp(thread, sortOrder) }))
-    .sort(
-      (left, right) =>
-        right.timestamp - left.timestamp ||
-        (left.thread.id < right.thread.id ? 1 : left.thread.id > right.thread.id ? -1 : 0),
-    )
-    .map(({ thread }) => thread);
-}
-
-export function getLatestThreadForProject<
-  T extends {
-    readonly id: string;
-    readonly projectId: ProjectId;
-    readonly archivedAt: string | null;
-  } & ThreadSortInput,
->(threads: readonly T[], projectId: ProjectId, sortOrder: SidebarThreadSortOrder): T | null {
-  let latest: T | null = null;
-  let latestTimestamp = Number.NEGATIVE_INFINITY;
-  for (const thread of threads) {
-    if (thread.projectId !== projectId || thread.archivedAt !== null) continue;
-    const timestamp = getThreadSortTimestamp(thread, sortOrder);
-    if (
-      latest === null ||
-      timestamp > latestTimestamp ||
-      (timestamp === latestTimestamp && thread.id > latest.id)
-    ) {
-      latest = thread;
-      latestTimestamp = timestamp;
-    }
-  }
-  return latest;
 }
 
 // ── Pinned reorder: fractional index keys ──────────────────────────────

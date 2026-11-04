@@ -38,7 +38,6 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { normalizeRelayOrigin } from "./relayOrigin.ts";
-export { normalizeRelayOrigin } from "./relayOrigin.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { createRelayForwarder, type RelayForwarder } from "./relayForwarder.ts";
 import {
@@ -281,7 +280,7 @@ export const followRelayDesire = (input: {
   );
 
 /** Stored origins are always https; plain http exists so tests can talk to a local workerd. */
-export const relayHostUrl = (origin: string): string => {
+const relayHostUrl = (origin: string): string => {
   const url = new URL(origin);
   return `${url.protocol === "http:" ? "ws" : "wss"}://${url.host}${RELAY_HOST_PATH}`;
 };
@@ -387,7 +386,7 @@ const probeRelayFailure = (
   );
 };
 
-export const dialRelay: RelayDial = (config) =>
+const dialRelay: RelayDial = (config) =>
   openRelaySocket(config).pipe(
     Effect.catch((dialError) => probeRelayFailure(config, dialError).pipe(Effect.flip)),
   );
@@ -461,8 +460,16 @@ export const layer = Layer.effect(
                     target,
                     send,
                     onOversizedMessage: (details) => {
+                      // Its own short span puts the warning in server.trace.ndjson. Without
+                      // one it reached only the console (server-child.log on desktop): the
+                      // trace logger files messages under the current span, and the
+                      // connector's long-running fiber has none that ever ends.
                       runFork(
-                        Effect.logWarning("Quick connect WebSocket message too big", details),
+                        Effect.logWarning("Quick connect WebSocket message too big", details).pipe(
+                          Effect.withSpan("ViewCodeRelay.messageTooBig", {
+                            attributes: { ...details },
+                          }),
+                        ),
                       );
                     },
                   }),
@@ -471,18 +478,5 @@ export const layer = Layer.effect(
           });
         }).pipe(Effect.scoped),
     });
-  }),
-);
-
-const unconfiguredState: ViewCodeRelayState = { status: "off", configured: false };
-
-/** For tests that stand in for the connector without a relay. */
-export const layerUnconfigured = Layer.succeed(
-  ViewCodeRelayConnector,
-  ViewCodeRelayConnector.of({
-    stateChanges: Stream.make(unconfiguredState),
-    currentState: Effect.succeed(unconfiguredState),
-    networkChanged: Effect.void,
-    run: () => Effect.void,
   }),
 );

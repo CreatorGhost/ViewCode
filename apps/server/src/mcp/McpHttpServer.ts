@@ -811,7 +811,7 @@ export const layerGoalToolkit = toolkitRegistration(GoalToolkit, GoalHandlers.la
 
 export const layerHistoryToolkit = toolkitRegistration(HistoryToolkit, HistoryHandlers.layer);
 
-export const layerAgentsToolkit = toolkitRegistration(AgentsToolkit, agentsToolkitHandlers);
+const layerAgentsToolkit = toolkitRegistration(AgentsToolkit, agentsToolkitHandlers);
 
 export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandlers.layer);
 

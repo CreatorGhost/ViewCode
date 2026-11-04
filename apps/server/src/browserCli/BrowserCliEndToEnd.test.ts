@@ -151,39 +151,35 @@ const startCli = (
 
 describe("viewcode-browser end to end", () => {
   it.effect.each(["unix", "tcp"] as const)(
-      "drives the browser for the credential's thread over %s",
-      (listen) =>
-        Effect.gen(function* () {
-          const stack = yield* makeStack(listen);
-          const config = yield* stack.issue(["preview"]);
-          expect(config.browserEndpoint?.startsWith(listen === "unix" ? "unix:" : "http://")).toBe(
-            true,
-          );
+    "drives the browser for the credential's thread over %s",
+    (listen) =>
+      Effect.gen(function* () {
+        const stack = yield* makeStack(listen);
+        const config = yield* stack.issue(["preview"]);
+        expect(config.browserEndpoint?.startsWith(listen === "unix" ? "unix:" : "http://")).toBe(
+          true,
+        );
 
-          const status = yield* startCli(config, ["status"]);
-          expect(status.json.error).toBeUndefined();
-          const dispatch = yield* startCli(config, ["status"], "dispatch");
-          expect(dispatch).toMatchObject({
-            code: 0,
-            json: { ok: true, result: { tabId: "tab-1" } },
-          });
-          stack.invoked.splice(1);
-          expect(status).toMatchObject({ code: 0, json: { ok: true, result: { tabId: "tab-1" } } });
+        const status = yield* startCli(config, ["status"]);
+        expect(status.json.error).toBeUndefined();
+        const dispatch = yield* startCli(config, ["status"], "dispatch");
+        expect(dispatch).toMatchObject({
+          code: 0,
+          json: { ok: true, result: { tabId: "tab-1" } },
+        });
+        stack.invoked.splice(1);
+        expect(status).toMatchObject({ code: 0, json: { ok: true, result: { tabId: "tab-1" } } });
 
-          const click = yield* startCli(config, ["click", "--locator", "text=Continue"]);
-          expect(click).toMatchObject({ code: 0, json: { ok: true } });
-          expect(stack.invoked.map((call) => call.operation)).toEqual([
-            "status",
-            "click",
-            "status",
-          ]);
-          expect(stack.invoked[1]).toMatchObject({
-            input: { locator: "text=Continue" },
-            scope: { thread: { threadId } },
-          });
-        }).pipe(Effect.scoped),
-      TEST_TIMEOUT,
-    );
+        const click = yield* startCli(config, ["click", "--locator", "text=Continue"]);
+        expect(click).toMatchObject({ code: 0, json: { ok: true } });
+        expect(stack.invoked.map((call) => call.operation)).toEqual(["status", "click", "status"]);
+        expect(stack.invoked[1]).toMatchObject({
+          input: { locator: "text=Continue" },
+          scope: { thread: { threadId } },
+        });
+      }).pipe(Effect.scoped),
+    TEST_TIMEOUT,
+  );
 
   it.effect(
     "a session without browser access gets the MCP tools' refusal, and nothing reaches the browser",

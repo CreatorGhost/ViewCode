@@ -75,7 +75,9 @@ from the sidebar.
 ## Import past sessions
 
 Open a project's menu in the sidebar and select **Import past sessions…**. This
-is the same list **Choose sessions…** opens:
+is the same list **Choose sessions…** opens. On the phone, long-press a project
+on Home and choose **Import past sessions…**, or use **Settings → Import past
+sessions** and pick the project:
 
 - **Claude Code, Codex and Cursor**: sessions from the last 60 days in that
   folder, from both the Cursor editor and the Cursor CLI.
@@ -88,9 +90,10 @@ Listing and importing only read this history, so the other apps can stay open.
 
 Nothing is checked for you. Sub-agent runs, sessions another agent started,
 short fragments, and Claude or Codex sessions a T3 Code thread already carries
-are hidden; select **Show hidden** to see them with the reason. Sessions you
-already imported are marked **Imported**, and importing one again changes
-nothing.
+are hidden; select **Show hidden** to see them with the reason. **Select all**
+ticks every session in the list as it is shown, so hidden ones are included only
+while **Show hidden** is on. Sessions you already imported are marked
+**Imported**, and importing one again changes nothing.
 
 Import is best effort. ViewCode keeps the first user prompt and the newest
 remaining user and assistant messages, with 200 messages total. It omits tool

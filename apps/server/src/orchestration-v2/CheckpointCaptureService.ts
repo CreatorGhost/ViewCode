@@ -19,6 +19,8 @@ import * as CheckpointService from "./CheckpointService.ts";
 import * as EventSink from "./EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import { spokenSummaryEffects } from "./ViewCodeSpokenSummary.ts";
 
 export class CheckpointCaptureExecutionError extends Schema.TaggedError<CheckpointCaptureExecutionError>()(
   "CheckpointCaptureExecutionError",
@@ -52,6 +54,7 @@ export const layer: Layer.Layer<
   | EventSink.EventSinkV2
   | IdAllocator.IdAllocatorV2
   | ProjectionStore.ProjectionStoreV2
+  | ServerSettings.ServerSettingsService
 > = Layer.effect(
   CheckpointCaptureServiceV2,
   Effect.gen(function* () {
@@ -59,6 +62,7 @@ export const layer: Layer.Layer<
     const eventSink = yield* EventSink.EventSinkV2;
     const ids = yield* IdAllocator.IdAllocatorV2;
     const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const serverSettings = yield* ServerSettings.ServerSettingsService;
 
     const execute = Effect.fn("orchestrationV2.checkpointCapture.execute")(function* (input: {
       readonly threadId: ThreadId;
@@ -134,12 +138,22 @@ export const layer: Layer.Layer<
       // (ProjectionStore preserves the field when absent from the payload).
       const { delegatedCompletion: _delegatedCompletion, ...runWithoutDelegatedCompletion } = run;
       const commandId = CommandId.make(`command:effect:checkpoint.capture:${run.id}`);
+      // ViewCode: the turn completes in this commit, so its spoken summary is
+      // enqueued here; a settings read failure must not fail the capture.
+      const effects = stopped
+        ? []
+        : yield* serverSettings.getSettings.pipe(
+            Effect.map((settings) =>
+              spokenSummaryEffects({ settings, threadId: input.threadId, runId: run.id }),
+            ),
+            Effect.catch(() => Effect.succeed([])),
+          );
       yield* eventSink.commitCommand({
         commandId,
         threadId: input.threadId,
         commandType: "checkpoint.capture",
         acceptedAt: capturedAt,
-        effects: [],
+        effects,
         events: [
           ...(threadStartCheckpoint === null
             ? []
