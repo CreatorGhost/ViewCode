@@ -19,7 +19,8 @@ in its composer like any thread. Each computer you connect has its own RockBot.
 While a RockBot chat is open, the sidebar lists your RockBot chats in place of your
 projects, newest first. Start another with the pencil next to **RockBot**, or **New
 RockBot chat** in the command palette. Rename or archive them like any thread; archived
-chats are under **Settings → Archived**. Click a project on the rail to go back to your
+chats are under **RockBot** in **Settings → Archived**. RockBot chats never appear under
+**No project**, which stays the place for chats you start without a project. Click a project on the rail to go back to your
 work.
 
 On mobile (iOS and Android), the sparkle button on Home opens a menu with **New chat**

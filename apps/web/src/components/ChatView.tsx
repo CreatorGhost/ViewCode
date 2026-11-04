@@ -1886,6 +1886,9 @@ export default function ChatView(props: ChatViewProps) {
       ? scopeProjectRef(activeThreadEnvironmentId, activeThreadProjectId)
       : null;
   const activeProject = useProject(activeProjectRef);
+  // RockBot chats live in the scratch folder only to keep their agent out of every
+  // repository; the header never offers that folder's project tools.
+  const isRockBotChat = serverThread !== null && isRockBot(serverThread.source);
   const activeProjectSettings = resolveProjectSettings(
     settings,
     activeProject?.id ?? null,
@@ -8099,7 +8102,8 @@ export default function ChatView(props: ChatViewProps) {
             activeThreadId={activeThread.id}
             isServerThread={isServerThread}
             activeThreadTitle={activeThread.title}
-            activeProject={activeProject ?? null}
+            activeProject={isRockBotChat ? null : (activeProject ?? null)}
+            isRockBot={isRockBotChat}
             parentThreadLink={parentThreadLink}
             onOpenThread={onOpenRelatedThreadStable}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
@@ -8109,8 +8113,8 @@ export default function ChatView(props: ChatViewProps) {
             actions={
               <div data-chat-header-actions className="flex shrink-0 items-center gap-2">
                 <ViewCodeHeaderProjectActions
-                  projectCwd={activeProject?.workspaceRoot ?? null}
-                  {...(showOpenInPicker
+                  projectCwd={isRockBotChat ? null : (activeProject?.workspaceRoot ?? null)}
+                  {...(showOpenInPicker && !isRockBotChat
                     ? {
                         openIn: {
                           environmentId: activeThread.environmentId,
@@ -8153,7 +8157,7 @@ export default function ChatView(props: ChatViewProps) {
                   isServerThread={isServerThread}
                   isSidechat={activeThreadShell?.source.kind === "sidechat"}
                   keybindings={keybindings}
-                  terminalAvailable={activeProject !== null && canOperateTerminal}
+                  terminalAvailable={activeProject !== null && !isRockBotChat && canOperateTerminal}
                   terminalOpen={terminalUiState.terminalOpen}
                   terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
                   onToggleTerminal={toggleTerminalVisibilityStable}
@@ -8423,7 +8427,7 @@ export default function ChatView(props: ChatViewProps) {
                             : undefined
                         }
                       >
-                        {serverThread !== null && isRockBot(serverThread.source) ? (
+                        {isRockBotChat ? (
                           <RockBotHeroHeadline />
                         ) : (
                           <DraftHeroHeadline

@@ -5,6 +5,7 @@ import {
   type ThreadGoal,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { BotIcon } from "lucide-react";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   isAtomCommandInterrupted,
@@ -45,6 +46,8 @@ interface ChatHeaderProps {
   onRunThreadGoal?: () => void;
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
+  /** A RockBot chat: its tab carries RockBot's glyph, since its folder names no project. */
+  isRockBot?: boolean;
   parentThreadLink: { threadId: ThreadId; title: string } | null;
   onOpenThread: (threadId: ThreadId) => void;
   rightPanelOpen: boolean;
@@ -81,6 +84,7 @@ export const ChatHeader = memo(function ChatHeader({
   onRunThreadGoal,
   isServerThread,
   activeProject,
+  isRockBot = false,
   rightPanelOpen,
   actions,
   toolbarControlCount,
@@ -236,9 +240,11 @@ export const ChatHeader = memo(function ChatHeader({
     }
   };
   const activeTabExtras: ActiveTabExtras = {
-    ...(activeProject
-      ? { glyph: <ProjectFavicon project={activeProject} className="size-3.5 shrink-0" /> }
-      : {}),
+    ...(isRockBot
+      ? { glyph: <BotIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" /> }
+      : activeProject
+        ? { glyph: <ProjectFavicon project={activeProject} className="size-3.5 shrink-0" /> }
+        : {}),
     ...(renamingTitle === null
       ? {}
       : {

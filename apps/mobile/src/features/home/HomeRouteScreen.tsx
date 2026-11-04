@@ -31,6 +31,7 @@ import { useThreadListActions } from "./useThreadListActions";
 import { HomeScopeFilters } from "./HomeScopeFilters";
 import type { HomeHeaderProps } from "./HomeHeader.types";
 import { useRockBotMenu } from "../rockbot/useRockBotMenu";
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
 
 /* ─── Route screen ───────────────────────────────────────────────────── */
 
@@ -101,7 +102,8 @@ export function HomeRouteScreen() {
           environmentId: selectedEnvironmentId,
           projectGroupingMode: listOptions.projectGroupingMode,
         }),
-        threads,
+        // RockBot chats live in No project only as storage; they must not reorder it.
+        threads: threads.filter((thread) => !isRockBot(thread)),
         pendingTasks,
         projectSortOrder: listOptions.projectSortOrder,
       }).map((scope) => ({
