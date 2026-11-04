@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import { Platform, Pressable, View } from "react-native";
 
-import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
+import { useAppearancePreferences } from "../lib/appearancePreferencesContext";
 import { cn } from "../lib/cn";
 import { AppText } from "./AppText";
 import { SymbolView } from "./AppSymbol";

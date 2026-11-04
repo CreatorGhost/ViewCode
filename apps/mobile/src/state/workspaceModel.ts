@@ -15,6 +15,17 @@ export interface WorkspaceEnvironment {
   readonly connectionErrorTraceId: string | null;
 }
 
+export interface WorkspaceConnectionState {
+  readonly isLoadingConnections: boolean;
+  readonly hasConnections: boolean;
+  readonly hasReadyEnvironment: boolean;
+  readonly hasConnectingEnvironment: boolean;
+  readonly connectingEnvironments: ReadonlyArray<WorkspaceEnvironment>;
+  readonly connectionState: EnvironmentConnectionPhase;
+  readonly connectionError: string | null;
+  readonly networkStatus: NetworkStatus;
+}
+
 export interface WorkspaceState {
   readonly isLoadingConnections: boolean;
   readonly hasConnections: boolean;
@@ -75,14 +86,11 @@ function overallConnectionState(
   return "available";
 }
 
-export function projectWorkspaceState(input: {
+export function projectWorkspaceConnectionState(input: {
   readonly isReady: boolean;
   readonly networkStatus: NetworkStatus;
   readonly environments: ReadonlyArray<WorkspaceEnvironment>;
-  readonly shellSummary: EnvironmentShellSummary;
-}): WorkspaceState {
-  // Switched-off environments still count as saved connections, but they do
-  // not drive the overall connection state or surface their last error.
+}): WorkspaceConnectionState {
   const activeEnvironments = input.environments.filter((environment) => environment.isEnabled);
   const connectingEnvironments = activeEnvironments.filter(
     (environment) =>
@@ -93,8 +101,6 @@ export function projectWorkspaceState(input: {
   return {
     isLoadingConnections: !input.isReady,
     hasConnections: input.environments.length > 0,
-    hasLoadedShellSnapshot: input.shellSummary.hasSnapshot,
-    hasPendingShellSnapshot: input.shellSummary.hasSynchronizingShell,
     hasReadyEnvironment:
       input.networkStatus !== "offline" &&
       activeEnvironments.some((environment) => environment.connectionState === "connected"),
@@ -104,9 +110,24 @@ export function projectWorkspaceState(input: {
     connectionError:
       activeEnvironments.find((environment) => environment.connectionError !== null)
         ?.connectionError ?? null,
-    shellSnapshotError: input.shellSummary.firstError,
-    latestCachedSnapshotReceivedAt: input.shellSummary.latestSnapshotUpdatedAt,
     networkStatus: input.networkStatus,
+  };
+}
+
+export function projectWorkspaceState(input: {
+  readonly isReady: boolean;
+  readonly networkStatus: NetworkStatus;
+  readonly environments: ReadonlyArray<WorkspaceEnvironment>;
+  readonly shellSummary: EnvironmentShellSummary & {
+    readonly latestSnapshotUpdatedAt?: string | null;
+  };
+}): WorkspaceState {
+  return {
+    ...projectWorkspaceConnectionState(input),
+    hasLoadedShellSnapshot: input.shellSummary.hasSnapshot,
+    hasPendingShellSnapshot: input.shellSummary.hasSynchronizingShell,
+    shellSnapshotError: input.shellSummary.firstError,
+    latestCachedSnapshotReceivedAt: input.shellSummary.latestSnapshotUpdatedAt ?? null,
   };
 }
 

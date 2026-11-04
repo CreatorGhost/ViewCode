@@ -37,7 +37,7 @@ export function ProjectLogoChoices(props: {
                     aria-label={`Use ${path}`}
                     aria-pressed={selected}
                     className={cn(
-                      "flex size-11 items-center justify-center rounded-lg border border-border bg-muted/40 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring",
+                      "flex size-11 items-center justify-center rounded-lg border border-border bg-muted/40 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                       selected && "border-foreground/64 bg-accent",
                     )}
                     onClick={() => props.onSelect(path)}

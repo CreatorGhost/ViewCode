@@ -10,12 +10,6 @@ type EditorDefinition = {
   readonly commands: readonly [string, ...string[]] | null;
   readonly baseArgs?: readonly string[];
   readonly launchStyle: EditorLaunchStyle;
-  /**
-   * URL scheme for editors that support VS Code's remote deep links
-   * (`<scheme>://vscode-remote/ssh-remote+<host><path>`). Only set for VS Code
-   * and forks that ship the Remote-SSH machinery, plus Zed, which uses its own
-   * `zed://ssh/<host><path>` shape.
-   */
   readonly remoteScheme?: string;
   /**
    * JetBrains product code (`IU`, `PY`, ...). JetBrains IDEs open remote
@@ -179,7 +173,6 @@ export type LaunchEditorInput = typeof LaunchEditorInput.Type;
 const remoteSchemeOf = (editor: EditorDefinition): string | undefined =>
   editor.remoteScheme ?? (editor.jetbrainsProductCode === undefined ? undefined : "jetbrains");
 
-/** Editors that can open a remote workspace via an SSH deep link. */
 export const REMOTE_CAPABLE_EDITOR_IDS: ReadonlyArray<EditorId> = EDITORS.flatMap((editor) =>
   remoteSchemeOf(editor) !== undefined ? [editor.id] : [],
 );
@@ -234,12 +227,6 @@ export const buildRemoteOpenUrl = (input: {
   return `${scheme}://vscode-remote/ssh-remote+${encodedHost}${encodedPath}`;
 };
 
-/**
- * SSH hostnames an environment advertises for remote open links. Reachability
- * is client-side; the server only advertises names that resolve to itself and
- * gates them on a local sshd listen check. Ordered most-reachable first
- * (tailnet MagicDNS name, then mDNS `<hostname>.local`).
- */
 export const RemoteOpenTargetKind = Schema.Literals(["tailscale", "mdns"]);
 export type RemoteOpenTargetKind = typeof RemoteOpenTargetKind.Type;
 
@@ -283,6 +270,17 @@ export class ExternalLauncherCommandNotFoundError extends Schema.TaggedError<Ext
   }
 }
 
+export class ExternalLauncherUnsupportedTargetError extends Schema.TaggedError<ExternalLauncherUnsupportedTargetError>()(
+  "ExternalLauncherUnsupportedTargetError",
+  {
+    editor: EditorId,
+  },
+) {
+  override get message(): string {
+    return `${this.editor} cannot open a path containing line breaks or double quotes`;
+  }
+}
+
 const ExternalLauncherSpawnFields = {
   command: Schema.String,
   args: Schema.Array(Schema.String),
@@ -318,6 +316,7 @@ export const ExternalLauncherError = Schema.Union([
   ExternalLauncherUnknownEditorError,
   ExternalLauncherUnsupportedEditorError,
   ExternalLauncherCommandNotFoundError,
+  ExternalLauncherUnsupportedTargetError,
   ExternalLauncherBrowserSpawnError,
   ExternalLauncherEditorSpawnError,
 ]);

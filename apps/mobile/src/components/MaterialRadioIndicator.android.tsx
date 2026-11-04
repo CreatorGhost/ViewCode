@@ -2,7 +2,7 @@ import { Host, RadioButton } from "@expo/ui/jetpack-compose";
 import { size } from "@expo/ui/jetpack-compose/modifiers";
 import { View } from "react-native";
 
-import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
+import { useAppearancePreferences } from "../lib/appearancePreferencesContext";
 
 /** The enclosing radio row owns selection, touch and accessibility. */
 export function MaterialRadioIndicator({ selected }: { readonly selected: boolean }) {

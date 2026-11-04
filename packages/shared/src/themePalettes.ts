@@ -4,7 +4,7 @@ export const BUILT_IN_THEME_IDS = ["t3-chat", "grove", "ocean", "ember", "iris"]
 
 /** ViewCode's own theme, after Droppy Code: neutral glass with an amber accent. */
 export const VIEWCODE_THEME_ID = "viewcode";
-/** ViewCode's default look: pure-black neutral surfaces with a teal accent. */
+/** ViewCode's default look ("Obsidian"): one neutral black family with a teal accent on actions. */
 export const VIEWCODE_TEAL_THEME_ID = "viewcode-teal";
 
 /** True for ViewCode's own glass themes: the plain one, the teal default and the named set. */
@@ -19,12 +19,9 @@ export function isViewCodeThemeId(id: string): boolean {
 /**
  * The standard T3 Code palette, kept separate from the optional built-in theme library. Mobile
  * registers it as the base Uniwind `light` and `dark` themes. It is not what a new phone wears:
- * that is `MOBILE_INITIAL_THEME_ID`.
+ * that is ViewCode Teal (`VIEWCODE_TEAL_THEME_ID`).
  */
 export const MOBILE_DEFAULT_THEME_ID = "t3-code";
-
-/** What a phone that never chose a theme, or chose one that no longer exists, wears. */
-export const MOBILE_INITIAL_THEME_ID = VIEWCODE_TEAL_THEME_ID;
 
 /**
  * Every palette the mobile app can render: the built-ins web and desktop offer, in their order
@@ -78,7 +75,6 @@ export type MobileThemeId = (typeof MOBILE_THEME_IDS)[number];
 export type MobilePaletteThemeId = (typeof MOBILE_PALETTE_THEME_IDS)[number];
 export type ThemeAppearance = "light" | "dark";
 
-/** Product roles shared by web CSS, React Native tokens, and native surfaces. */
 export const THEME_COLOR_ROLES = [
   "canvas",
   "chrome",
@@ -123,6 +119,10 @@ export const THEME_COLOR_ROLES = [
   "messageActionHover",
   "codeBackground",
   "codeForeground",
+  "searchMatchBackground",
+  "searchMatchForeground",
+  "searchMatchActiveBackground",
+  "searchMatchActiveForeground",
   "sidebar",
   "sidebarForeground",
   "sidebarMutedForeground",
@@ -148,22 +148,16 @@ export type ThemeDefinition = Readonly<{
   appearance: ThemeAppearance;
   colors: ThemeColors;
   variants?: ThemeVariants;
-  /** Groups related imported variants into one library card. */
   collection?: Readonly<{ id: string; label: string }>;
-  /** Allows reviewed built-ins to render product artwork over their sidebar. */
   sidebarArtwork?: boolean;
-  /** Generated from the guided editor's canvas and accent roles. */
   managed?: boolean;
 }>;
 
-/**
- * The palette T3 Code wears with no theme installed, captured from the app's
- * stock tokens (index.css) so a draft seeded from the default look paints the
- * pixels the user is already seeing. Alpha-bearing tokens are flattened over
- * their real backdrops (canvas, or the sidebar for its rows) because theme
- * colors are stored as opaque OKLCH tokens.
- */
 export const T3_CODE_LIGHT_THEME_COLORS: ThemeColors = {
+  searchMatchBackground: "#ffde8b",
+  searchMatchForeground: "#21180a",
+  searchMatchActiveBackground: "#eea52b",
+  searchMatchActiveForeground: "#21180a",
   canvas: "#fcfcfc",
   chrome: "#fcfcfc",
   toolbar: "#fcfcfc",
@@ -224,6 +218,10 @@ export const T3_CODE_LIGHT_THEME_COLORS: ThemeColors = {
 };
 
 export const T3_CODE_DARK_THEME_COLORS: ThemeColors = {
+  searchMatchBackground: "#8c6c1f",
+  searchMatchForeground: "#f5f5f5",
+  searchMatchActiveBackground: "#eea52b",
+  searchMatchActiveForeground: "#21180a",
   canvas: "#0a0a0a",
   chrome: "#0a0a0a",
   toolbar: "#0a0a0a",
@@ -331,6 +329,10 @@ export const T3_CHAT_THEME: ThemeDefinition = {
     messageActionHover: "oklch(0.539042 0.197866 0.305)",
     codeBackground: "oklch(0.953855 0.019695 315.668)",
     codeForeground: "oklch(0.445128 0.13005 307.026)",
+    searchMatchBackground: "oklch(0.915 0.11 85)",
+    searchMatchForeground: "oklch(0.216164 0.028283 77.423)",
+    searchMatchActiveBackground: "oklch(0.774202 0.151946 74.331)",
+    searchMatchActiveForeground: "oklch(0.216164 0.028283 77.423)",
     sidebar: "oklch(0.928886 0.031178 322.592)",
     sidebarForeground: "oklch(0.396296 0.025134 285.196)",
     sidebarMutedForeground: "oklch(0.494754 0.190937 354.544)",
@@ -391,6 +393,10 @@ export const T3_CHAT_THEME: ThemeDefinition = {
       messageActionHover: "oklch(0.458754 0.184639 3.857)",
       codeBackground: "oklch(0.22813 0.020366 307.469)",
       codeForeground: "oklch(0.848703 0.064239 306.645)",
+      searchMatchBackground: "oklch(0.55 0.1 85)",
+      searchMatchForeground: "oklch(0.970151 0 0)",
+      searchMatchActiveBackground: "oklch(0.774202 0.151946 74.331)",
+      searchMatchActiveForeground: "oklch(0.216164 0.028283 77.423)",
       sidebar: "oklch(0.185778 0.019368 322.159)",
       sidebarForeground: "oklch(0.967434 0.001326 286.375)",
       sidebarMutedForeground: "oklch(0.880303 0.03077 342.696)",
@@ -458,6 +464,10 @@ export const GROVE_THEME: ThemeDefinition = {
     messageActionHover: "oklch(0.488753 0.096536 77.829)",
     codeBackground: "oklch(0.955888 0.004783 158.391)",
     codeForeground: "oklch(0.222003 0.03479 328.979)",
+    searchMatchBackground: "oklch(0.915 0.11 85)",
+    searchMatchForeground: "oklch(0.216164 0.028283 77.423)",
+    searchMatchActiveBackground: "oklch(0.774202 0.151946 74.331)",
+    searchMatchActiveForeground: "oklch(0.216164 0.028283 77.423)",
     sidebar: "oklch(0.936464 0.014601 163.554)",
     sidebarForeground: "oklch(0.222003 0.03479 328.979)",
     sidebarMutedForeground: "oklch(0.515606 0.011938 318.897)",
@@ -518,6 +528,10 @@ export const GROVE_THEME: ThemeDefinition = {
       messageActionHover: "oklch(0.815227 0.117902 84.21)",
       codeBackground: "oklch(0.312979 0.018942 164.082)",
       codeForeground: "oklch(0.990339 0.008411 325.64)",
+      searchMatchBackground: "oklch(0.55 0.1 85)",
+      searchMatchForeground: "oklch(0.970151 0 0)",
+      searchMatchActiveBackground: "oklch(0.774202 0.151946 74.331)",
+      searchMatchActiveForeground: "oklch(0.216164 0.028283 77.423)",
       sidebar: "oklch(0.309925 0.032827 160.944)",
       sidebarForeground: "oklch(0.990339 0.008411 325.64)",
       sidebarMutedForeground: "oklch(0.711387 0.007643 175.89)",
@@ -585,6 +599,10 @@ export const OCEAN_THEME: ThemeDefinition = {
     messageActionHover: "oklch(0.45151 0.074407 201.516)",
     codeBackground: "oklch(0.957684 0.002906 253.68)",
     codeForeground: "oklch(0.222003 0.03479 328.979)",
+    searchMatchBackground: "oklch(0.915 0.11 85)",
+    searchMatchForeground: "oklch(0.216164 0.028283 77.423)",
+    searchMatchActiveBackground: "oklch(0.774202 0.151946 74.331)",
+    searchMatchActiveForeground: "oklch(0.216164 0.028283 77.423)",
     sidebar: "oklch(0.939254 0.01193 241.729)",
     sidebarForeground: "oklch(0.222003 0.03479 328.979)",
     sidebarMutedForeground: "oklch(0.517366 0.018944 311.433)",
@@ -645,6 +663,10 @@ export const OCEAN_THEME: ThemeDefinition = {
       messageActionHover: "oklch(0.815308 0.096174 199.862)",
       codeBackground: "oklch(0.29661 0.021883 251.968)",
       codeForeground: "oklch(0.990339 0.008411 325.64)",
+      searchMatchBackground: "oklch(0.55 0.1 85)",
+      searchMatchForeground: "oklch(0.970151 0 0)",
+      searchMatchActiveBackground: "oklch(0.774202 0.151946 74.331)",
+      searchMatchActiveForeground: "oklch(0.216164 0.028283 77.423)",
       sidebar: "oklch(0.290387 0.032043 247.274)",
       sidebarForeground: "oklch(0.990339 0.008411 325.64)",
       sidebarMutedForeground: "oklch(0.69099 0.01395 266.424)",
@@ -712,6 +734,10 @@ export const EMBER_THEME: ThemeDefinition = {
     messageActionHover: "oklch(0.471223 0.145843 24.688)",
     codeBackground: "oklch(0.959965 0.002668 47.512)",
     codeForeground: "oklch(0.222003 0.03479 328.979)",
+    searchMatchBackground: "oklch(0.915 0.11 85)",
+    searchMatchForeground: "oklch(0.216164 0.028283 77.423)",
+    searchMatchActiveBackground: "oklch(0.774202 0.151946 74.331)",
+    searchMatchActiveForeground: "oklch(0.216164 0.028283 77.423)",
     sidebar: "oklch(0.942267 0.01151 50.785)",
     sidebarForeground: "oklch(0.222003 0.03479 328.979)",
     sidebarMutedForeground: "oklch(0.519146 0.019214 343.427)",
@@ -772,6 +798,10 @@ export const EMBER_THEME: ThemeDefinition = {
       messageActionHover: "oklch(0.775116 0.117953 29.014)",
       codeBackground: "oklch(0.299662 0.017229 39.973)",
       codeForeground: "oklch(0.990339 0.008411 325.64)",
+      searchMatchBackground: "oklch(0.55 0.1 85)",
+      searchMatchForeground: "oklch(0.970151 0 0)",
+      searchMatchActiveBackground: "oklch(0.774202 0.151946 74.331)",
+      searchMatchActiveForeground: "oklch(0.216164 0.028283 77.423)",
       sidebar: "oklch(0.293349 0.029554 46.882)",
       sidebarForeground: "oklch(0.990339 0.008411 325.64)",
       sidebarMutedForeground: "oklch(0.691874 0.012538 24.638)",
@@ -839,6 +869,10 @@ export const IRIS_THEME: ThemeDefinition = {
     messageActionHover: "oklch(0.471003 0.16748 340.687)",
     codeBackground: "oklch(0.95997 0.004338 306.542)",
     codeForeground: "oklch(0.222003 0.03479 328.979)",
+    searchMatchBackground: "oklch(0.915 0.11 85)",
+    searchMatchForeground: "oklch(0.216164 0.028283 77.423)",
+    searchMatchActiveBackground: "oklch(0.774202 0.151946 74.331)",
+    searchMatchActiveForeground: "oklch(0.216164 0.028283 77.423)",
     sidebar: "oklch(0.941387 0.014687 300.474)",
     sidebarForeground: "oklch(0.222003 0.03479 328.979)",
     sidebarMutedForeground: "oklch(0.518417 0.023683 320.681)",
@@ -899,6 +933,10 @@ export const IRIS_THEME: ThemeDefinition = {
       messageActionHover: "oklch(0.813537 0.114101 337.23)",
       codeBackground: "oklch(0.281873 0.028308 295.193)",
       codeForeground: "oklch(0.990339 0.008411 325.64)",
+      searchMatchBackground: "oklch(0.55 0.1 85)",
+      searchMatchForeground: "oklch(0.970151 0 0)",
+      searchMatchActiveBackground: "oklch(0.774202 0.151946 74.331)",
+      searchMatchActiveForeground: "oklch(0.216164 0.028283 77.423)",
       sidebar: "oklch(0.266743 0.044689 294.138)",
       sidebarForeground: "oklch(0.990339 0.008411 325.64)",
       sidebarMutedForeground: "oklch(0.668773 0.021522 302.949)",
@@ -919,6 +957,7 @@ export const IRIS_THEME: ThemeDefinition = {
 };
 
 const VIEWCODE_LIGHT_COLORS: ThemeColors = {
+  ...T3_CODE_LIGHT_THEME_COLORS,
   canvas: "#FAFAFA",
   chrome: "#EDEDEF",
   toolbar: "#FAFAFA",
@@ -990,6 +1029,7 @@ export const VIEWCODE_THEME: ThemeDefinition = {
   label: "ViewCode",
   appearance: "dark",
   colors: {
+    ...T3_CODE_DARK_THEME_COLORS,
     canvas: "#19191B",
     chrome: "#1F1F21",
     toolbar: "#19191B",
@@ -1053,155 +1093,138 @@ export const VIEWCODE_THEME: ThemeDefinition = {
   },
 };
 
-type InstrumentSwatch = readonly [
-  canvas: string,
-  chrome: string,
-  surface: string,
-  raised: string,
-  text: string,
-  muted: string,
-  border: string,
-  accent: string,
-  onAccent: string,
-];
-
-// The brand lab's swatch mapping: nine tones fill every role, status colors
-// come from the ViewCode base.
-function instrumentColors(base: ThemeColors, swatch: InstrumentSwatch): ThemeColors {
-  const [canvas, chrome, surface, raised, text, muted, border, accent, onAccent] = swatch;
-  return {
-    ...base,
-    canvas,
-    chrome,
-    toolbar: chrome,
-    toolbarForeground: text,
-    toolbarBorder: border,
-    toolbarControl: surface,
-    toolbarControlForeground: text,
-    toolbarControlHover: raised,
-    surface,
-    surfaceRaised: raised,
-    surfaceOverlay: surface,
-    text,
-    textMuted: muted,
-    border,
-    input: border,
-    focus: accent,
-    accent,
-    accentForeground: onAccent,
-    secondary: raised,
-    secondaryForeground: text,
-    muted: raised,
-    mutedForeground: muted,
-    placeholder: muted,
-    secondaryLabel: muted,
-    iconMuted: muted,
-    accentSurface: raised,
-    accentSurfaceForeground: accent,
-    messageSurface: raised,
-    messageForeground: text,
-    messageAction: accent,
-    messageActionForeground: onAccent,
-    messageActionHover: accent,
-    codeBackground: chrome,
-    codeForeground: text,
-    sidebar: chrome,
-    sidebarForeground: text,
-    sidebarMutedForeground: muted,
-    sidebarControlSurface: surface,
-    sidebarRowHover: raised,
-    sidebarRowActive: raised,
-    sidebarRowSelected: raised,
-    sidebarBorder: border,
-    terminalBackground: chrome,
-    terminalForeground: text,
-    terminalCursor: accent,
-    terminalSelection: raised,
-    terminalScrollbar: border,
-    terminalScrollbarHover: muted,
-    // Opaque over the canvas: mobile measures text contrast on these surfaces.
-    errorSurface: mix(base.error, canvas, 0.12),
-    warningSurface: mix(base.warning, canvas, 0.12),
-    updateSurface: mix(base.update, canvas, 0.12),
-  };
-}
-
-function mix(color: string, over: string, alpha: number): string {
-  const channel = (hex: string, index: number) =>
-    Number.parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16);
-  return `#${[0, 1, 2]
-    .map((index) =>
-      Math.round(channel(color, index) * alpha + channel(over, index) * (1 - alpha))
-        .toString(16)
-        .padStart(2, "0"),
-    )
-    .join("")}`;
-}
-
 /**
- * ViewCode's default: pure-black neutral surfaces (the chat a shade darker than the sidebar
- * and rail) with a teal accent. Warm-grey text and hairlines, no blue cast, so the project
- * tint and the composer glow are the only colour on the chrome.
+ * ViewCode's default, "Obsidian": one neutral black family with no cast, so
+ * separation comes from hairlines and the one raised object (the composer),
+ * not from grey planes. Teal appears only on actions, and a selected project
+ * tints the shell as a whisper (`shellTint.ts`). The light half is warm paper
+ * so both halves read as one theme; the old blue-grey light mode did not.
  */
-export const VIEWCODE_TEAL_THEME: ThemeDefinition = {
+const VIEWCODE_TEAL_THEME: ThemeDefinition = {
   id: VIEWCODE_TEAL_THEME_ID,
   label: "ViewCode Teal",
   appearance: "dark",
   colors: {
-    ...instrumentColors(VIEWCODE_THEME.colors, [
-      "#0c0c0c",
-      "#161614",
-      "#1b1b19",
-      "#1f1f1d",
-      "#ecebe8",
-      "#8d8c88",
-      "#262624",
-      "#23c5b3",
-      "#06201d",
-    ]),
-    toolbar: "#0c0c0c",
-    toolbarBorder: "#1f1f1d",
-    surfaceOverlay: "#1f1f1d",
-    input: "#2c2c2a",
-    placeholder: "#6f6e6a",
-    iconMuted: "#8d8c88",
-    sidebar: "#161614",
-    sidebarMutedForeground: "#8d8c88",
-    sidebarControlSurface: "#1f1f1d",
-    sidebarRowHover: "#1d1d1b",
-    sidebarRowActive: "#232321",
-    sidebarRowSelected: "#232321",
-    sidebarBorder: "#222220",
-    messageSurface: "#1d1d1b",
-    messageAction: "#23c5b3",
-    messageActionForeground: "#06201d",
-    messageActionHover: "#5fd9cb",
-    accentSurface: "#0f1f1d",
-    accentSurfaceForeground: "#7fe0d4",
-    codeBackground: "#141413",
-    error: "#e5534b",
-    errorForeground: "#f0857f",
-    warning: "#e5a54b",
-    warningForeground: "#f0c071",
-    update: "#23c5b3",
-    updateForeground: "#7fe0d4",
-    updateSurface: "rgb(35 197 179 / 0.14)",
-    terminalBackground: "#0c0c0c",
-    terminalCursor: "#23c5b3",
-    terminalSelection: "rgb(35 197 179 / 0.22)",
+    ...VIEWCODE_THEME.colors,
+    canvas: "#0e0e0e",
+    chrome: "#080808",
+    toolbar: "#0e0e0e",
+    toolbarForeground: "#ededed",
+    toolbarBorder: "rgb(255 255 255 / 0.08)",
+    toolbarControl: "rgb(255 255 255 / 0.06)",
+    toolbarControlForeground: "#ededed",
+    toolbarControlHover: "rgb(255 255 255 / 0.10)",
+    surface: "#0e0e0e",
+    surfaceRaised: "#161616",
+    surfaceOverlay: "#1b1b1b",
+    text: "#ededed",
+    textMuted: "#8b8b8b",
+    border: "rgb(255 255 255 / 0.08)",
+    input: "rgb(255 255 255 / 0.12)",
+    focus: "#2dd4bf",
+    accent: "#2dd4bf",
+    accentForeground: "#042420",
+    secondary: "rgb(255 255 255 / 0.05)",
+    secondaryForeground: "#ededed",
+    muted: "rgb(255 255 255 / 0.035)",
+    mutedForeground: "#8b8b8b",
+    placeholder: "#707070",
+    secondaryLabel: "#8b8b8b",
+    iconMuted: "#8b8b8b",
+    error: "#f0655c",
+    errorForeground: "#f5918a",
+    errorSurface: "rgb(240 101 92 / 0.13)",
+    warning: "#e5b04c",
+    warningForeground: "#efc97b",
+    warningSurface: "rgb(229 176 76 / 0.13)",
+    update: "#2dd4bf",
+    updateForeground: "#7fe3d6",
+    updateSurface: "rgb(45 212 191 / 0.14)",
+    accentSurface: "rgb(255 255 255 / 0.06)",
+    accentSurfaceForeground: "#7fe3d6",
+    messageSurface: "#181818",
+    messageForeground: "#ededed",
+    messageAction: "#2dd4bf",
+    messageActionForeground: "#042420",
+    messageActionHover: "#5eead4",
+    codeBackground: "#121212",
+    codeForeground: "#ededed",
+    sidebar: "#080808",
+    sidebarForeground: "#ededed",
+    sidebarMutedForeground: "#8b8b8b",
+    sidebarControlSurface: "rgb(255 255 255 / 0.06)",
+    sidebarRowHover: "rgb(255 255 255 / 0.04)",
+    sidebarRowActive: "rgb(255 255 255 / 0.07)",
+    sidebarRowSelected: "rgb(255 255 255 / 0.06)",
+    sidebarBorder: "rgb(255 255 255 / 0)",
+    terminalBackground: "#080808",
+    terminalForeground: "#ededed",
+    terminalCursor: "#2dd4bf",
+    terminalSelection: "rgb(45 212 191 / 0.28)",
+    terminalScrollbar: "rgb(255 255 255 / 0.12)",
+    terminalScrollbarHover: "rgb(255 255 255 / 0.20)",
   },
   variants: {
-    light: instrumentColors(VIEWCODE_LIGHT_COLORS, [
-      "#f4f7fa",
-      "#e7edf3",
-      "#ffffff",
-      "#eaf0f5",
-      "#16212e",
-      "#556476",
-      "#c6d1dc",
-      "#0e7c8c",
-      "#ffffff",
-    ]),
+    light: {
+      ...VIEWCODE_LIGHT_COLORS,
+      canvas: "#fbfbf9",
+      chrome: "#eeefec",
+      toolbar: "#fbfbf9",
+      toolbarForeground: "#1f2322",
+      toolbarBorder: "rgb(0 0 0 / 0.07)",
+      toolbarControl: "#ffffff",
+      toolbarControlForeground: "#1f2322",
+      toolbarControlHover: "rgb(0 0 0 / 0.06)",
+      surface: "#fbfbf9",
+      surfaceRaised: "#ffffff",
+      surfaceOverlay: "#ffffff",
+      text: "#1f2322",
+      textMuted: "#66706d",
+      border: "rgb(0 0 0 / 0.09)",
+      input: "rgb(0 0 0 / 0.14)",
+      focus: "#0f8577",
+      accent: "#0f8577",
+      accentForeground: "#ffffff",
+      secondary: "rgb(0 0 0 / 0.04)",
+      secondaryForeground: "#1f2322",
+      muted: "rgb(0 0 0 / 0.035)",
+      mutedForeground: "#66706d",
+      placeholder: "#7f8784",
+      secondaryLabel: "#66706d",
+      iconMuted: "#7f8784",
+      error: "#c23a31",
+      errorForeground: "#a82a21",
+      errorSurface: "rgb(194 58 49 / 0.09)",
+      warning: "#92650a",
+      warningForeground: "#735000",
+      warningSurface: "rgb(146 101 10 / 0.10)",
+      update: "#0f8577",
+      updateForeground: "#0f8577",
+      updateSurface: "rgb(15 133 119 / 0.10)",
+      accentSurface: "rgb(0 0 0 / 0.05)",
+      accentSurfaceForeground: "#0f8577",
+      messageSurface: "#e1f1ed",
+      messageForeground: "#1f2322",
+      messageAction: "#0f8577",
+      messageActionForeground: "#ffffff",
+      messageActionHover: "#0c7568",
+      codeBackground: "#f1f3f1",
+      codeForeground: "#1f2322",
+      sidebar: "#eeefec",
+      sidebarForeground: "#1f2322",
+      sidebarMutedForeground: "#66706d",
+      sidebarControlSurface: "rgb(0 0 0 / 0.05)",
+      sidebarRowHover: "rgb(0 0 0 / 0.045)",
+      sidebarRowActive: "rgb(0 0 0 / 0.07)",
+      sidebarRowSelected: "rgb(0 0 0 / 0.08)",
+      sidebarBorder: "rgb(0 0 0 / 0)",
+      terminalBackground: "#fbfbf9",
+      terminalForeground: "#1f2322",
+      terminalCursor: "#0f8577",
+      terminalSelection: "rgb(15 133 119 / 0.18)",
+      terminalScrollbar: "rgb(0 0 0 / 0.14)",
+      terminalScrollbarHover: "rgb(0 0 0 / 0.22)",
+    },
   },
 };
 
@@ -1224,9 +1247,6 @@ export const WEB_BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [
     light: VIEWCODE_LIGHT_COLORS,
   }),
 ];
-
-/** Palettes the mobile app registers as Uniwind themes, beside its standard one. */
-export const MOBILE_PALETTE_THEMES: ReadonlyArray<ThemeDefinition> = WEB_BUILT_IN_THEMES;
 
 export function getThemeColorsForAppearance(
   theme: ThemeDefinition,

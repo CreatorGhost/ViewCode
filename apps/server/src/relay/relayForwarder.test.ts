@@ -171,6 +171,54 @@ describe.each(["tcp", "socket"] as const)("relay forwarder over %s", (mode) => {
     expect(JSON.stringify(warnings)).not.toContain("DO_NOT_LOG");
   });
 
+  it("names the request an oversized reply answers", async () => {
+    const { server, target } = await startLocal(mode, () => undefined);
+    server.on("upgrade", (request, socket: NodeStream.Duplex) => {
+      const accept = NodeCrypto.createHash("sha1")
+        .update(`${request.headers["sec-websocket-key"]}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+        .digest("base64");
+      socket.write(
+        `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
+      );
+      // Reply once the request arrives, the way an RPC stream answers.
+      socket.once("data", () => {
+        const message = Buffer.from(
+          `{"_tag":"Chunk","requestId":"7","values":[{"text":"${"x".repeat(1024 * 1024)}"}]}`,
+        );
+        const header = Buffer.alloc(10);
+        header[0] = 0x81;
+        header[1] = 127;
+        header.writeBigUInt64BE(BigInt(message.byteLength), 2);
+        socket.write(Buffer.concat([header, message]));
+      });
+    });
+    const warnings: OversizedRelayMessage[] = [];
+    const { relay, forwarder } = connect(target, (details) => warnings.push(details));
+    forwarder.receive(
+      makeJsonFrame(FrameType.WsOpen, 9, { path: "/ws", headers: [], protocols: [] }),
+    );
+    forwarder.receive(
+      makeFrame(
+        FrameType.WsMessage,
+        9,
+        encodeWsMessage(
+          "text",
+          new TextEncoder().encode(
+            '{"_tag":"Request","id":"7","tag":"orchestration.subscribeThread","payload":{}}',
+          ),
+        ),
+      ),
+    );
+
+    expect(parseWsClose((await relay.next(FrameType.WsClose, 9)).payload)).toEqual({
+      code: 1009,
+      reason: "Message too big: orchestration.subscribeThread",
+    });
+    expect(warnings.map((warning) => warning.messagePrefix)).toEqual([
+      '{"tag":"orchestration.subscribeThread"}',
+    ]);
+  });
+
   it("serves a GET, keeps duplicate headers, and presents the public host", async () => {
     let seenHost: string | undefined;
     let seenAuth: string | undefined;
@@ -292,11 +340,16 @@ describe.each(["tcp", "socket"] as const)("relay forwarder over %s", (mode) => {
   });
 
   it("proxies a WebSocket both ways, including messages sent before it opened", async () => {
-    const seen = { origin: undefined as string | undefined, closeCode: 0 };
+    const seen = {
+      origin: undefined as string | undefined,
+      closeCode: 0,
+      path: undefined as string | undefined,
+    };
     const closedByClient = Promise.withResolvers<void>();
     const { server, target } = await startLocal(mode, () => undefined);
     server.on("upgrade", (request, socket: NodeStream.Duplex) => {
       seen.origin = request.headers.origin;
+      seen.path = request.url;
       const accept = NodeCrypto.createHash("sha1")
         .update(`${request.headers["sec-websocket-key"]}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
         .digest("base64");
@@ -323,7 +376,7 @@ describe.each(["tcp", "socket"] as const)("relay forwarder over %s", (mode) => {
 
     forwarder.receive(
       makeJsonFrame(FrameType.WsOpen, 9, {
-        path: "/ws",
+        path: "/ws?orchestrationProtocol=2",
         headers: [["origin", "https://relay.example.workers.dev"]],
         protocols: [],
       }),
@@ -348,6 +401,7 @@ describe.each(["tcp", "socket"] as const)("relay forwarder over %s", (mode) => {
     await closedByClient.promise;
     expect(seen.closeCode).toBe(1000);
     expect(seen.origin).toBe("https://relay.example.workers.dev");
+    expect(seen.path).toBe("/ws?orchestrationProtocol=2");
     // The local socket's own close is not echoed back after the relay closed first.
     expect(relay.frames.some((frame) => frame.type === FrameType.WsClose)).toBe(false);
   });

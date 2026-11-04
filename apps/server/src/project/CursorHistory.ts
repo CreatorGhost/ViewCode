@@ -41,7 +41,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 export const CURSOR_UNSUPPORTED_WARNING =
   "This Cursor version isn't supported, so its chats were skipped.";
-export const CURSOR_UNREADABLE_WARNING = "Could not read Cursor's chats, so they were skipped.";
+const CURSOR_UNREADABLE_WARNING = "Could not read Cursor's chats, so they were skipped.";
 
 export interface CursorProject {
   readonly workspaceRoot: string;
@@ -192,9 +192,7 @@ function combine<A>(parts: ReadonlyArray<Part<ReadonlyArray<A>>>): CursorRead<Re
   return worst ?? { _tag: "NotFound" };
 }
 
-// ---------------------------------------------------------------------------
 // CLI store
-// ---------------------------------------------------------------------------
 
 interface CliChat {
   readonly id: string;
@@ -267,7 +265,7 @@ function readVarint(buffer: Uint8Array, start: number): [value: number, next: nu
 }
 
 /** Field 1 (length-delimited, 32 bytes) entries of the root blob: message blob ids, in order. */
-export function readRootMessageIds(root: Uint8Array): Array<string> {
+function readRootMessageIds(root: Uint8Array): Array<string> {
   const ids: Array<string> = [];
   let index = 0;
   try {
@@ -393,9 +391,7 @@ function cliThreads(
   }
 }
 
-// ---------------------------------------------------------------------------
 // Editor store
-// ---------------------------------------------------------------------------
 
 /** Workspace storage id → folder path, from each `workspace.json`. Several ids may share a folder. */
 function readWorkspaceFolders(userDir: string): Map<string, string> {
@@ -530,9 +526,7 @@ function readEditor<A>(paths: CursorPaths, read: (userDir: string) => A): Part<A
   }
 }
 
-// ---------------------------------------------------------------------------
 // Public reads
-// ---------------------------------------------------------------------------
 
 function groupProjects(
   chats: ReadonlyArray<{ readonly workspaceRoot: string; readonly updatedMs: number }>,

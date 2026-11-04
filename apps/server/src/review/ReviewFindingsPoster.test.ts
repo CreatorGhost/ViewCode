@@ -5,9 +5,7 @@ import {
   PullRequestOperationError,
   PullRequestUnavailableError,
   ThreadId,
-  type OrchestrationCommand,
-  type OrchestrationThread,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ThreadShell,
   type PullRequestDetail,
   type PullRequestDiffInput,
   type PullRequestDiffResult,
@@ -19,12 +17,10 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
-import * as Stream from "effect/Stream";
 
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProjectionStoreV2 } from "../orchestration-v2/ProjectionStore.ts";
+import { ReviewActivityStoreV2 } from "./ReviewActivityStoreV2.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ReviewFindingsPoster from "./ReviewFindingsPoster.ts";
 
@@ -42,7 +38,7 @@ const TARGET = {
 const reviewThread = {
   id: REVIEW_THREAD_ID,
   projectId: PROJECT_ID,
-} as OrchestrationThreadShell;
+} as OrchestrationV2ThreadShell;
 
 // Two slices, the way a host hands over a large diff.
 const SLICES: Record<string, PullRequestDiffResult> = {
@@ -132,42 +128,29 @@ const makeHarness = (
   } = {},
 ) =>
   Effect.gen(function* () {
-    const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+    const commands = yield* Ref.make<
+      ReadonlyArray<Parameters<ReviewActivityStoreV2["Service"]["append"]>[0]>
+    >([]);
     const reviews = yield* Ref.make<
       ReadonlyArray<Parameters<PullRequestService.PullRequestService["Service"]["submitReview"]>[0]>
     >([]);
     const diffs = yield* Ref.make<ReadonlyArray<PullRequestDiffInput>>([]);
     const dependencies = Layer.mergeAll(
-      Layer.mock(ProjectionSnapshotQuery)({
-        getThreadShellById: (threadId) =>
-          Effect.succeed(threadId === REVIEW_THREAD_ID ? Option.some(reviewThread) : Option.none()),
-        getThreadDetailById: (threadId, query) =>
+      Layer.mock(ProjectionStoreV2)({
+        getThreadShell: (threadId) =>
+          Effect.succeed(threadId === REVIEW_THREAD_ID ? reviewThread : null),
+      }),
+      Layer.mock(ReviewActivityStoreV2)({
+        list: (_threadId, kinds) =>
           Ref.get(commands).pipe(
             Effect.map((recorded) =>
-              threadId === REVIEW_THREAD_ID
-                ? Option.some({
-                    id: REVIEW_THREAD_ID,
-                    activities: [
-                      findingsActivity(options.reviewedHeadSha),
-                      ...recorded.flatMap((command) =>
-                        command.type === "thread.activity.append" ? [command.activity] : [],
-                      ),
-                    ].filter(
-                      (activity) =>
-                        query?.activityKinds === undefined ||
-                        query.activityKinds.includes(activity.kind),
-                    ),
-                  } as unknown as OrchestrationThread)
-                : Option.none(),
+              [
+                findingsActivity(options.reviewedHeadSha),
+                ...recorded.map((command) => command.activity),
+              ].filter((activity) => kinds === undefined || kinds.includes(activity.kind)),
             ),
           ),
-      }),
-      Layer.mock(OrchestrationEngineService)({
-        readEvents: () => Stream.empty,
-        streamDomainEvents: Stream.empty,
-        latestSequence: Effect.succeed(0),
-        dispatch: (command) =>
-          Ref.update(commands, (all) => [...all, command]).pipe(Effect.as({ sequence: 1 })),
+        append: (command) => Ref.update(commands, (all) => [...all, command]),
       }),
       Layer.mock(PullRequestService.PullRequestService)({
         withRoutingCredential: (_reference, operation) => operation,
@@ -307,7 +290,6 @@ describe("ReviewFindingsPoster", () => {
 
       expect(yield* Ref.get(harness.commands)).toMatchObject([
         {
-          type: "thread.activity.append",
           threadId: REVIEW_THREAD_ID,
           activity: {
             kind: "viewcode.review.posted",

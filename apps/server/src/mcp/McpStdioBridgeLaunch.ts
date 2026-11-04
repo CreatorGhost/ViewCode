@@ -2,7 +2,7 @@ import { HostProcessIsExecutable } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 
-import type { McpStdioLaunch } from "./McpProviderSession.ts";
+import type { McpStdioLaunch } from "@t3tools/provider-core/server/mcpSession";
 import type { McpStdioBridgeTarget } from "./McpStdioBridge.ts";
 
 /**

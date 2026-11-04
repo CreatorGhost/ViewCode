@@ -1,11 +1,8 @@
+import type { OrchestrationCheckpointSummary } from "@t3tools/client-runtime/viewcodeThread";
+
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  MessageId,
-  TurnId,
-  type OrchestrationCheckpointSummary,
-  type ReviewDiffPreviewSource,
-} from "@t3tools/contracts";
+import { MessageId, TurnId, type ReviewDiffPreviewSource } from "@t3tools/contracts";
 
 import {
   applyReviewDiffMetadata,

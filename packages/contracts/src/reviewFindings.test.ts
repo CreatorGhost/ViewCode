@@ -6,6 +6,7 @@ import {
   REVIEW_FINDING_MAX_DETAIL_CHARS,
   REVIEW_FINDINGS_MAX_FINDINGS,
   REVIEW_FINDINGS_MAX_NEEDS_CHECKING,
+  ReviewUndoFixesError,
   ReviewFinding,
   ReviewFindingsReport,
 } from "./reviewFindings.ts";
@@ -103,4 +104,15 @@ describe("ReviewFindingsReport", () => {
       ),
     ).toBe(true);
   });
+});
+
+it("preserves an actionable native undo rejection across the wire and decodes legacy errors", () => {
+  const detail = "File restore requires an isolated worktree.";
+  const error = new ReviewUndoFixesError({ stage: "revert", detail });
+  const encoded = Schema.encodeSync(ReviewUndoFixesError)(error);
+  expect(Schema.decodeSync(ReviewUndoFixesError)(encoded).message).toBe(detail);
+  expect(
+    Schema.decodeSync(ReviewUndoFixesError)({ _tag: "ReviewUndoFixesError", stage: "revert" })
+      .message,
+  ).toBe("Could not undo the fixes.");
 });

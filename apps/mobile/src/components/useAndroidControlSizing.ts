@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 
-import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
+import { useAppearancePreferences } from "../lib/appearancePreferencesContext";
 import { DEFAULT_BASE_FONT_SIZE } from "../lib/appearancePreferences";
 import { resolveAndroidControlSizing } from "../lib/androidControlSizing";
 

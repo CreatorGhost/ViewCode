@@ -9,10 +9,12 @@ import {
   TurnId,
 } from "./baseSchemas.ts";
 import {
-  ChatAttachment,
-  ModelSelection,
   getProviderAttachmentLimitError,
-  PROVIDER_HANDOFF_MAX_INPUT_CHARS,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  ChatAttachment,
+} from "./chatAttachment.ts";
+import { ModelSelection } from "./modelSelection.ts";
+import {
   ProviderApprovalDecision,
   ProviderApprovalPolicy,
   ProviderInteractionMode,
@@ -21,8 +23,7 @@ import {
   ProviderUserInputAnswers,
   UserInputAttachments,
   RuntimeMode,
-  providerSendTurnMaxInputChars,
-} from "./orchestration.ts";
+} from "./providerPolicy.ts";
 import { ProviderInstanceId, ProviderDriverKind } from "./providerInstance.ts";
 
 const ProviderSessionStatus = Schema.Literals([
@@ -35,9 +36,6 @@ const ProviderSessionStatus = Schema.Literals([
 
 export const ProviderSession = Schema.Struct({
   provider: ProviderDriverKind,
-  // Optional during the driver/instance migration. Once every producer
-  // populates it (post-slice-4), routing flips to instance-id-only and the
-  // legacy `provider` field is removed.
   providerInstanceId: Schema.optional(ProviderInstanceId),
   status: ProviderSessionStatus,
   runtimeMode: RuntimeMode,
@@ -55,41 +53,24 @@ export type ProviderSession = typeof ProviderSession.Type;
 export const ProviderSessionStartInput = Schema.Struct({
   threadId: ThreadId,
   provider: Schema.optional(ProviderDriverKind),
-  // See ProviderSession for the migration story.
   providerInstanceId: Schema.optional(ProviderInstanceId),
   cwd: Schema.optional(TrimmedNonEmptyString),
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   resumeCursor: Schema.optional(Schema.Unknown),
-  // Start without any persisted resume state (cross-provider handoff).
-  freshSession: Schema.optional(Schema.Boolean),
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
   runtimeMode: RuntimeMode,
 });
 export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 
-/**
- * ViewCode thread state a turn carries to the agent: the active goal and debug
- * mode. Adapters deliver it as developer context where the provider has a
- * channel for it, otherwise ahead of the user's text.
- */
-export const ProviderTurnGuidance = Schema.Struct({
-  goal: Schema.optional(TrimmedNonEmptyString),
-  debug: Schema.optional(Schema.Struct({ playbookPath: Schema.NullOr(TrimmedNonEmptyString) })),
-});
-export type ProviderTurnGuidance = typeof ProviderTurnGuidance.Type;
-
 export const ProviderSendTurnInput = Schema.Struct({
   threadId: ThreadId,
   /** Internal recovery signal. Allows an empty turn only for adapters that
       explicitly support promptless continuation. */
   continuation: Schema.optional(Schema.Boolean),
-  /** Internal: the input carries a handoff prelude, so it is held to
-      PROVIDER_HANDOFF_MAX_INPUT_CHARS instead of the user-input limit. */
-  handoff: Schema.optional(Schema.Boolean),
   input: Schema.optional(
-    TrimmedNonEmptyString.check(Schema.isMaxLength(PROVIDER_HANDOFF_MAX_INPUT_CHARS)),
+    TrimmedNonEmptyString.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_INPUT_CHARS)),
   ),
   attachments: Schema.optional(
     Schema.Array(ChatAttachment).check(
@@ -98,13 +79,7 @@ export const ProviderSendTurnInput = Schema.Struct({
   ),
   modelSelection: Schema.optional(ModelSelection),
   interactionMode: Schema.optional(ProviderInteractionMode),
-  guidance: Schema.optional(ProviderTurnGuidance),
-}).check(
-  Schema.makeFilter((turn) => {
-    const limit = providerSendTurnMaxInputChars(turn);
-    return (turn.input?.length ?? 0) <= limit || `Input exceeds the ${limit} character limit`;
-  }),
-);
+});
 export type ProviderSendTurnInput = typeof ProviderSendTurnInput.Type;
 
 export const ProviderTurnStartResult = Schema.Struct({
@@ -169,7 +144,6 @@ export const ProviderEvent = Schema.Struct({
   id: EventId,
   kind: ProviderEventKind,
   provider: ProviderDriverKind,
-  // See ProviderSession for the migration story.
   providerInstanceId: Schema.optional(ProviderInstanceId),
   threadId: ThreadId,
   createdAt: IsoDateTime,

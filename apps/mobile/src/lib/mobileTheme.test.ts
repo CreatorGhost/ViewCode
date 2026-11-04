@@ -3,7 +3,6 @@ import {
   BUILT_IN_THEME_IDS,
   BUILT_IN_THEMES,
   MOBILE_PALETTE_THEME_IDS,
-  MOBILE_PALETTE_THEMES,
   T3_CHAT_THEME,
   T3_CODE_LIGHT_THEME_COLORS,
   T3_CODE_DARK_THEME_COLORS,
@@ -89,7 +88,6 @@ describe("mobile themes", () => {
   });
 
   it("offers desktop's built-ins in desktop's order, beside the standard palette", () => {
-    expect(MOBILE_PALETTE_THEMES).toBe(WEB_BUILT_IN_THEMES);
     expect(MOBILE_PALETTE_THEME_IDS).toEqual(WEB_BUILT_IN_THEMES.map((theme) => theme.id));
     expect(MOBILE_THEME_OPTIONS.map((option) => option.id)).toEqual([
       "viewcode-teal",
@@ -294,10 +292,10 @@ describe("mobile themes", () => {
 
   it("paints theme cards with the palette the phone wears", () => {
     expect(getMobileThemeCardColors("viewcode-teal", "dark")).toEqual({
-      canvas: "#0c0c0c",
-      sidebar: "#161614",
-      text: "#ecebe8",
-      accent: "#23c5b3",
+      canvas: "#0e0e0e",
+      sidebar: "#080808",
+      text: "#ededed",
+      accent: "#2dd4bf",
     });
     const desktopOcean = BUILT_IN_THEMES.find((theme) => theme.id === "ocean")!;
     expect(getMobileThemeCardColors("ocean", "light")).toEqual({
@@ -334,9 +332,9 @@ describe("mobile themes", () => {
     expect(INITIAL_MOBILE_THEME_ID).toBe("viewcode-teal");
     expect(resolveMobileThemeIds({})).toEqual({ light: "viewcode-teal", dark: "viewcode-teal" });
     const dark = getMobileThemeVariables("viewcode-teal", "dark");
-    expect(dark["--color-screen"]).toBe("#0c0c0c");
-    expect(dark["--color-drawer"]).toBe("#161614");
-    expect(dark["--color-primary"]).toBe("#23c5b3");
+    expect(dark["--color-screen"]).toBe("#0e0e0e");
+    expect(dark["--color-drawer"]).toBe("#080808");
+    expect(dark["--color-primary"]).toBe("#2dd4bf");
   });
 
   it("moves a phone off a retired theme to the initial theme", () => {

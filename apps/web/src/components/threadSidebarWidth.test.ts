@@ -1,35 +1,36 @@
 import { describe, expect, it } from "vite-plus/test";
-
 import {
-  resolveInitialThreadSidebarWidth,
+  clampThreadSidebarWidth,
   resolveThreadSidebarMaximumWidth,
+  resolveThreadSidebarMinimumWidth,
   THREAD_SIDEBAR_MIN_WIDTH,
-  THREAD_SIDEBAR_OVERLAY_BREAKPOINT,
 } from "./threadSidebarWidth";
 
-describe("resolveThreadSidebarMaximumWidth", () => {
-  it("leaves the main column its minimum after the rail and the sidebar", () => {
-    expect(resolveThreadSidebarMaximumWidth(1280)).toBe(1280 - 48 - 640);
+describe("resolveThreadSidebarMinimumWidth", () => {
+  it("keeps the default minimum when the brand fits", () => {
+    expect(resolveThreadSidebarMinimumWidth(0)).toBe(THREAD_SIDEBAR_MIN_WIDTH);
+    expect(resolveThreadSidebarMinimumWidth(194)).toBe(THREAD_SIDEBAR_MIN_WIDTH);
   });
 
-  it("reaches the sidebar minimum exactly at the overlay breakpoint", () => {
-    expect(THREAD_SIDEBAR_OVERLAY_BREAKPOINT).toBe(896);
-    expect(resolveThreadSidebarMaximumWidth(THREAD_SIDEBAR_OVERLAY_BREAKPOINT)).toBe(
-      THREAD_SIDEBAR_MIN_WIDTH,
-    );
-    expect(resolveThreadSidebarMaximumWidth(500)).toBe(THREAD_SIDEBAR_MIN_WIDTH);
+  it("grows to a brand wider than the default, rounding up", () => {
+    expect(resolveThreadSidebarMinimumWidth(237.2)).toBe(238);
   });
 });
 
-describe("resolveInitialThreadSidebarWidth", () => {
-  it("keeps a stored width that fits and clamps one that does not", () => {
-    expect(resolveInitialThreadSidebarWidth(300, 1280)).toBe(300);
-    expect(resolveInitialThreadSidebarWidth(600, 1000)).toBe(1000 - 48 - 640);
-    expect(resolveInitialThreadSidebarWidth(100, 1280)).toBe(THREAD_SIDEBAR_MIN_WIDTH);
+describe("resolveThreadSidebarMaximumWidth", () => {
+  it("never drops below a raised minimum on a narrow viewport", () => {
+    expect(resolveThreadSidebarMaximumWidth(800, 238)).toBe(238);
+    expect(resolveThreadSidebarMaximumWidth(1200, 238)).toBe(560);
+  });
+});
+
+describe("clampThreadSidebarWidth", () => {
+  it("widens a stored width below a raised minimum", () => {
+    expect(clampThreadSidebarWidth(208, 238, 560)).toBe(238);
   });
 
-  it("clamps the default width on a narrow window", () => {
-    expect(resolveInitialThreadSidebarWidth(null, 1280)).toBe(256);
-    expect(resolveInitialThreadSidebarWidth(null, 900)).toBe(900 - 48 - 640);
+  it("keeps widths inside the range and caps wide ones", () => {
+    expect(clampThreadSidebarWidth(300, 238, 560)).toBe(300);
+    expect(clampThreadSidebarWidth(900, 238, 560)).toBe(560);
   });
 });

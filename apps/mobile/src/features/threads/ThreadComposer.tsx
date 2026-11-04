@@ -1,4 +1,7 @@
+import type { OrchestrationThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { ChatGptUsageLimitNotice } from "./ChatGptUsageLimitNotice";
+import { NoProviderNotice } from "./NoProviderNotice";
 import { isGlassEffectAPIAvailable } from "expo-glass-effect";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
@@ -11,7 +14,6 @@ import {
   type EnvironmentId,
   type MessageId,
   type ModelSelection,
-  type OrchestrationThreadShell,
   type ProviderInteractionMode,
   type RuntimeMode,
   type ServerConfig as T3ServerConfig,
@@ -129,6 +131,7 @@ import {
 import { RUNTIME_MODE_CHOICES } from "./thread-settings-options";
 import { useComposerCommandMenu } from "./use-composer-command-menu";
 import { useThreadGoalActions } from "./useThreadGoalActions";
+import { resolveProviderInteractionMode } from "../../state/legacy-plan-mode";
 import { isThreadGoalPaused, parseThreadSlashCommand } from "@t3tools/client-runtime/threadGoal";
 import {
   ComposerDictationCancelAction,
@@ -571,7 +574,11 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const currentRuntimeMode = props.selectedThread.runtimeMode;
   const modelUnavailable =
     props.connectionState === "connected" &&
-    isModelSelectionUnavailable(props.serverConfig, currentModelSelection);
+    isModelSelectionUnavailable(
+      props.serverConfig,
+      currentModelSelection,
+      props.selectedThread.projectId,
+    );
   const selectedProviderStatus = useMemo(() => {
     if (!props.serverConfig) return null;
     return (
@@ -599,6 +606,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     environmentId: props.environmentId,
     thread: props.selectedThread,
     ...(interactionModeOffered ? { onUpdateInteractionMode: props.onUpdateInteractionMode } : {}),
+    run: {
+      working: isTurnRunning,
+      canSend: !modelUnavailable,
+      modelSelection: currentModelSelection,
+      runtimeMode: currentRuntimeMode,
+      interactionMode: resolveProviderInteractionMode(
+        selectedProviderStatus,
+        props.selectedThread.interactionMode,
+      ),
+    },
   });
   const { applyGoalAction, applyThreadCommand } = threadGoal;
   // T3 owns /usage-limits only where Limits has data for the selected provider;
@@ -783,8 +800,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
 
   // ── Model menu ───────────────────────────────────────────
   const modelOptions = useMemo(
-    () => buildModelOptions(props.serverConfig, currentModelSelection),
-    [props.serverConfig, currentModelSelection],
+    () =>
+      buildModelOptions(
+        props.serverConfig,
+        currentModelSelection,
+        undefined,
+        props.selectedThread.projectId,
+      ),
+    [props.serverConfig, currentModelSelection, props.selectedThread.projectId],
   );
   // ViewCode never locks a started thread to its provider (as on web): every
   // enabled provider is offered, and a model outside the native session's
@@ -930,6 +953,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
           environmentId={props.environmentId}
           thread={props.selectedThread}
         />
+        <NoProviderNotice environmentId={props.environmentId} />
         {!voiceInput.isBusy &&
         composerMenu.trigger &&
         (composerMenu.items.length > 0 || composerMenu.trigger.kind === "pull-request") ? (
@@ -1280,38 +1304,50 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                         tone={currentRuntimeMode === "full-access" ? "warning" : undefined}
                       />
                     </ControlPillMenu>
-                    <View className="min-w-0 shrink flex-row items-center">
-                      <ComposerInlineControl
-                        accessibilityLabel="Model and reasoning settings"
-                        filled
-                        renderIcon={(size) => (
-                          <ProviderIcon provider={currentModelOption?.providerDriver} size={size} />
-                        )}
-                        label={modelChipLabel({
-                          label: currentModelOption?.label ?? currentModelSelection.model,
-                          capabilities: currentModelOption?.capabilities,
-                          selections: currentModelSelection.options,
-                        })}
-                        maxWidth="100%"
-                        onPress={openSettings}
-                      />
-                      {threadGoal.goal !== null ? (
+                    {/* React Native children keep their width unless told to shrink: the model
+                    chip is the one that truncates, the Goal and Debug chips keep theirs, and the
+                    group clips, so nothing paints over the mic and send buttons. */}
+                    <View className="min-w-0 shrink flex-row items-center overflow-hidden">
+                      <View className="min-w-0 shrink">
                         <ComposerInlineControl
-                          accessibilityLabel={`Goal: ${threadGoal.goal.objective}`}
-                          icon="target"
-                          label={isThreadGoalPaused(threadGoal.goal) ? "Paused" : "Goal"}
-                          onPress={threadGoal.openGoalActions}
+                          accessibilityLabel="Model and reasoning settings"
+                          filled
+                          renderIcon={(size) => (
+                            <ProviderIcon
+                              provider={currentModelOption?.providerDriver}
+                              size={size}
+                            />
+                          )}
+                          label={modelChipLabel({
+                            label: currentModelOption?.label ?? currentModelSelection.model,
+                            capabilities: currentModelOption?.capabilities,
+                            selections: currentModelSelection.options,
+                          })}
+                          maxWidth="100%"
+                          onPress={openSettings}
                         />
+                      </View>
+                      {threadGoal.goal !== null ? (
+                        <View className="shrink-0">
+                          <ComposerInlineControl
+                            accessibilityLabel={`Goal: ${threadGoal.goal.objective}`}
+                            icon="target"
+                            label={isThreadGoalPaused(threadGoal.goal) ? "Paused" : "Goal"}
+                            onPress={threadGoal.openGoalActions}
+                          />
+                        </View>
                       ) : null}
                       {threadGoal.debugMode ? (
-                        <ComposerInlineControl
-                          accessibilityLabel="Debug mode is on"
-                          accessibilityHint="Leave debug mode"
-                          icon="ant"
-                          label="Debug"
-                          selected
-                          onPress={threadGoal.confirmLeaveDebugMode}
-                        />
+                        <View className="shrink-0">
+                          <ComposerInlineControl
+                            accessibilityLabel="Debug mode is on"
+                            accessibilityHint="Leave debug mode"
+                            icon="ant"
+                            label="Debug"
+                            selected
+                            onPress={threadGoal.confirmLeaveDebugMode}
+                          />
+                        </View>
                       ) : null}
                     </View>
                   </View>

@@ -1,84 +1,81 @@
-# Updating T3 Code
+# Updating ViewCode
 
-The app you use and the server running your agents can be on different machines.
-When a server is behind your web or desktop app, an update notice appears in the
-conversation and **Settings → Connections**. Update the machine named in that
-notice.
+Update the machine that runs your agents as well as the clients you use. A client
+and server must speak the same orchestration protocol; incompatible versions are
+refused before a socket connection is established. This upgrade uses protocol 2.
+
+## npm installation
+
+On the server's machine, stop your running ViewCode process, then update and
+restart it with the same options and data directory:
+
+```sh
+npm install -g viewcode-app@latest
+viewcode serve
+```
+
+If a version notice names an exact published ViewCode version, install it with
+`npm install -g viewcode-app@<version>`. Keep your usual `--base-dir`, `--host` and
+other launch options when restarting. For a temporary npm launch, use
+`npx viewcode-app@<version>` with those options instead.
+
+ViewCode's npm package does not use the upstream managed runtime updater. A
+connected client may offer a command to copy; run it on the named server host and
+restart that server yourself.
+
+## Desktop and source builds
+
+Use the ViewCode desktop updater when your build supports it. If it opens a
+release page instead, download the new ViewCode build and replace the installed
+app. For a source build, update the ViewCode checkout and rebuild using the same
+build procedure. Update remote hosts separately; restarting only the client does
+not update the server running your agents.
 
 ## Before you update
 
 Server updates restart the connection and can interrupt active agents and
 terminal commands. Saved threads, settings, and project files remain.
 
-**Settings → General → Continue threads after restarts** is off by default.
-Enable it to resume supported active threads after an update, crash, or machine
+**Settings → General → Continue threads after restarts** is on by default.
+It resumes supported active threads after an update, crash, or machine
 restart. Changes are saved to connected environments that support this setting;
 update older servers first. If a supported environment was offline or has a
 different value, use **Apply to all** in Settings after it connects.
-T3 Code must start again on that machine;
+ViewCode must start again on that machine;
 the setting does not enable automatic startup. Terminal commands may still be
 interrupted, and threads without saved provider resume state need a new message.
-If you previously enabled continuation for updates, enable this setting once
-to allow recovery without a connected client.
+A thread that finished its turn to wait on a monitor, subagent, or background task
+is woken and told that this work stopped. A background shell, such as a dev server,
+does not wake it; the thread learns about it with your next message.
+A thread is not resumed while it waits for your approval, answer, or secret, or
+while it is archived, snoozed, or settled. After three automatic resumes in a row,
+the thread waits for your next message.
 
-## Update a connected server
-
-The offered action depends on how the server runs:
-
-| Action                     | What to do                                                                                                                                                                                      |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Update server**          | Keep the client open while it installs and reconnects. Supported background services update remotely. For a desktop-hosted server, this also closes and relaunches the desktop app on the host. |
-| **Update the desktop app** | Update the desktop app on the machine running the server, then reopen it if needed.                                                                                                             |
-| **Copy update command**    | Stop the command-line server on its host and relaunch with the copied command, keeping your usual startup options.                                                                              |
-
-On the host, run:
-
-```sh
-t3 update <client-version>
-```
-
-Replace `<client-version>` with the version shown in the notice. The command
-asks before restarting the background service; if you decline, run
-`t3 service restart` when you are ready. For a server you started by hand,
-stop it and start it again afterwards with your usual options such as `--host`
-or `--tailscale-serve`.
-
-If you run the server with `npx` rather than an installed `t3`, there is
-nothing to update on the host: stop the server and relaunch it as
-`npx t3@<client-version>` with the same subcommand and options.
+Updates from the previous orchestration system preserve conversation transcripts but cannot carry
+every kind of runtime history forward. Read [Upgrading older ViewCode threads](./thread-migration.md)
+before continuing an important older thread.
 
 ## If an update fails
 
-Keep the client open until it reconnects or reports a failure. A failed service
-update can roll back to the previous version. If the update still fails:
+Check that you updated the machine named in the version notice. Keep a backup of
+its data directory before retrying a major upgrade. Only one server can use a
+ViewCode home at a time: stop that process before starting its replacement, or
+use a separate `--base-dir` and pair with that server.
 
-1. Retry the offered action once.
-2. Check that you updated the server's machine, not only the device you are using.
-3. For a command-line server, stop it and relaunch the exact version shown in the notice.
+For a command-line server, check the installed package and restart it with your
+usual options. For a desktop build that cannot apply an update, replace it with
+the matching ViewCode build manually.
 
 ## Update providers
 
 **Settings → Providers** shows provider updates for the selected environment.
-**Update all** updates every outdated provider on every connected environment
-at once. Hover it to see which providers it will update. Providers that only
-offer a manual update command are not included.
+Supported providers offer an update action; others show a manual command. Install
+and update providers on the machine running the selected environment. An IT
+administrator's policy continues to apply.
 
 ## Mobile updates
 
-To update an environment from your phone, open **Settings → Environments** and
-select it. **Check for updates** finds the latest release on that environment's
-current release channel. Keep the app open while the environment updates and
-reconnects. Hosts that cannot update remotely show instructions for updating on
-the machine instead.
-
-The same page lets you refresh provider status and update supported providers.
-These controls require a connected environment and permission to operate it.
-Provider update checks and restart continuation preferences are in
-**Settings → Maintenance**. If provider update checks are disabled, enable them
-there before refreshing to find newer versions.
-
-Install App Store or Google Play releases as usual. The mobile app can also
-download updates in the background and apply them when you next leave the app.
-It saves drafts and queued messages before restarting. If you keep the app open
-for a long time, it may ask to install immediately; choosing **Later** leaves the
-update queued for the next suitable moment.
+Install a matching ViewCode mobile build. Updating an environment from your phone
+still acts on the server machine: a host that requires manual updates must be
+updated there. Provider status and supported provider update actions are available
+for connected environments when your client has permission to operate them.

@@ -4,6 +4,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
 } from "@t3tools/contracts";
+import { CURSOR_KEYCHAIN_USAGE_OFF_MESSAGE } from "@t3tools/shared/usageLimits";
 import { describe, expect, it } from "vite-plus/test";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
@@ -112,6 +113,27 @@ describe("buildRailUsageRings", () => {
     );
     expect(rings).toHaveLength(0);
   });
+
+  it("keeps a Mac Cursor account waiting for the Keychain opt-in as an off ring", () => {
+    const checkedAt = new Date(0).toISOString();
+    const usageLimits = (message: string) => ({
+      checkedAt,
+      windows: [],
+      unavailable: { reason: "unsupported", message },
+    });
+    const rings = buildRailUsageRings([
+      entry("cursor-off", "cursor", [], {
+        snapshot: { usageLimits: usageLimits(CURSOR_KEYCHAIN_USAGE_OFF_MESSAGE) },
+      } as unknown as Partial<ProviderInstanceEntry>),
+      entry("cursor-other", "cursor", [], {
+        snapshot: { usageLimits: usageLimits("Cursor could not read usage limits.") },
+      } as unknown as Partial<ProviderInstanceEntry>),
+    ]);
+    expect(rings.map((ring) => [ring.entry.instanceId, ring.usageOff])).toEqual([
+      ["cursor-off", true],
+    ]);
+    expect(rings[0]?.window).toBeNull();
+  });
 });
 
 describe("resolveRailEnvironmentId", () => {
@@ -197,27 +219,37 @@ describe("buildRailProjectActivity", () => {
     },
   ];
   type ActivityThread = Parameters<typeof buildRailProjectActivity>[1][number];
+  const runtime = (
+    status: NonNullable<ActivityThread["runtime"]>["status"],
+  ): NonNullable<ActivityThread["runtime"]> => ({
+    status,
+    activeRunId: null,
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    providerName: "Codex",
+    lastError: status === "failed" ? "Provider failed" : null,
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  });
   const thread = (
     environmentId: EnvironmentId,
     projectId: string,
-    overrides: Record<string, unknown> = {},
-  ) =>
-    ({
-      environmentId,
-      projectId,
-      archivedAt: null,
-      hasPendingApprovals: false,
-      hasPendingUserInput: false,
-      session: null,
-      ...overrides,
-    }) as unknown as ActivityThread;
+    overrides: Partial<ActivityThread> = {},
+  ): ActivityThread => ({
+    environmentId,
+    projectId,
+    archivedAt: null,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    pendingSubagentRequest: null,
+    runtime: null,
+    ...overrides,
+  });
 
   it("counts threads waiting on the user and working threads across a folder's machines", () => {
     const activity = buildRailProjectActivity(groups, [
       thread(local, "p1", { hasPendingApprovals: true }),
       thread(remote, "p9", { hasPendingUserInput: true }),
-      thread(remote, "p9", { session: { status: "running" } }),
-      thread(local, "p2", { backgroundLiveness: "working" }),
+      thread(remote, "p9", { runtime: runtime("running") }),
+      thread(local, "p2", { runtime: runtime("waiting") }),
       thread(local, "p2"),
     ]);
     expect(Object.fromEntries(activity)).toEqual({
@@ -226,12 +258,20 @@ describe("buildRailProjectActivity", () => {
     });
   });
 
+  it("counts a blocked child agent once, and its lead by what the lead itself is doing", () => {
+    const activity = buildRailProjectActivity(groups, [
+      thread(local, "p1", { pendingSubagentRequest: "approval", runtime: runtime("running") }),
+      thread(local, "p1", { hasPendingApprovals: true }),
+    ]);
+    expect(Object.fromEntries(activity)).toEqual({ app: { needsYou: 1, working: 1 } });
+  });
+
   it("skips archived threads, side chats, failures, and projects outside the folders", () => {
     const activity = buildRailProjectActivity(groups, [
       thread(local, "p1", { hasPendingApprovals: true, archivedAt: "2026-01-01T00:00:00.000Z" }),
       thread(local, "p1", { hasPendingApprovals: true, kind: "sidechat" }),
       thread(local, "gone", { hasPendingApprovals: true }),
-      thread(local, "p2", { session: { status: "error" } }),
+      thread(local, "p2", { runtime: runtime("failed") }),
     ]);
     expect(activity.size).toBe(0);
   });

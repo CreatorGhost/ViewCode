@@ -1,3 +1,4 @@
+import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 import type { MenuAction } from "@react-native-menu/menu";
 import type { ComponentProps, ReactNode } from "react";
 import { Platform, Pressable, View } from "react-native";
@@ -12,6 +13,7 @@ import { useMaterialToolbarLayout } from "../../components/useMaterialToolbarLay
 import { useWorkspaceState } from "../../state/workspace";
 import { HomePillIconButton, HomePillSurface } from "./HomePillButton";
 import { workspaceFleetSubtitle } from "./workspace-connection-status";
+import type { RockBotMenu } from "../rockbot/useRockBotMenu";
 
 type MenuActionHandler = NonNullable<ComponentProps<typeof ControlPillMenu>["onPressAction"]>;
 
@@ -181,11 +183,37 @@ export function HomeScopePills(props: HomeScopePillsProps) {
       {props.onOpenPullRequests ? (
         <HomePillIconButton
           accessibilityLabel="Open pull requests"
-          icon="arrow.triangle.pull"
+          icon={PullRequestGlyph.pullRequest}
           onPress={props.onOpenPullRequests}
         />
       ) : null}
     </View>
+  );
+}
+
+/** Before the first chat, RockBot's pill starts one; after, it lists them under New chat. */
+function RockBotPill(props: { readonly rockBot: RockBotMenu }) {
+  const { rockBot } = props;
+  const icon = { ios: "sparkles", android: "auto_awesome" } as const;
+  if (rockBot.chats.length === 0) {
+    return (
+      <HomePillIconButton accessibilityLabel="RockBot" icon={icon} onPress={rockBot.openLatest} />
+    );
+  }
+  return (
+    <ControlPillMenu
+      accessibilityLabel="RockBot"
+      actions={[
+        { id: "new", title: "New chat" },
+        ...rockBot.chats.map((chat) => ({ id: `chat:${chat.id}`, title: chat.title })),
+      ]}
+      onPressAction={({ nativeEvent }) => {
+        if (nativeEvent.event === "new") rockBot.startNewChat();
+        else rockBot.openChat(nativeEvent.event.slice("chat:".length));
+      }}
+    >
+      <HomePillIconButton accessibilityLabel="RockBot" icon={icon} />
+    </ControlPillMenu>
   );
 }
 
@@ -194,6 +222,7 @@ export function HomePillToolbar(
   props: HomeScopePillsProps & {
     readonly onOpenSettings: () => void;
     readonly onOpenUsage: () => void;
+    readonly rockBot?: RockBotMenu | undefined;
   },
 ) {
   const { paddingTop } = useMaterialToolbarLayout();
@@ -212,6 +241,7 @@ export function HomePillToolbar(
         <View className="min-w-0 flex-1 items-center">
           <HomeFleetTitle onOpenEnvironments={props.onOpenEnvironments} />
         </View>
+        {props.rockBot === undefined ? null : <RockBotPill rockBot={props.rockBot} />}
         <HomePillIconButton
           accessibilityLabel="Open usage"
           icon="chart.bar.xaxis"

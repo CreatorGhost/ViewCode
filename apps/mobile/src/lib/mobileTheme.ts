@@ -1,14 +1,14 @@
 import {
-  MOBILE_PALETTE_THEMES,
   T3_CHAT_THEME,
   T3_CODE_LIGHT_THEME_COLORS,
   T3_CODE_DARK_THEME_COLORS,
   getThemeColorsForAppearance,
   MOBILE_DEFAULT_THEME_ID,
-  MOBILE_INITIAL_THEME_ID,
   MOBILE_THEME_IDS as SHARED_MOBILE_THEME_IDS,
   VIEWCODE_TEAL_THEME_ID,
   VIEWCODE_THEME_ID,
+  WEB_BUILT_IN_THEMES,
+  isViewCodeThemeId,
   type MobilePaletteThemeId,
   type MobileThemeId as SharedMobileThemeId,
   type ThemeAppearance,
@@ -20,7 +20,7 @@ import {
 /** The standard T3 Code palette: the base Uniwind `light` and `dark` themes. */
 export const DEFAULT_MOBILE_THEME_ID = MOBILE_DEFAULT_THEME_ID;
 /** What a phone wears until it picks a theme, and in place of one that no longer exists. */
-export const INITIAL_MOBILE_THEME_ID: MobileThemeId = MOBILE_INITIAL_THEME_ID;
+export const INITIAL_MOBILE_THEME_ID: MobileThemeId = VIEWCODE_TEAL_THEME_ID;
 export const MOBILE_THEME_IDS = [...SHARED_MOBILE_THEME_IDS, "material-you"] as const;
 export type MobileThemeId = SharedMobileThemeId | "material-you";
 export type MobileThemeAppearance = ThemeAppearance;
@@ -42,13 +42,13 @@ function themeAppearances(theme: ThemeDefinition): ReadonlyArray<MobileThemeAppe
 export function getMobileThemeAppearances(
   themeId: MobileThemeId,
 ): ReadonlyArray<MobileThemeAppearance> {
-  const theme = MOBILE_PALETTE_THEMES.find((candidate) => candidate.id === themeId);
+  const theme = WEB_BUILT_IN_THEMES.find((candidate) => candidate.id === themeId);
   return theme ? themeAppearances(theme) : MOBILE_THEME_APPEARANCES;
 }
 
 /** Uniwind themes registered beside the base `light` and `dark`: one per palette appearance. */
 export const MOBILE_PALETTE_UNIWIND_THEME_NAMES: ReadonlyArray<`${MobilePaletteThemeId}-${MobileThemeAppearance}`> =
-  MOBILE_PALETTE_THEMES.flatMap((theme) =>
+  WEB_BUILT_IN_THEMES.flatMap((theme) =>
     themeAppearances(theme).map(
       (appearance) => `${theme.id as MobilePaletteThemeId}-${appearance}` as const,
     ),
@@ -66,10 +66,10 @@ export const MOBILE_THEME_OPTIONS: ReadonlyArray<{
   readonly id: MobileThemeId;
   readonly label: string;
 }> = [
-  ...MOBILE_PALETTE_THEMES.filter(isViewCodeDefault).map(paletteOption),
+  ...WEB_BUILT_IN_THEMES.filter(isViewCodeDefault).map(paletteOption),
   { id: DEFAULT_MOBILE_THEME_ID, label: "T3 Code" },
   { id: "material-you", label: "Material You" },
-  ...MOBILE_PALETTE_THEMES.filter((theme) => !isViewCodeDefault(theme)).map(paletteOption),
+  ...WEB_BUILT_IN_THEMES.filter((theme) => !isViewCodeDefault(theme)).map(paletteOption),
 ];
 
 // Closed set: every key `createMobileThemeVariables` writes. Reads of a
@@ -476,8 +476,7 @@ export function getMobileThemeColors(
   if (themeId === DEFAULT_MOBILE_THEME_ID) {
     return appearance === "dark" ? T3_CODE_DARK_THEME_COLORS : T3_CODE_LIGHT_THEME_COLORS;
   }
-  const theme =
-    MOBILE_PALETTE_THEMES.find((candidate) => candidate.id === themeId) ?? T3_CHAT_THEME;
+  const theme = WEB_BUILT_IN_THEMES.find((candidate) => candidate.id === themeId) ?? T3_CHAT_THEME;
   return flattenMobileThemeColors(getThemeColorsForAppearance(theme, appearance) ?? theme.colors);
 }
 
@@ -489,13 +488,16 @@ export function getMobileThemeVariables(
   const colors = getMobileThemeColors(themeId, appearance);
   // Mobile settings groups and fallback materials use tonal fills where desktop
   // uses outlined cards. Raise flat or near-flat desktop surfaces above the sheet so grouped
-  // content keeps a visible boundary. Regular cards retain their desktop surface.
+  // content keeps a visible boundary. Regular cards retain their desktop surface. The ViewCode
+  // family always raises them: on web its composer and settings groups are the one step above
+  // the sheet, and Obsidian's sheet and window are close enough that the contrast test alone
+  // would leave the phone's composer on the screen colour.
   const groupedCard =
     themeId === DEFAULT_MOBILE_THEME_ID
       ? appearance === "light"
         ? colors.toolbarControlHover
         : colors.sidebarRowActive
-      : !surfacesDiffer(colors.surface, colors.chrome)
+      : isViewCodeThemeId(themeId) || !surfacesDiffer(colors.surface, colors.chrome)
         ? colors.surfaceRaised
         : colors.surface;
   const mobileColors =

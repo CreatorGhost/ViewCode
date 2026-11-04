@@ -15,8 +15,8 @@ import {
   getCloneDestinationPath,
   getCloneDirectoryName,
   getDefaultCloneUrl,
-  getNewProjectGitHubRepository,
-  getNewProjectGitHubTarget,
+  getNewProjectRepository,
+  getNewProjectPublishTargets,
   getNewProjectPathPreview,
   normalizePastedCloneUrl,
   resolveAddProjectPath,
@@ -42,6 +42,9 @@ import {
 } from "@t3tools/client-runtime/state/projects";
 import {
   CommandId,
+  AuthOrchestrationOperateScope,
+  AuthSourceControlWriteScope,
+  SourceControlProviderKind,
   type EnvironmentId,
   type EnvironmentMachineKind,
   ProjectId,
@@ -55,7 +58,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Arr from "effect/Array";
 import * as Cause from "effect/Cause";
 import * as Order from "effect/Order";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { cn } from "../../lib/cn";
 import { useProjects, useServerConfigs, waitForProject } from "../../state/entities";
 import { filesystemEnvironment } from "../../state/filesystem";
@@ -76,6 +79,7 @@ import {
   useSavedRemoteConnections,
 } from "../../state/use-remote-environment-registry";
 import { resolveAddProjectEnvironment } from "./AddProjectScreen.logic";
+import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 
 interface EnvironmentOption {
   readonly environmentId: EnvironmentId;
@@ -127,7 +131,7 @@ function sourceFromParam(value: string | string[] | undefined): AddProjectRemote
     source === "bitbucket" ||
     source === "azure-devops"
   ) {
-    return source;
+    return source === "url" ? source : SourceControlProviderKind.make(source);
   }
   return "url";
 }
@@ -637,11 +641,11 @@ export function AddProjectSourceScreen() {
                   key={candidate}
                   source={candidate}
                   selectedEnvironmentId={selectedEnvironment.environmentId}
-                  ready={readiness[candidate].ready}
+                  ready={readiness(candidate).ready}
                   hint={
-                    readiness[candidate].ready
+                    readiness(candidate).ready
                       ? addProjectRemoteSourcePathHint(candidate)
-                      : (readiness[candidate].hint ?? "")
+                      : (readiness(candidate).hint ?? "")
                   }
                   isFirst={false}
                 />
@@ -677,7 +681,12 @@ function useCreateProject(environment: EnvironmentOption | null) {
 
   return useCallback(
     async (workspaceRoot: string) => {
-      if (!environment || !canCreateProjectInEnvironment(environment.connectionState)) return;
+      if (
+        !environment ||
+        !canCreateProjectInEnvironment(environment.connectionState) ||
+        !readEnvironmentScope(environment.environmentId, AuthOrchestrationOperateScope)
+      )
+        return;
 
       // Projects store absolute roots, so `~/code/app` never matches
       // `/Users/me/code/app` here and the server then rejects the duplicate.
@@ -717,11 +726,12 @@ function useCreateProject(environment: EnvironmentOption | null) {
       }
 
       const projectId = ProjectId.make(uuidv4());
+      // Resolving a home-relative path can outlive the grant used to open the form.
+      if (!readEnvironmentScope(environment.environmentId, AuthOrchestrationOperateScope)) return;
       const command = buildProjectCreateCommand({
         commandId: CommandId.make(uuidv4()),
         projectId,
         workspaceRoot,
-        createdAt: new Date().toISOString(),
       });
       const result = await createProject({
         environmentId: environment.environmentId,
@@ -973,7 +983,10 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
           input: {},
         }),
   );
-  const githubTarget = getNewProjectGitHubTarget(discoveryState.data);
+  const githubTarget =
+    getNewProjectPublishTargets(discoveryState.data).find(
+      (target) => target.definition.kind === "github",
+    ) ?? null;
   const [name, setName] = useState("");
   const [publishesToGitHub, setPublishesToGitHub] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1049,8 +1062,8 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
           environmentId: environment.environmentId,
           input: {
             cwd: workspaceRoot,
-            provider: "github",
-            repository: getNewProjectGitHubRepository(githubTarget, workspaceRoot),
+            provider: SourceControlProviderKind.make("github"),
+            repository: getNewProjectRepository(githubTarget, workspaceRoot),
             visibility: "private",
           },
         }).then((publishResult) => {
@@ -1117,8 +1130,8 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
                 title="Create private repository on GitHub"
                 subtitle={
                   trimmedName.length > 0 && pathPreview !== null
-                    ? getNewProjectGitHubRepository(githubTarget, pathPreview)
-                    : githubTarget.account
+                    ? getNewProjectRepository(githubTarget, pathPreview)
+                    : githubTarget.owner
                 }
                 icon={
                   <SourceControlIcon
@@ -1219,7 +1232,7 @@ export function AddProjectLocalFolderScreen(props: { readonly environmentId?: st
           <PrimaryActionButton
             label="Add project"
             disabled={isBrowseNavigating || isSubmitting}
-            onPress={() => void submitPath()}
+            onPress={submitPath}
             loading={isSubmitting}
           />
           <FolderBrowser
@@ -1251,6 +1264,14 @@ export function AddProjectDestinationScreen(props: {
   const navigation = useNavigation();
   const environment = useEnvironmentFromParam(props.environmentId);
   const createProject = useCreateProject(environment);
+  const canOperate = useEnvironmentScope(
+    environment?.environmentId ?? null,
+    AuthOrchestrationOperateScope,
+  );
+  const canWriteSourceControl = useEnvironmentScope(
+    environment?.environmentId ?? null,
+    AuthSourceControlWriteScope,
+  );
   const remoteUrl = stringParam(props.remoteUrl);
   const repositoryTitle = stringParam(props.repositoryTitle);
   // A lookup derives this from "owner/repo", a pasted clone URL from its own
@@ -1266,7 +1287,15 @@ export function AddProjectDestinationScreen(props: {
   const [error, setError] = useState<string | null>(null);
 
   const submitPath = useCallback(async () => {
-    if (!environment || !remoteUrl || isBrowseNavigating || isSubmitting) return;
+    if (
+      !environment ||
+      !remoteUrl ||
+      isBrowseNavigating ||
+      isSubmitting ||
+      !readEnvironmentScope(environment.environmentId, AuthOrchestrationOperateScope) ||
+      !readEnvironmentScope(environment.environmentId, AuthSourceControlWriteScope)
+    )
+      return;
     setError(null);
     const resolved = resolveAddProjectPath({
       rawPath: pathInput,
@@ -1369,8 +1398,14 @@ export function AddProjectDestinationScreen(props: {
           />
           <PrimaryActionButton
             label="Clone project"
-            disabled={isBrowseNavigating || isSubmitting || !remoteUrl}
-            onPress={() => void submitPath()}
+            disabled={
+              isBrowseNavigating ||
+              isSubmitting ||
+              !remoteUrl ||
+              !canOperate ||
+              !canWriteSourceControl
+            }
+            onPress={submitPath}
             loading={isSubmitting}
           />
           <FolderBrowser

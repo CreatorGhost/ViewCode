@@ -1,5 +1,4 @@
 import { FileDiffIcon } from "lucide-react";
-import { useMemo } from "react";
 
 import type { WorkLogEntry } from "../../session-logic";
 import { Button } from "../ui/button";
@@ -18,19 +17,16 @@ const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
  * tree diff at that file (a workspace-relative path, as the diff names it);
  * past a few files it collapses to a count that opens the whole working tree.
  */
-export function useLiveEditedFilesBanner(input: {
+export function liveEditedFilesBanner(input: {
   readonly entries: ReadonlyArray<WorkLogEntry>;
   readonly runningTurnId: string | null;
   readonly workspaceRoot: string | undefined;
   readonly onOpenWorkingTreeDiff: (filePath?: string) => void;
 }): ComposerBannerStackItem | null {
   const { entries, runningTurnId, workspaceRoot, onOpenWorkingTreeDiff } = input;
-  const files = useMemo(
-    () => deriveLiveEditedFiles(entries, runningTurnId),
-    [entries, runningTurnId],
-  );
+  const files = (() => deriveLiveEditedFiles(entries, runningTurnId))();
 
-  return useMemo(() => {
+  return (() => {
     if (runningTurnId === null || files.length === 0) return null;
     const turnId = runningTurnId;
     const collapsed = files.length > LIVE_EDITED_FILES_INLINE_LIMIT;
@@ -62,5 +58,5 @@ export function useLiveEditedFilesBanner(input: {
         </div>
       ),
     };
-  }, [files, onOpenWorkingTreeDiff, runningTurnId, workspaceRoot]);
+  })();
 }

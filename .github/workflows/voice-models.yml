@@ -1,16 +1,19 @@
 name: Voice Models
 
-# Mirrors the Kokoro-82M read-aloud voice model into this repository's
-# `voice-models-v1` release. ViewCode servers download it from here because
-# managed networks often block Hugging Face. Hugging Face stays the fallback
-# mirror, so every file comes from one Hugging Face commit, which the manifest
-# records with each file's size and SHA-256; servers verify both before use.
+# Mirrors ViewCode's on-device speech models into this repository's releases:
+# the Kokoro-82M read-aloud voice into `voice-models-v1`, and the Moonshine base
+# speech-to-text model that dictation runs into `dictation-models-v1`. ViewCode
+# servers download them from here because managed networks often block Hugging
+# Face. Hugging Face stays the fallback mirror, so every file of a release comes
+# from one Hugging Face commit, which its manifest records with each file's size
+# and SHA-256; servers verify both before use.
 #
-# Run it by hand or by changing this file. The `revision` input (a branch, tag
-# or commit; main when pushed) is resolved to its commit hash first, so the release is always pinned to an exact commit. The
-# servers read `manifest.json` from the tag below (`VOICE_MODEL_RELEASE_URL` in
-# apps/server/src/voiceModels/VoiceModelStore.ts), so a new tag needs a
-# matching server change.
+# Run it by hand or by changing this file. A revision input (a branch, tag or
+# commit; main when pushed) is resolved to its commit hash first, so a release is
+# always pinned to an exact commit. The servers read `manifest.json` from the tags
+# below (`VOICE_MODEL_RELEASE_URL` and `DICTATION_MODEL_RELEASE_URL` in
+# apps/server/src/voiceModels/VoiceModelStore.ts), so a new tag needs a matching
+# server change.
 
 on:
   # Also runs when this file changes on the default branch, so publishing a
@@ -20,23 +23,32 @@ on:
     paths: [.github/workflows/voice-models.yml]
   workflow_dispatch:
     inputs:
+      models:
+        description: Which releases to mirror
+        type: choice
+        options: [both, read-aloud, dictation]
+        default: both
       revision:
-        description: Hugging Face branch, tag or commit to mirror
+        description: Kokoro-82M Hugging Face branch, tag or commit to mirror
+        default: main
+        required: true
+      dictation_revision:
+        description: Moonshine base Hugging Face branch, tag or commit to mirror
         default: main
         required: true
 
 permissions:
   contents: write
 
-env:
-  TAG: voice-models-v1
-  HF_REPO: onnx-community/Kokoro-82M-v1.0-ONNX
-
 jobs:
   mirror:
     name: Mirror Kokoro-82M
+    if: ${{ github.event_name == 'push' || inputs.models != 'dictation' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      TAG: voice-models-v1
+      HF_REPO: onnx-community/Kokoro-82M-v1.0-ONNX
     steps:
       - name: Resolve the revision to a commit
         env:
@@ -107,5 +119,79 @@ jobs:
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --latest=false \
               --title "Read aloud voice models (Kokoro-82M)" \
               --notes "Kokoro-82M (Apache-2.0) from https://huggingface.co/$HF_REPO at revision $HF_REVISION, mirrored for ViewCode's natural read-aloud voice. ViewCode downloads these on demand; do not delete."
+          fi
+          gh release upload "$TAG" files/* --repo "$GITHUB_REPOSITORY" --clobber
+
+  mirror-dictation:
+    name: Mirror Moonshine base
+    if: ${{ github.event_name == 'push' || inputs.models != 'read-aloud' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      TAG: dictation-models-v1
+      HF_REPO: onnx-community/moonshine-base-ONNX
+    steps:
+      - name: Resolve the revision to a commit
+        env:
+          REQUESTED: ${{ inputs.dictation_revision || 'main' }}
+        run: |
+          set -euo pipefail
+          sha=$(curl --fail --location --silent --show-error --retry 3 \
+            "https://huggingface.co/api/models/$HF_REPO/revision/$REQUESTED" | jq -r .sha)
+          if ! [[ "$sha" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "Could not resolve $REQUESTED to a commit (got: $sha)" >&2
+            exit 1
+          fi
+          echo "HF_REVISION=$sha" >> "$GITHUB_ENV"
+          echo "Mirroring $HF_REPO at $sha"
+
+      - name: Download the pinned files
+        run: |
+          set -euo pipefail
+          mkdir -p files
+          # What Transformers.js reads for a speech-recognition pipeline with
+          # q8 weights on its WASM backend.
+          paths="config.json generation_config.json preprocessor_config.json tokenizer.json"
+          paths="$paths tokenizer_config.json onnx/encoder_model_quantized.onnx"
+          paths="$paths onnx/decoder_model_merged_quantized.onnx"
+          echo "$paths" > paths.txt
+          for path in $paths; do
+            curl --fail --location --silent --show-error --retry 3 \
+              --output "files/$(basename "$path")" \
+              "https://huggingface.co/$HF_REPO/resolve/$HF_REVISION/$path"
+          done
+          # The model card states the licence (MIT); the notice is Moonshine's own.
+          curl --fail --location --silent --show-error --retry 3 \
+            --output files/MODEL_CARD.md \
+            "https://huggingface.co/$HF_REPO/resolve/$HF_REVISION/README.md"
+          curl --fail --location --silent --show-error --retry 3 \
+            --output files/LICENSE \
+            https://raw.githubusercontent.com/usefulsensors/moonshine/main/LICENSE
+
+      - name: Write manifest.json
+        run: |
+          set -euo pipefail
+          entry() {
+            local file="files/$(basename "$1")"
+            jq -n --arg path "$1" --argjson size "$(stat --format=%s "$file")" \
+              --arg sha256 "$(sha256sum "$file" | cut -d' ' -f1)" \
+              '{path: $path, size: $size, sha256: $sha256}'
+          }
+          jq -n \
+            --arg repo "$HF_REPO" --arg revision "$HF_REVISION" \
+            --argjson dictation "$(for path in $(cat paths.txt); do entry "$path"; done | jq -s .)" \
+            '{version: 1, source: {repo: $repo, revision: $revision}, license: "MIT",
+              tiers: {dictation: $dictation}}' > files/manifest.json
+          cat files/manifest.json
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --latest=false \
+              --title "Dictation speech model (Moonshine base)" \
+              --notes "Moonshine base (MIT) from https://huggingface.co/$HF_REPO at revision $HF_REVISION, mirrored for ViewCode's on-device dictation. ViewCode downloads these on demand; do not delete."
           fi
           gh release upload "$TAG" files/* --repo "$GITHUB_REPOSITORY" --clobber

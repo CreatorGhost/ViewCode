@@ -8,8 +8,8 @@ Client Protocol mode. Droid uses your Factory account and its own model catalog.
 Install [Droid](https://docs.factory.ai/cli/getting-started/quickstart) on the machine
 running your environment, then run `droid` once in a terminal and log in. To use an API
 key instead, set `FACTORY_API_KEY` in the provider instance's environment variables in
-**Settings > Providers**. Droid is turned on automatically when `droid` is on the
-server's `PATH`; otherwise enable it there and set **Binary path** if needed.
+**Settings > Providers**. Turn Droid on there, and set **Binary path** if
+`droid` is not on the server's `PATH`.
 
 If Droid is not signed in, starting a thread fails with a message telling you to log
 in. Device pairing needs a terminal, so ViewCode does not start it for you.

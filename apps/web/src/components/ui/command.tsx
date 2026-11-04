@@ -18,6 +18,10 @@ import {
 import { DIALOG_BACKDROP_CLASS, DIALOG_POPUP_CLASS } from "~/components/ui/dialog-styles";
 import { Button } from "~/components/ui/button";
 
+// The palette is typed into, not read: it arrives in a short ease-out and leaves at once,
+// instead of the 200ms dialog crossfade that kept it on screen after Escape.
+const PALETTE_MOTION_CLASS = "duration-100 ease-out data-ending-style:duration-0";
+
 const CommandDialog = CommandDialogPrimitive.Root;
 
 const CommandDialogPortal = CommandDialogPrimitive.Portal;
@@ -29,7 +33,7 @@ function CommandDialogTrigger(props: CommandDialogPrimitive.Trigger.Props) {
 function CommandDialogBackdrop({ className, ...props }: CommandDialogPrimitive.Backdrop.Props) {
   return (
     <CommandDialogPrimitive.Backdrop
-      className={cn(DIALOG_BACKDROP_CLASS, className)}
+      className={cn(DIALOG_BACKDROP_CLASS, PALETTE_MOTION_CLASS, className)}
       data-slot="command-dialog-backdrop"
       {...props}
     />
@@ -64,6 +68,7 @@ function CommandDialogPopup({
         <CommandDialogPrimitive.Popup
           className={cn(
             DIALOG_POPUP_CLASS,
+            PALETTE_MOTION_CLASS,
             "pointer-events-auto max-h-105 max-w-xl text-foreground",
             className,
           )}
@@ -132,7 +137,7 @@ function CommandListVirtualized({
 }: React.ComponentProps<typeof AutocompleteListVirtualized>) {
   return (
     <AutocompleteListVirtualized
-      className={cn("flex max-h-[inherit] flex-col", className)}
+      className={cn("flex max-h-[inherit] min-h-0 flex-col", className)}
       data-slot="command-list"
       {...props}
     />

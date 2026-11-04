@@ -61,6 +61,7 @@ import { PullRequestsRouteScreen } from "./features/pull-requests/PullRequestsRo
 import { PullRequestReviewersScreen } from "./features/pull-requests/PullRequestReviewersScreen";
 import { PullRequestInlineCommentScreen } from "./features/pull-requests/PullRequestInlineCommentScreen";
 import { PullRequestDiscussionScreen } from "./features/pull-requests/PullRequestDiscussionScreen";
+import { ThreadPullRequestsSheet } from "./features/threads/ThreadPullRequestsSheet";
 import { SideChatSheet } from "./features/sidechat/SideChatSheet";
 import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
@@ -104,6 +105,7 @@ import { SettingsProjectOverviewRouteScreen } from "./features/settings/Settings
 import { UsageLimitAccountScreen } from "./features/usage/UsageLimitsPooled";
 import { UsageRouteScreen } from "./features/usage/UsageRouteScreen";
 import { SettingsAboutRouteScreen } from "./features/settings/SettingsAboutRouteScreen";
+import { ImportSessionsRouteScreen } from "./features/agentSessions/ImportSessionsRouteScreen";
 import { SettingsNotificationsRouteScreen } from "./features/settings/SettingsNotificationsRouteScreen";
 import { SettingsRouteScreen } from "./features/settings/SettingsRouteScreen";
 import { SettingsThreadsRouteScreen } from "./features/settings/SettingsThreadsRouteScreen";
@@ -267,6 +269,11 @@ const SettingsContentStack = createNativeStackNavigator({
       options: {
         title: "Archived Threads",
       },
+    }),
+    SettingsImportSessions: createNativeStackScreen({
+      screen: ImportSessionsRouteScreen,
+      linking: "import-sessions",
+      options: { title: "Import past sessions" },
     }),
     SettingsAppearance: createNativeStackScreen({
       screen: SettingsAppearanceRouteScreen,
@@ -481,6 +488,7 @@ const NewTaskSheetStack = createNativeStackNavigator({
 // influence the adaptive workspace layout: opening Settings over Home should
 // not flip the sidebar in or change the active thread.
 const WORKSPACE_OVERLAY_ROUTES = new Set([
+  "ThreadPullRequests",
   "PullRequestReview",
   "PullRequestInlineComment",
   "Connections",
@@ -830,6 +838,15 @@ const RootStackConfig = createNativeStackNavigator({
         sheetGrabberVisible: true,
       },
     }),
+    ThreadPullRequests: createNativeStackScreen({
+      screen: ThreadPullRequestsSheet,
+      linking: `${THREAD_LINKING_PREFIX}/pull-requests`,
+      options: {
+        ...FORM_SHEET_PRESENTATION_OPTIONS,
+        sheetAllowedDetents: [0.55, 0.92],
+        sheetGrabberVisible: true,
+      },
+    }),
     GitCommit: createNativeStackScreen({
       screen: GitCommitSheet,
       linking: `${THREAD_LINKING_PREFIX}/git/commit`,
@@ -889,12 +906,18 @@ const RootStackConfig = createNativeStackNavigator({
             }),
       },
     }),
+    ImportSessions: createNativeStackScreen({
+      screen: ImportSessionsRouteScreen,
+      linking: "import-sessions/:environmentId/:projectId",
+      options: { title: "Import past sessions" },
+    }),
     ConnectionsNew: createNativeStackScreen({
       screen: ConnectionsNewRouteScreen,
       linking: "connections/new",
       options: {
         ...FORM_SHEET_PRESENTATION_OPTIONS,
-        sheetAllowedDetents: [0.55, 0.7],
+        // Tall enough for the Scan QR button and the manual fields below it.
+        sheetAllowedDetents: [0.92],
         sheetGrabberVisible: true,
       },
     }),

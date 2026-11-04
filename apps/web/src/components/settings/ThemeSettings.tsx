@@ -9,7 +9,7 @@ import {
   Trash2Icon,
   UploadIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import { WEB_BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
 import { useEnvironmentThemeDefinitions } from "../../hooks/useEnvironmentTheme";
 import { readThemeHalvesRaw } from "../../hooks/useTheme";
@@ -201,7 +201,7 @@ function ThemeLibraryCard({
                                 : `Use ${mode} variant, currently ${selected.option.label}`
                             }
                             aria-pressed={isActive}
-                            className="absolute left-1/2 top-2 z-20 flex size-14 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="absolute left-1/2 top-2 z-20 flex size-14 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                             style={{
                               transform: `translateX(calc(-50% + ${rootOffsetX}px))`,
                             }}
@@ -260,7 +260,7 @@ function ThemeLibraryCard({
                                     aria-label={`Use ${option.label} for ${mode} mode${optionIsActive ? ", currently active" : ""}`}
                                     aria-pressed={optionIsActive}
                                     className={cn(
-                                      "absolute left-1/2 top-1 z-30 flex size-7 items-center justify-center rounded-full bg-background shadow-sm outline-none transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring",
+                                      "absolute left-1/2 top-1 z-30 flex size-7 items-center justify-center rounded-full bg-background shadow-sm outline-none transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                                       optionIsActive ? "ring-2 ring-ring" : "ring-1 ring-border/70",
                                     )}
                                     style={{
@@ -321,7 +321,7 @@ function ThemeLibraryCard({
                   <button
                     aria-label={`Use ${variantNavigation ? `${variantNavigation.collectionLabel}, ${theme.label} variant` : `${theme.label} theme`}${isActive ? ", currently active" : ""}`}
                     aria-pressed={isActive}
-                    className="min-w-0 cursor-pointer truncate rounded-sm text-left text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+                    className="min-w-0 cursor-pointer truncate rounded-sm text-left text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -462,12 +462,10 @@ function CustomThemeCollectionCard({
     const activeIndex = themes.findIndex((theme) => activeModesFor(theme.id).length > 0);
     return activeIndex < 0 ? 0 : activeIndex;
   });
-  const safeIndex = Math.min(variantIndex, themes.length - 1);
+  const safeIndex = Math.max(0, Math.min(variantIndex, themes.length - 1));
   const theme = themes[safeIndex];
 
-  useEffect(() => {
-    if (variantIndex !== safeIndex) setVariantIndex(safeIndex);
-  }, [safeIndex, variantIndex]);
+  if (variantIndex !== safeIndex) setVariantIndex(safeIndex);
 
   if (!theme) return null;
   const collectionLabel = theme.collection?.label ?? theme.label;
@@ -563,7 +561,7 @@ export function ThemeLibrary({
   const removeDialogCollectionLabel =
     removeDialogTheme?.collection?.label ?? removeDialogTheme?.label;
 
-  const notifyThemeSaveFailure = useCallback(() => {
+  const notifyThemeSaveFailure = () => {
     toastManager.add(
       stackedThreadToast({
         type: "error",
@@ -571,9 +569,9 @@ export function ThemeLibrary({
         description: "Try again.",
       }),
     );
-  }, []);
+  };
 
-  const notifyThemeRemovalFailure = useCallback(() => {
+  const notifyThemeRemovalFailure = () => {
     toastManager.add(
       stackedThreadToast({
         type: "error",
@@ -581,27 +579,24 @@ export function ThemeLibrary({
         description: "Try again.",
       }),
     );
-  }, []);
+  };
 
-  const persistTheme = useCallback(
-    (nextTheme: string) => {
-      const didSave = setTheme(nextTheme);
-      if (!didSave) notifyThemeSaveFailure();
-      return didSave;
-    },
-    [notifyThemeSaveFailure, setTheme],
-  );
+  const persistTheme = (nextTheme: string) => {
+    const didSave = setTheme(nextTheme);
+    if (!didSave) notifyThemeSaveFailure();
+    return didSave;
+  };
 
-  const handleRemoveTheme = useCallback(
-    (customTheme: ThemeDefinition, collectionThemes: ReadonlyArray<ThemeDefinition>) => {
-      setThemeRemovalTarget({ theme: customTheme, collectionThemes });
-      setThemeIdsToRemove(collectionThemes.length > 1 ? [] : [customTheme.id]);
-      setIsThemeRemovalOpen(true);
-    },
-    [],
-  );
+  const handleRemoveTheme = (
+    customTheme: ThemeDefinition,
+    collectionThemes: ReadonlyArray<ThemeDefinition>,
+  ) => {
+    setThemeRemovalTarget({ theme: customTheme, collectionThemes });
+    setThemeIdsToRemove(collectionThemes.length > 1 ? [] : [customTheme.id]);
+    setIsThemeRemovalOpen(true);
+  };
 
-  const handleConfirmRemoveTheme = useCallback(() => {
+  const handleConfirmRemoveTheme = () => {
     if (!themeRemovalTarget) return;
     const removedIds = new Set(themeIdsToRemove);
     if (removedIds.size === 0) return;
@@ -633,57 +628,37 @@ export function ThemeLibrary({
       return;
     }
     setIsThemeRemovalOpen(false);
-  }, [
-    appearanceMode,
-    notifyThemeRemovalFailure,
-    persistTheme,
-    setThemeHalf,
-    theme,
-    themeIdsToRemove,
-    themeRemovalTarget,
-  ]);
+  };
 
-  // ----- Automatic-mode mixing -------------------------------------------
   // The pair model: one theme owns light, one owns dark, and the global
   // appearance mode (light / dark / auto) decides which is showing.
   const baseCardId = getThemeDefinition(theme)?.id ?? null;
   const lightOwner = themeHalves?.light ?? baseCardId;
   const darkOwner = themeHalves?.dark ?? baseCardId;
 
-  const assignHalf = useCallback(
-    (appearance: ThemeAppearance, cardId: string | null) => {
-      const otherAppearance = appearance === "light" ? "dark" : "light";
-      // Picking the default over a themed base cannot be stored as a half:
-      // the base would still own that appearance. Convert the base into an
-      // explicit half on the other side so this side falls back to default.
-      if (cardId === null && baseCardId !== null) {
-        // Read raw, before persistTheme clears the mix: the other half may
-        // name a published theme that has not streamed in yet, and falling
-        // back to the base would silently rewrite it.
-        const otherOwner = readThemeHalvesRaw()[otherAppearance] ?? baseCardId;
-        if (!persistTheme(appearanceMode === "system" ? "system" : appearanceMode)) return;
-        if (!setThemeHalf(otherAppearance, otherOwner)) {
-          // Best-effort rollback: restore the whole-theme selection rather
-          // than leaving the user with no theme at all.
-          setTheme(theme);
-          notifyThemeSaveFailure();
-        }
-        return;
-      }
-      if (!setThemeHalf(appearance, cardId)) {
+  const assignHalf = (appearance: ThemeAppearance, cardId: string | null) => {
+    const otherAppearance = appearance === "light" ? "dark" : "light";
+    // Picking the default over a themed base cannot be stored as a half:
+    // the base would still own that appearance. Convert the base into an
+    // explicit half on the other side so this side falls back to default.
+    if (cardId === null && baseCardId !== null) {
+      // Read raw, before persistTheme clears the mix: the other half may
+      // name a published theme that has not streamed in yet, and falling
+      // back to the base would silently rewrite it.
+      const otherOwner = readThemeHalvesRaw()[otherAppearance] ?? baseCardId;
+      if (!persistTheme(appearanceMode === "system" ? "system" : appearanceMode)) return;
+      if (!setThemeHalf(otherAppearance, otherOwner)) {
+        // Best-effort rollback: restore the whole-theme selection rather
+        // than leaving the user with no theme at all.
+        setTheme(theme);
         notifyThemeSaveFailure();
       }
-    },
-    [
-      appearanceMode,
-      baseCardId,
-      notifyThemeSaveFailure,
-      persistTheme,
-      setTheme,
-      setThemeHalf,
-      theme,
-    ],
-  );
+      return;
+    }
+    if (!setThemeHalf(appearance, cardId)) {
+      notifyThemeSaveFailure();
+    }
+  };
 
   // "Create theme" starts from whatever is on screen for the appearance being
   // edited, so tuning the theme you already use never means rebuilding it.
@@ -694,7 +669,6 @@ export function ThemeLibrary({
     if (!setAppearanceMode(mode)) notifyThemeSaveFailure();
   };
 
-  // ----- Mode switch on top, theme cards below -----------------------------
   const handlePairPick = (cardId: string | null) => (mode: ThemeMode) => {
     if (mode === "system") return;
     assignHalf(mode, cardId);
@@ -702,7 +676,7 @@ export function ThemeLibrary({
 
   // Rings always show the effective owner of each appearance: an unpicked
   // half belongs to the default card (a null owner), so a fresh install
-  // shows T3 Code selected instead of nothing.
+  // shows ViewCode selected instead of nothing.
   const pickedModesFor = (cardId: string | null): ThemeMode[] => {
     const rings: ThemeMode[] = [];
     if (lightOwner === cardId) rings.push("light");
@@ -976,7 +950,7 @@ export function ThemeLibrary({
                     <span className="absolute right-2 top-2 inline-grid size-5 grid-cols-1 sm:size-4">
                       <input
                         checked={checked}
-                        className="col-start-1 row-start-1 size-full appearance-none rounded-sm border border-input bg-background outline-none checked:border-primary checked:bg-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:not-checked:bg-input/32 forced-colors:appearance-auto"
+                        className="col-start-1 row-start-1 size-full appearance-none rounded-sm border border-input bg-background outline-none checked:border-primary checked:bg-primary focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring dark:not-checked:bg-input/32 forced-colors:appearance-auto"
                         id={checkboxId}
                         name="themes-to-remove"
                         type="checkbox"

@@ -1,15 +1,12 @@
 import { reviewFindingsSentText } from "@t3tools/client-runtime/agent-review";
-import {
-  normalizeCompactToolLabel,
-  workLogEntryIsToolLike,
-} from "@t3tools/client-runtime/work-log/presentation";
+import { normalizeCompactToolLabel } from "@t3tools/client-runtime/work-log/presentation";
 import {
   REVIEW_FINDINGS_ACTIVITY_KIND,
   type OrchestrationThreadActivity,
 } from "@t3tools/contracts";
 import { readReviewFindings } from "@t3tools/shared/reviewFindings";
 
-import { deriveWorkLogEntries, type WorkLogEntry } from "../../session-logic";
+import { workLogEntryIsToolLike, type WorkLogEntry } from "../../session-logic";
 import { liveWorkEntryLabel } from "./MessagesTimeline.logic";
 
 // A step is one of the reviewer's last tool calls; older work cannot be the current step.
@@ -58,11 +55,32 @@ function toolTitleLabel(entry: WorkLogEntry): string | null {
 export function reviewWorkLine(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
   workspaceRoot: string | undefined,
+  nativeEntries?: ReadonlyArray<WorkLogEntry>,
 ): string | null {
-  const entries = deriveWorkLogEntries(activities.slice(-RECENT_ACTIVITIES));
+  const entries: ReadonlyArray<WorkLogEntry> =
+    nativeEntries ??
+    activities.slice(-RECENT_ACTIVITIES).map((activity) => {
+      const payload =
+        activity.payload !== null && typeof activity.payload === "object"
+          ? (activity.payload as Record<string, unknown>)
+          : {};
+      return {
+        id: activity.id,
+        createdAt: activity.createdAt,
+        label: activity.summary,
+        tone: activity.tone === "tool" ? "tool" : activity.tone === "error" ? "error" : "info",
+        sourceActivityKind: activity.kind,
+        ...(typeof payload.title === "string" ? { toolTitle: payload.title } : {}),
+        ...(typeof payload.detail === "string" ? { detail: payload.detail } : {}),
+        toolData: payload,
+      };
+    });
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index]!;
-    if (entry.reviewFindings !== undefined || mentionsSubmitFindings(entry)) {
+    if (
+      entry.sourceActivityKind === REVIEW_FINDINGS_ACTIVITY_KIND ||
+      mentionsSubmitFindings(entry)
+    ) {
       return findingsSentLine(activities);
     }
     if (!workLogEntryIsToolLike(entry) || entry.tone === "thinking") continue;

@@ -6,7 +6,7 @@ export type SplitPair = readonly [ScopedThreadRef, ScopedThreadRef];
 
 export const SPLIT_DEFAULT_RATIO = 0.5;
 /** Narrowest a pane may get before the composer and header stop fitting. */
-export const SPLIT_MIN_PANE_WIDTH = 360;
+const SPLIT_MIN_PANE_WIDTH = 360;
 /** Viewport width below which split falls back to the single view. */
 export const SPLIT_MIN_VIEWPORT_WIDTH = 1024;
 
@@ -18,7 +18,7 @@ export function clampSplitRatio(ratio: number, containerWidth: number): number {
   return Math.min(1 - minRatio, Math.max(minRatio, ratio));
 }
 
-export function isSameThreadRef(a: ScopedThreadRef, b: ScopedThreadRef): boolean {
+function isSameThreadRef(a: ScopedThreadRef, b: ScopedThreadRef): boolean {
   return a.environmentId === b.environmentId && a.threadId === b.threadId;
 }
 
@@ -61,10 +61,16 @@ export function pickSplitCompanion<
     id: string;
     archivedAt: string | null;
     kind?: string | null | undefined;
+    source?: { readonly kind?: string | null | undefined } | undefined;
   },
 >(threadsNewestFirst: ReadonlyArray<T>, current: ScopedThreadRef | null): T | null {
   for (const thread of threadsNewestFirst) {
-    if (thread.archivedAt !== null || thread.kind === "sidechat") continue;
+    if (
+      thread.archivedAt !== null ||
+      thread.kind === "sidechat" ||
+      thread.source?.kind === "sidechat"
+    )
+      continue;
     if (
       current !== null &&
       thread.environmentId === current.environmentId &&

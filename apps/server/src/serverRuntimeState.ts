@@ -4,30 +4,24 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import { writeFileStringAtomically } from "./atomicWrite.ts";
+import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import packageJson from "../package.json" with { type: "json" };
 import type * as ServerConfig from "./config.ts";
 import { formatHostForUrl, isWildcardHost } from "./startupAccess.ts";
 
 export const PersistedServerRuntimeState = Schema.Struct({
   version: Schema.Literal(1),
   pid: Schema.Int,
+  ownerId: Schema.optional(Schema.String),
   host: Schema.optional(Schema.String),
   port: Schema.Int,
-  origin: Schema.String,
-  // Set when the server listens on a Unix socket or named pipe instead of
-  // TCP. `origin` then only names the HTTP authority; requests must be sent
-  // over this path.
   listenPath: Schema.optional(Schema.String),
-  // Present when the server fronts a dev web server (VITE_DEV_SERVER_URL).
+  origin: Schema.String,
   // Dev is single-origin: browsers must pair through this URL, not `origin`.
   devUrl: Schema.optional(Schema.String),
   startedAt: Schema.String,
-  /**
-   * Set when the boot-service launcher supervises this server. Lets a CLI
-   * tell a service-managed server apart from one started by hand, which is
-   * the difference between "restart the service" and "stop your terminal".
-   */
   serviceManaged: Schema.optional(Schema.Boolean),
+  serverVersion: Schema.optional(Schema.String),
 });
 export type PersistedServerRuntimeState = typeof PersistedServerRuntimeState.Type;
 
@@ -49,17 +43,18 @@ const decodePersistedServerRuntimeState = Schema.decodeUnknownEffect(
 );
 
 const runtimeOriginForConfig = (
-  config: Pick<ServerConfig.ServerConfig["Service"], "host" | "listenPath">,
+  config: Pick<ServerConfig.ServerConfig["Service"], "host">,
   port: number,
 ): PersistedServerRuntimeState["origin"] => {
-  if (config.listenPath !== undefined) return "http://localhost";
   const hostname =
     config.host && !isWildcardHost(config.host) ? formatHostForUrl(config.host) : "127.0.0.1";
   return `http://${hostname}:${port}`;
 };
 
 export const makePersistedServerRuntimeState = (input: {
-  readonly config: Pick<ServerConfig.ServerConfig["Service"], "host" | "devUrl" | "listenPath">;
+  readonly config: Pick<ServerConfig.ServerConfig["Service"], "host" | "devUrl"> & {
+    readonly listenPath?: string;
+  };
   readonly port: number;
   readonly serviceManaged?: boolean;
 }): Effect.Effect<PersistedServerRuntimeState> =>
@@ -68,11 +63,12 @@ export const makePersistedServerRuntimeState = (input: {
     pid: process.pid,
     ...(input.config.host ? { host: input.config.host } : {}),
     port: input.port,
+    ...(input.config.listenPath === undefined ? {} : { listenPath: input.config.listenPath }),
     origin: runtimeOriginForConfig(input.config, input.port),
-    ...(input.config.listenPath !== undefined ? { listenPath: input.config.listenPath } : {}),
     ...(input.config.devUrl ? { devUrl: input.config.devUrl.toString() } : {}),
     startedAt: DateTime.formatIso(now),
     ...(input.serviceManaged ? { serviceManaged: true } : {}),
+    serverVersion: packageJson.version,
   }));
 
 export const persistServerRuntimeState = (input: {
@@ -119,12 +115,11 @@ export const clearPersistedServerRuntimeState = (path: string) =>
   });
 
 /**
- * Report whether the pid recorded in a persisted runtime state is still
- * running. Signal 0 delivers nothing; it only reports whether the pid exists.
- * EPERM means it exists but belongs to another user, which still counts as
- * alive.
+ * Signal 0 delivers nothing; it only reports whether the pid exists. EPERM
+ * means it exists but belongs to another user, which still counts as alive.
  */
 export const isProcessAlive = (pid: number): boolean => {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;

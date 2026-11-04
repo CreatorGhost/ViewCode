@@ -7,7 +7,7 @@ import {
 import { size } from "@expo/ui/jetpack-compose/modifiers";
 import { View } from "react-native";
 
-import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
+import { useAppearancePreferences } from "../lib/appearancePreferencesContext";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
 import { SymbolView, type AppSymbolName } from "./AppSymbol";
 

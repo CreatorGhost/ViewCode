@@ -3,7 +3,7 @@ import { executeAtomQuery, squashAtomCommandFailure } from "@t3tools/client-runt
 import type { EnvironmentId, PullRequestDiffStat, PullRequestListInput } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { use, useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { composerPullRequests } from "../../state/pull-requests";
 import {

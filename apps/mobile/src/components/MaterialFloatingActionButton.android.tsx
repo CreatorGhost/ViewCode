@@ -9,8 +9,8 @@ import {
 import { defaultMinSize, height, size, width } from "@expo/ui/jetpack-compose/modifiers";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 import { useAndroidControlSizing } from "./useAndroidControlSizing";
-import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
-import { useScaledTextRole } from "../features/settings/appearance/useScaledTextRole";
+import { useAppearancePreferences } from "../lib/appearancePreferencesContext";
+import { useScaledTextRole } from "../lib/useScaledTextRole";
 import { SymbolView, type AppSymbolName } from "./AppSymbol";
 
 export function MaterialFloatingActionButton(props: {

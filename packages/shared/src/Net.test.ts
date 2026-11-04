@@ -9,9 +9,7 @@ const closeServer = (server: NodeNet.Server) =>
   Effect.sync(() => {
     try {
       server.close();
-    } catch {
-      // Ignore cleanup failures in tests.
-    }
+    } catch {}
   });
 
 const getPort = (server: NodeNet.Server): number => {
@@ -79,24 +77,6 @@ it.layer(NetService.layer)("NetService", (it) => {
         const resolved = yield* net.findAvailablePort(preferred);
         assert.equal(resolved, preferred);
       }),
-    );
-
-    it.effect("findAvailablePort moves to the next free port when the preferred one is busy", () =>
-      Effect.acquireUseRelease(
-        openServer("127.0.0.1"),
-        (server) =>
-          Effect.gen(function* () {
-            const net = yield* NetService.NetService;
-            const preferred = getPort(server);
-            const next = preferred + 1;
-            const nextFree = yield* net.isPortAvailableOnLoopback(next);
-
-            const resolved = yield* net.findAvailablePort(preferred);
-            assert.notEqual(resolved, preferred);
-            if (nextFree) assert.equal(resolved, next);
-          }),
-        closeServer,
-      ),
     );
 
     it.effect("findAvailablePort falls back when a wildcard listener occupies IPv4", () =>

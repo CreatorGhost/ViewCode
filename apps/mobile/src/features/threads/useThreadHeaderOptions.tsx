@@ -19,6 +19,8 @@ export function useThreadHeaderOptions(props: {
   readonly gitControls: Parameters<typeof ThreadGitControls>[0];
   readonly onReturnToThread?: () => void;
   readonly onOpenSideChat?: () => void;
+  /** Present in a RockBot chat: starts another one. */
+  readonly onNewRockBotChat?: () => void;
 }) {
   const navigation = useNavigation();
   const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
@@ -82,6 +84,17 @@ export function useThreadHeaderOptions(props: {
     [navigation],
   );
 
+  const rockBotHeaderItems = props.onNewRockBotChat
+    ? [
+        withNativeGlassHeaderItem({
+          accessibilityLabel: "New RockBot chat",
+          icon: { name: "plus.bubble", type: "sfSymbol" as const },
+          identifier: "thread-rockbot-new-chat",
+          onPress: props.onNewRockBotChat,
+          type: "button" as const,
+        }),
+      ]
+    : [];
   const sideChatHeaderItems = props.onOpenSideChat
     ? [
         withNativeGlassHeaderItem({
@@ -117,14 +130,31 @@ export function useThreadHeaderOptions(props: {
     // the git controls on the RIGHT (no center items — center space is
     // reserved for future breadcrumbs/status).
     unstable_headerRightItems: () => [
+      ...rockBotHeaderItems,
       ...sideChatHeaderItems,
       ...(layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems),
     ],
     unstable_headerSubtitle: props.usesNativeHeaderGlass ? props.subtitle : undefined,
     contentStyle: undefined,
   };
+  const { environmentId, threadId, gitStatus, projectScripts } = props.gitControls;
   return {
     options,
+    // The native factories are stabilized; include their displayed contents
+    // and state used only by action closures so navigation re-reads both.
+    optionsVersion: [
+      splitLeftHeaderItems,
+      threadCenterHeaderItems,
+      compactRightHeaderItems,
+      sideChatHeaderItems,
+      rockBotHeaderItems,
+      environmentId,
+      threadId,
+      gitStatus?.isDefaultRef,
+      gitStatus?.refName,
+      gitStatus?.pr?.url,
+      projectScripts,
+    ],
     sidebar: false,
     fallback:
       !layout.usesSplitView && !props.usesNativeHeaderGlass ? (

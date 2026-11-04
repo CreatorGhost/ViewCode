@@ -20,11 +20,11 @@ import {
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
+  ProviderDriverKind,
   ThreadId,
   TurnId,
   type ComputerUseMode,
   type ComputerUseRect,
-  type OrchestrationThreadShell,
   type ProviderRuntimeEvent,
   type RuntimeMode,
 } from "@t3tools/contracts";
@@ -35,12 +35,12 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { HttpRouter, HttpServer } from "effect/http";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ComputerUseThreadState } from "./ComputerUseThreadState.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
   ComputerDriver,
@@ -146,45 +146,24 @@ const makeStack = (listen: "unix" | "tcp") =>
       focus: (handle) => record("focus")(handle),
     };
 
-    const shell = (): OrchestrationThreadShell => ({
-      id: threadId,
-      projectId: ProjectId.make("project"),
-      title: "Thread",
-      modelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
-      runtimeMode: thread.runtimeMode,
-      interactionMode: "default",
-      pullRequests: [],
-      branch: null,
-      worktreePath: null,
-      latestTurn: null,
-      createdAt: NOW,
-      updatedAt: NOW,
-      archivedAt: null,
-      settledOverride: null,
-      settledAt: null,
-      session: {
-        threadId,
-        status: "running",
-        providerName: "codex",
-        providerInstanceId,
-        runtimeMode: thread.runtimeMode,
-        activeTurnId: thread.turnId,
-        lastError: null,
-        updatedAt: NOW,
-      },
-      latestUserMessageAt: NOW,
-      hasPendingApprovals: false,
-      hasPendingUserInput: false,
-      hasActionableProposedPlan: false,
-    });
-
     const mode: ComputerUseMode = "control";
     const serviceLayer = ComputerUseService.layer.pipe(
       Layer.provideMerge(ServerSettings.layerTest({ computerUse: mode })),
       Layer.provide(Layer.succeed(ComputerDriver, driver)),
       Layer.provide(
-        Layer.mock(ProjectionSnapshotQuery)({
-          getThreadShellById: () => Effect.sync(() => Option.some(shell())),
+        Layer.mock(ComputerUseThreadState)({
+          running: () =>
+            Effect.sync(() =>
+              true
+                ? {
+                    title: "Thread",
+                    turnId: thread.turnId,
+                    provider: ProviderDriverKind.make("codex"),
+                    fullAccess: thread.runtimeMode === "full-access",
+                  }
+                : undefined,
+            ),
+          activeTurn: () => Effect.sync(() => (true ? thread.turnId : undefined)),
         }),
       ),
       Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-computer-e2e-" })),
@@ -197,10 +176,9 @@ const makeStack = (listen: "unix" | "tcp") =>
       Layer.provide(Layer.succeed(ServerProcessAncestry, new Set<number>())),
       Layer.provide(NodeServices.layer),
     );
-    const service = Context.get(
-      yield* Layer.build(serviceLayer),
-      ComputerUseService.ComputerUseService,
-    );
+    const serviceContext = yield* Layer.build(serviceLayer);
+    const service = Context.get(serviceContext, ComputerUseService.ComputerUseService);
+    const settings = Context.get(serviceContext, ServerSettings.ServerSettingsService);
     yield* service.attachRuntimeEventPublisher((event) =>
       Effect.gen(function* () {
         events.push(event);
@@ -227,7 +205,12 @@ const makeStack = (listen: "unix" | "tcp") =>
         getEnvironmentId: Effect.succeed(EnvironmentId.make("environment")),
         getDescriptor: Effect.die("unused"),
       }),
-      Effect.provide(NodeServices.layer),
+      Effect.provideService(ServerSettings.ServerSettingsService, settings),
+      Effect.provide(
+        ServerConfig.layerTest(process.cwd(), { prefix: "t3-computer-registry-e2e-" }).pipe(
+          Layer.provideMerge(NodeServices.layer),
+        ),
+      ),
     );
     yield* HttpRouter.serve(
       computerUseRouteLayer.pipe(
@@ -238,7 +221,19 @@ const makeStack = (listen: "unix" | "tcp") =>
     ).pipe(Layer.provide(Layer.succeed(HttpServer.HttpServer, httpServer)), Layer.build);
 
     const issue = (capabilities: ReadonlyArray<"computer" | "agents">) =>
-      registry.issue({ threadId, providerInstanceId, capabilities: new Set(capabilities) });
+      Effect.gen(function* () {
+        // A credential minted with computer use off keeps that ceiling after it is enabled.
+        yield* settings.updateSettings({
+          computerUse: capabilities.includes("computer") ? "control" : "off",
+        });
+        const credential = yield* registry.issue({
+          threadId,
+          providerInstanceId,
+          capabilities: new Set(capabilities),
+        });
+        yield* settings.updateSettings({ computerUse: "control" });
+        return credential;
+      });
     const credential = (yield* issue(["computer"])).config;
     expect(credential.computerUseEndpoint).toBeDefined();
 

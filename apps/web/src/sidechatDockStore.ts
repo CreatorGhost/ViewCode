@@ -14,7 +14,7 @@ import { resolveStorage } from "./lib/storage";
 
 export const SIDECHAT_DOCK_MIN_WIDTH_PX = 300;
 export const SIDECHAT_DOCK_MAX_WIDTH_PX = 640;
-export const SIDECHAT_DOCK_DEFAULT_WIDTH_PX = 380;
+const SIDECHAT_DOCK_DEFAULT_WIDTH_PX = 380;
 
 export interface SidechatDockState {
   readonly open: boolean;

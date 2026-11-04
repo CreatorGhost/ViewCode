@@ -22,7 +22,7 @@ const BLACK: Rgb = [0, 0, 0];
 
 /** Fast mode's gold: the bolt's yellow, and a deeper one for fills. */
 export const FAST_TITLE: Rgb = [1, 0.84, 0.36];
-export const FAST_FILL: Rgb = [0.93, 0.66, 0.13];
+const FAST_FILL: Rgb = [0.93, 0.66, 0.13];
 
 const GEMINI: ReadonlyArray<Rgb> = [
   [0.26, 0.52, 0.96],
@@ -171,9 +171,7 @@ export function effortTrackStyle(kind: EffortTrackKind, brand: EffortBrand): Eff
   };
 }
 
-// ---------------------------------------------------------------------------
 // The live effect, drawn into a canvas clipped to the fill.
-// ---------------------------------------------------------------------------
 
 /** A stable pseudo-random value in [0, 1) for an element and one of its traits. */
 export function effortRandom(index: number, trait: number): number {

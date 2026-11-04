@@ -43,7 +43,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { useEnvironmentQuery } from "../../state/query";
 import { useComposerPathSearch, useComposerPullRequestSearch } from "../../state/queries";
 import type { ComposerCommandItem } from "./ComposerCommandPopover";
 import { matchesSlashSkillQuery } from "./composerSlashSkillSearch";
@@ -271,24 +270,20 @@ export function useComposerCommandMenu({
     setSelection(composerSelectionAtEnd(draftMessage));
   }, [draftMessage, ownerKey]);
 
-  const workspaceSnapshot = useEnvironmentQuery(
-    environmentId && projectCwd && selectedProviderStatus
-      ? serverEnvironment.workspaceSnapshot({
-          environmentId,
-          input: {
-            instanceId: selectedProviderStatus.instanceId,
-            cwd: projectCwd,
-            checkedAt: selectedProviderStatus.checkedAt,
-          },
-        })
-      : null,
+  const workspaceSnapshot = useMemo(
+    () => ({
+      data: selectedProviderStatus?.workspaceSnapshots?.find(
+        (snapshot) => snapshot.cwd === projectCwd,
+      ),
+      isSuccess: true,
+      error: null,
+    }),
+    [selectedProviderStatus, projectCwd],
   );
   const skills = useMemo(
     () =>
-      selectedProviderStatus
-        ? resolveProviderSkillsForCwd(selectedProviderStatus, projectCwd, workspaceSnapshot.data)
-        : [],
-    [projectCwd, selectedProviderStatus, workspaceSnapshot.data],
+      selectedProviderStatus ? resolveProviderSkillsForCwd(selectedProviderStatus, projectCwd) : [],
+    [projectCwd, selectedProviderStatus],
   );
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
@@ -343,8 +338,7 @@ export function useComposerCommandMenu({
     void refreshProviders({
       environmentId,
       input: { instanceId: selectedProviderInstanceId, cwd: projectCwd },
-    }).then((result) => {
-      if (result._tag === "Success" && workspaceSnapshot.isSuccess) workspaceSnapshot.refresh();
+    }).then(() => {
       retryLater();
     }, retryLater);
   }, [
@@ -357,7 +351,6 @@ export function useComposerCommandMenu({
     selectedProviderStatus?.checkedAt,
     workspaceSnapshot.error,
     workspaceSnapshot.isSuccess,
-    workspaceSnapshot.refresh,
   ]);
 
   const trigger = useMemo(() => {
@@ -414,11 +407,7 @@ export function useComposerCommandMenu({
           ? {
               ...selectedProviderStatus,
               slashCommands: getProviderSlashCommandsForSlashMenu(
-                resolveProviderSlashCommandsForCwd(
-                  selectedProviderStatus,
-                  projectCwd,
-                  workspaceSnapshot.data,
-                ),
+                resolveProviderSlashCommandsForCwd(selectedProviderStatus, projectCwd),
                 visibleSkills,
               ),
             }
@@ -548,7 +537,6 @@ export function useComposerCommandMenu({
     skills,
     trigger,
     offersUsageLimits,
-    workspaceSnapshot.data,
   ]);
 
   const onSelect = useCallback(

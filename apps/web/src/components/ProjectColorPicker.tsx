@@ -34,7 +34,7 @@ function SwatchButton(props: {
             aria-pressed={props.selected}
             disabled={props.disabled}
             className={cn(
-              "relative flex size-7 items-center justify-center rounded-full border border-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
+              "relative flex size-7 items-center justify-center rounded-full border border-transparent outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50",
               props.selected && "border-foreground/64",
             )}
             onClick={props.onClick}
@@ -52,7 +52,7 @@ function SwatchButton(props: {
  * Default plus every palette colour. A dot marks colours other projects already use, so the
  * user can keep each project distinct.
  */
-export function ProjectColorSwatches(props: {
+function ProjectColorSwatches(props: {
   readonly value: ProjectIconColor | null;
   readonly usedElsewhere: ReadonlySet<ProjectIconColor>;
   readonly disabled?: boolean;

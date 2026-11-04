@@ -1,11 +1,11 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { isSidechat } from "@t3tools/client-runtime/state/sidechat";
+import { isRockBot } from "@t3tools/client-runtime/state/rockbot";
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { computeThreadMoveAvailability } from "./threadOrder";
-import type {
-  EnvironmentProject,
-  EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   threadSearchMatchKey,
   type EnvironmentThreadSearchMatch,
@@ -65,6 +65,7 @@ import {
   ThreadListV2SnoozedShelfHeader,
 } from "./thread-list-v2-items";
 import { useThreadRowProviderInstanceResolver } from "./thread-provider-instance";
+import type { ThreadPrPresentation } from "../../state/thread-pr-presentation";
 import {
   buildThreadListV2Items,
   getThreadListV2OrderedSection,
@@ -94,6 +95,10 @@ interface ThreadNavigationSidebarProps {
   readonly onNewThreadInProject: (project: EnvironmentProject) => void;
   readonly onSearchQueryChange: (query: string) => void;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
+  readonly onOpenThreadPullRequests: (
+    thread: EnvironmentThreadShell,
+    pr: ThreadPrPresentation,
+  ) => void;
   readonly onRequestVisibility: () => void;
   readonly searchQuery: string;
 }
@@ -139,7 +144,7 @@ function ThreadNavigationSidebarPane(
   const projects = useProjects();
   const threadShells = useThreadShells();
   const threads = useMemo(
-    () => threadShells.filter((thread) => !isSidechat(thread)),
+    () => threadShells.filter((thread) => !isSidechat(thread) && !isRockBot(thread)),
     [threadShells],
   );
   const { environments: workspaceEnvironments, state: catalogState } = useWorkspaceState();
@@ -642,6 +647,13 @@ function ThreadNavigationSidebarPane(
     },
     [props.onSelectThread],
   );
+  const handleOpenThreadPullRequests = useCallback(
+    (thread: EnvironmentThreadShell, pr: ThreadPrPresentation) => {
+      props.onOpenThreadPullRequests(thread, pr);
+      openSwipeableRef.current?.close();
+    },
+    [props.onOpenThreadPullRequests],
+  );
   const handleScrollBeginDrag = useCallback(() => {
     openSwipeableRef.current?.close();
   }, []);
@@ -774,6 +786,7 @@ function ThreadNavigationSidebarPane(
               }
               fullSwipeWidth={props.width - 20}
               onSelectThread={handleSelectThread}
+              onOpenThreadPullRequests={handleOpenThreadPullRequests}
               onDeleteThread={confirmDeleteThread}
               onArchiveThread={archiveThread}
               onRenameThread={renameThread}
@@ -839,6 +852,7 @@ function ThreadNavigationSidebarPane(
       activeReorderEnvironmentIds,
       confirmDeletePendingTask,
       confirmDeleteThread,
+      handleOpenThreadPullRequests,
       handleSelectThread,
       handleSwipeableClose,
       handleSwipeableWillOpen,

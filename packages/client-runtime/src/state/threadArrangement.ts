@@ -1,6 +1,12 @@
-import type { OrchestrationThreadShell } from "@t3tools/contracts";
+import { threadOwnNeed } from "@t3tools/shared/threadNeedsYou";
 
-import { isChildAgentRunning, resolveSpawnedAgentRowStatus } from "./childAgents.ts";
+import type { OrchestrationThreadShell } from "../viewcodeThread.ts";
+
+import {
+  isChildAgentRunning,
+  resolveEffectiveAgentStatus,
+  type ChildAgentRecord,
+} from "./childAgents.ts";
 import type { SidebarThreadRowEntry, SidebarThreadTreeNode } from "./threadTree.ts";
 
 /**
@@ -14,7 +20,7 @@ import type { SidebarThreadRowEntry, SidebarThreadTreeNode } from "./threadTree.
 /** The groups a chat's agents fall into, in display order. */
 export type AgentStatusGroup = "working" | "needs-you" | "failed" | "done";
 
-export const AGENT_STATUS_GROUPS: ReadonlyArray<AgentStatusGroup> = [
+const AGENT_STATUS_GROUPS: ReadonlyArray<AgentStatusGroup> = [
   "working",
   "needs-you",
   "failed",
@@ -31,7 +37,7 @@ export const AGENT_STATUS_GROUP_LABEL: Record<AgentStatusGroup, string> = {
 type AgentStatusInput = Pick<
   OrchestrationThreadShell,
   "session" | "latestTurn" | "hasPendingApprovals" | "hasPendingUserInput"
->;
+> & { readonly itemCount?: number | undefined };
 
 /**
  * Which group an agent shows in, from the same status its row in the lead's
@@ -39,8 +45,11 @@ type AgentStatusInput = Pick<
  * about to, so it counts as working; one without a session never will, and a
  * stopped one is finished: both read as done.
  */
-export function resolveAgentStatusGroup(thread: AgentStatusInput): AgentStatusGroup {
-  switch (resolveSpawnedAgentRowStatus(thread, "started")) {
+export function resolveAgentStatusGroup(
+  thread: AgentStatusInput,
+  record?: ChildAgentRecord | undefined,
+): AgentStatusGroup {
+  switch (resolveEffectiveAgentStatus(thread, { record })) {
     case "approval":
     case "input":
       return "needs-you";
@@ -89,7 +98,7 @@ function parseMs(value: string | null | undefined): number {
  * When a thread last moved: its newest message or turn stamp, else its
  * creation. "Newest first" everywhere in a folder means this.
  */
-export function threadActivityAtMs(thread: ActivityInput): number {
+function threadActivityAtMs(thread: ActivityInput): number {
   return Math.max(
     parseMs(thread.createdAt),
     parseMs(thread.latestUserMessageAt),
@@ -286,9 +295,10 @@ type AttentionInput = Pick<
 export function resolveSidebarAttention<T extends AttentionInput>(
   thread: T,
   isUnseen: (thread: T) => boolean,
+  record?: ChildAgentRecord | undefined,
 ): SidebarAttentionFilter | null {
-  if (thread.hasPendingApprovals || thread.hasPendingUserInput) return "needs-you";
-  if (isChildAgentRunning(thread)) return "working";
+  if (threadOwnNeed(thread) !== null) return "needs-you";
+  if (isChildAgentRunning(thread, record)) return "working";
   return isUnseen(thread) ? "new" : null;
 }
 
@@ -296,10 +306,11 @@ export function resolveSidebarAttention<T extends AttentionInput>(
 export function countSidebarAttention<T extends AttentionInput>(
   threads: ReadonlyArray<T>,
   isUnseen: (thread: T) => boolean,
+  recordOf?: (thread: T) => ChildAgentRecord | undefined,
 ): SidebarAttentionCounts {
   const counts = { "needs-you": 0, working: 0, new: 0 };
   for (const thread of threads) {
-    const attention = resolveSidebarAttention(thread, isUnseen);
+    const attention = resolveSidebarAttention(thread, isUnseen, recordOf?.(thread));
     if (attention !== null) counts[attention] += 1;
   }
   return counts;

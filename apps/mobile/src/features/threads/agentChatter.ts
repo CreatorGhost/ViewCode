@@ -5,6 +5,7 @@ import {
   isUserInputActivityGroup,
   type ThreadFeedEntry,
 } from "../../lib/threadActivity";
+import type { PullRequestFeedEntry } from "./pull-request-feed";
 
 /** The collapsible header a run of back-to-back agent messages folds into. */
 export interface AgentChatterHeaderEntry {
@@ -148,7 +149,7 @@ export function groupAgentChatter<Entry extends ThreadFeedEntry>(
 
 /** Index of the user's own last message (pending ones included), skipping agent envelopes. */
 export function findLastUserMessageIndex(
-  entries: ReadonlyArray<ThreadFeedEntry | AgentChatterHeaderEntry>,
+  entries: ReadonlyArray<ThreadFeedEntry | AgentChatterHeaderEntry | PullRequestFeedEntry>,
 ): number {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index]!;

@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect } from "react";
 import { AppState } from "react-native";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as Atom from "effect/reactivity/Atom";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { writeFileAtomically } from "../../lib/atomic-file";

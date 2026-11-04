@@ -2,9 +2,10 @@ import { PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
 import {
   makeLocalFileTracer,
   makeTraceSink,
-  otlpSerializationLayer,
   type SignalExport,
 } from "@t3tools/shared/observability";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as SharedObservability from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import {
   parsePersistedServerObservabilitySettings,
@@ -26,7 +27,7 @@ import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 import * as Tracer from "effect/Tracer";
-import { OtlpExporter, OtlpLogger, OtlpTracer } from "effect/unstable/observability";
+import { OtlpExporter, OtlpLogger, OtlpTracer } from "effect/observability";
 
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 
@@ -34,8 +35,6 @@ const DESKTOP_LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const DESKTOP_LOG_FILE_MAX_FILES = 10;
 const DESKTOP_BACKEND_CHILD_LOG_FIBER_ID = "#backend-child";
 const DESKTOP_TRACE_BATCH_WINDOW_MS = 1_000;
-const DESKTOP_BACKEND_OUTPUT_BUFFER_MAX_BYTES = 1024 * 1024;
-const DESKTOP_BACKEND_OUTPUT_BUFFER_MAX_CHUNKS = 256;
 
 export interface RotatingLogFileWriter {
   readonly writeBytes: (chunk: Uint8Array) => Effect.Effect<void>;
@@ -53,15 +52,6 @@ export interface DesktopBackendOutputLogShape {
   readonly discardSession: Effect.Effect<void>;
 }
 
-// Factory for per-instance backend output logs. `forInstance(id)` returns
-// a writer that targets a distinct rotating log file — the primary
-// instance keeps `server-child.log` so the historical path stays stable
-// for ops; other instances get `server-child-<sanitized-id>.log`.
-//
-// Writers are cached per id within a single factory instance so repeated
-// `forInstance` calls (e.g. during a backend restart that re-resolves
-// services) reuse the same rotating writer rather than racing each other
-// on the same file.
 export class DesktopBackendOutputLogFactory extends Context.Service<
   DesktopBackendOutputLogFactory,
   {
@@ -70,7 +60,6 @@ export class DesktopBackendOutputLogFactory extends Context.Service<
 >()("@t3tools/desktop/app/DesktopObservability/DesktopBackendOutputLogFactory") {}
 
 const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
 
 export type DesktopLogAnnotations = Record<string, unknown>;
 
@@ -145,71 +134,9 @@ const DesktopBackendOutputLogNoop: DesktopBackendOutputLogShape = {
   discardSession: Effect.void,
 };
 
-interface BufferedBackendOutputChunk {
-  readonly streamName: "stdout" | "stderr";
-  readonly chunk: Uint8Array;
-  readonly offset: number;
-}
-
 interface BackendOutputSession {
   readonly runId: string;
-  readonly startDetails: string;
-  readonly chunks: ReadonlyArray<BufferedBackendOutputChunk>;
-  readonly byteLength: number;
-}
-
-export function appendBoundedOutputChunk(
-  session: BackendOutputSession,
-  streamName: "stdout" | "stderr",
-  chunk: Uint8Array,
-): BackendOutputSession {
-  if (chunk.byteLength === 0) {
-    return session;
-  }
-
-  const retainedChunk =
-    chunk.byteLength > DESKTOP_BACKEND_OUTPUT_BUFFER_MAX_BYTES
-      ? chunk.slice(chunk.byteLength - DESKTOP_BACKEND_OUTPUT_BUFFER_MAX_BYTES)
-      : chunk.slice();
-  const chunks = [...session.chunks, { streamName, chunk: retainedChunk, offset: 0 }];
-  let byteLength = session.byteLength + retainedChunk.byteLength;
-  let overflow = Math.max(0, byteLength - DESKTOP_BACKEND_OUTPUT_BUFFER_MAX_BYTES);
-  let firstRetainedIndex = 0;
-
-  while (overflow > 0) {
-    const first = chunks[firstRetainedIndex];
-    if (!first) break;
-    const retainedByteLength = first.chunk.byteLength - first.offset;
-    if (retainedByteLength <= overflow) {
-      overflow -= retainedByteLength;
-      byteLength -= retainedByteLength;
-      firstRetainedIndex += 1;
-      continue;
-    }
-
-    chunks[firstRetainedIndex] = {
-      ...first,
-      offset: first.offset + overflow,
-    };
-    byteLength -= overflow;
-    overflow = 0;
-  }
-
-  const excessChunks = Math.max(
-    0,
-    chunks.length - firstRetainedIndex - DESKTOP_BACKEND_OUTPUT_BUFFER_MAX_CHUNKS,
-  );
-  for (let index = firstRetainedIndex; index < firstRetainedIndex + excessChunks; index += 1) {
-    const chunk = chunks[index];
-    byteLength -= chunk ? chunk.chunk.byteLength - chunk.offset : 0;
-  }
-  firstRetainedIndex += excessChunks;
-
-  return {
-    ...session,
-    chunks: chunks.slice(firstRetainedIndex),
-    byteLength,
-  };
+  readonly decoders: Record<"stdout" | "stderr", TextDecoder>;
 }
 
 const currentDesktopRunId = Effect.gen(function* () {
@@ -227,7 +154,7 @@ const refreshFileSize = (
     Effect.orElseSucceed(() => 0),
   );
 
-const makeRotatingLogFileWriter = Effect.fn("makeRotatingLogFileWriter")(function* (input: {
+export const makeRotatingLogFileWriter = Effect.fn("makeRotatingLogFileWriter")(function* (input: {
   readonly filePath: string;
   readonly maxBytes?: number;
   readonly maxFiles?: number;
@@ -350,12 +277,6 @@ const readPersistedObservabilitySettings: Effect.Effect<
     : parsePersistedServerObservabilitySettings(raw.value);
 });
 
-/**
- * Resolved as the server resolves them, with persisted Settings as the
- * fallback. Settings is read once for every signal, so the main process
- * cannot resolve traces against one revision of the file and logs against
- * another.
- */
 const resolveOtlpEndpoints = Effect.gen(function* () {
   const otel = yield* OtelEnvironment.load;
   if (otel.disabled) {
@@ -408,29 +329,27 @@ const writeDevelopmentConsoleOutput = (
     output.write(chunk);
   }).pipe(Effect.ignore);
 
-const writeBackendChildLogRecord = Effect.fn("desktop.observability.writeBackendChildLogRecord")(
-  function* (
-    logFile: RotatingLogFileWriter,
-    input: {
-      readonly message: string;
-      readonly level: "INFO" | "ERROR";
-      readonly annotations: Record<string, unknown>;
-    },
-  ): Effect.fn.Return<void> {
-    return yield* Effect.gen(function* () {
-      const timestamp = DateTime.formatIso(yield* DateTime.now);
-      const encoded = yield* encodeDesktopBackendChildLogRecord({
-        message: input.message,
-        level: input.level,
-        timestamp,
-        annotations: input.annotations,
-        spans: {},
-        fiberId: DESKTOP_BACKEND_CHILD_LOG_FIBER_ID,
-      });
-      yield* logFile.writeText(`${encoded}\n`);
-    }).pipe(Effect.ignore({ log: true }));
+// Untraced: it runs once per output chunk, which would flood desktop.trace.ndjson.
+const writeBackendChildLogRecord = (
+  logFile: RotatingLogFileWriter,
+  input: {
+    readonly message: string;
+    readonly level: "INFO" | "ERROR";
+    readonly annotations: Record<string, unknown>;
   },
-);
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const timestamp = DateTime.formatIso(yield* DateTime.now);
+    const encoded = yield* encodeDesktopBackendChildLogRecord({
+      message: input.message,
+      level: input.level,
+      timestamp,
+      annotations: input.annotations,
+      spans: {},
+      fiberId: DESKTOP_BACKEND_CHILD_LOG_FIBER_ID,
+    });
+    yield* logFile.writeText(`${encoded}\n`);
+  }).pipe(Effect.ignore({ log: true }));
 
 const PRIMARY_BACKEND_LOG_INSTANCE_ID = PRIMARY_LOCAL_ENVIRONMENT_ID;
 
@@ -449,11 +368,8 @@ const backendLogFilePathForInstance = (
   return environment.path.join(environment.logDir, `server-child-${sanitized}.log`);
 };
 
-// Just the IO sink. Cacheable by resolved file path so two ids that
-// sanitize to the same filename share a single RotatingLogFileWriter
-// (no race on currentSize tracking). Splitting the sink off from the
-// per-call shape lets the shape annotate writes with the *caller's*
-// id rather than whatever id created the cached writer first.
+// Cacheable by resolved file path so two ids that sanitize to the same filename
+// share a single RotatingLogFileWriter (no race on currentSize tracking).
 const makeBackendOutputSinkForInstance = (
   environment: DesktopEnvironment.DesktopEnvironment["Service"],
   id: string,
@@ -466,6 +382,10 @@ const makeBackendOutputSinkForInstance = (
     filePath: backendLogFilePathForInstance(environment, id),
   }).pipe(Effect.option);
 
+// ViewCode: every chunk is written as it arrives, so the server's console
+// output (warnings logged outside a span never reach server.trace.ndjson) is
+// on disk while the backend runs, not only after it dies. The rotating writer
+// bounds the files; nothing is held in memory.
 const makeBackendOutputLogShape = (
   environment: DesktopEnvironment.DesktopEnvironment["Service"],
   id: string,
@@ -476,67 +396,58 @@ const makeBackendOutputLogShape = (
     onSome: (logFile) =>
       Effect.gen(function* () {
         const sessionRef = yield* Ref.make(Option.none<BackendOutputSession>());
-        const writeFailure = Effect.fn("desktop.observability.backendOutput.writeFailure")(
-          function* (session: BackendOutputSession, details: string) {
-            yield* writeBackendChildLogRecord(logFile, {
-              message: "backend child process failure output start",
-              level: "ERROR",
-              annotations: {
-                component: "desktop-backend-child",
-                runId: session.runId,
-                instanceId: id,
-                phase: "START",
-                details: session.startDetails,
-              },
-            });
-            for (const output of session.chunks) {
-              yield* writeBackendChildLogRecord(logFile, {
-                message: "backend child process output",
-                level: output.streamName === "stderr" ? "ERROR" : "INFO",
-                annotations: {
-                  component: "desktop-backend-child",
-                  runId: session.runId,
-                  instanceId: id,
-                  stream: output.streamName,
-                  text: textDecoder.decode(output.chunk.subarray(output.offset)),
-                },
-              });
-            }
-            yield* writeBackendChildLogRecord(logFile, {
-              message: "backend child process failure output end",
-              level: "ERROR",
-              annotations: {
-                component: "desktop-backend-child",
-                runId: session.runId,
-                instanceId: id,
-                phase: "END",
-                details: sanitizeLogValue(details),
-              },
-            });
-          },
-        );
+        const writeRecord = (
+          runId: string,
+          message: string,
+          level: "INFO" | "ERROR",
+          annotations: Record<string, unknown>,
+        ) =>
+          writeBackendChildLogRecord(logFile, {
+            message,
+            level,
+            annotations: {
+              component: "desktop-backend-child",
+              runId,
+              instanceId: id,
+              ...annotations,
+            },
+          });
+        const writeFailure = (session: BackendOutputSession, phase: string, details: string) =>
+          writeRecord(session.runId, "backend child process failure", "ERROR", {
+            phase,
+            details: sanitizeLogValue(details),
+          });
         return {
           beginSession: Effect.fn("desktop.observability.backendOutput.beginSession")(function* ({
             details,
           }) {
-            const runId = yield* currentDesktopRunId;
-            yield* Ref.set(
-              sessionRef,
-              Option.some({
-                runId,
-                startDetails: sanitizeLogValue(details),
-                chunks: [],
-                byteLength: 0,
-              }),
-            );
+            const session: BackendOutputSession = {
+              runId: yield* currentDesktopRunId,
+              decoders: { stdout: new TextDecoder(), stderr: new TextDecoder() },
+            };
+            yield* Ref.set(sessionRef, Option.some(session));
+            yield* writeRecord(session.runId, "backend child process started", "INFO", {
+              phase: "START",
+              details: sanitizeLogValue(details),
+            });
           }),
           writeOutputChunk: Effect.fnUntraced(function* (streamName, chunk) {
             if (environment.isDevelopment) {
               yield* writeDevelopmentConsoleOutput(streamName, chunk);
             }
-            yield* Ref.update(
-              sessionRef,
-              Option.map((session) => appendBoundedOutputChunk(session, streamName, chunk)),
+            if (chunk.byteLength === 0) return;
+            const session = yield* Ref.get(sessionRef);
+            const runId = Option.isSome(session) ? session.value.runId : yield* currentDesktopRunId;
+            // A chunk boundary can split a multi-byte character; the stream
+            // decoder carries the partial bytes into the next chunk.
+            const text = Option.isSome(session)
+              ? session.value.decoders[streamName].decode(chunk, { stream: true })
+              : new TextDecoder().decode(chunk);
+            yield* writeRecord(
+              runId,
+              "backend child process output",
+              streamName === "stderr" ? "ERROR" : "INFO",
+              { stream: streamName, text },
             );
           }),
           persistFailureSnapshot: Effect.fn(
@@ -544,36 +455,34 @@ const makeBackendOutputLogShape = (
           )(function* ({ details }) {
             const session = yield* Ref.get(sessionRef);
             if (Option.isSome(session)) {
-              yield* writeFailure(session.value, details);
+              yield* writeFailure(session.value, "FAILURE", details);
             }
           }),
           persistFailure: Effect.fn("desktop.observability.backendOutput.persistFailure")(
             function* ({ details }) {
               const session = yield* Ref.modify(sessionRef, (current) => [current, Option.none()]);
               if (Option.isNone(session)) return;
-              yield* writeFailure(session.value, details);
+              yield* writeFailure(session.value, "END", details);
             },
           ),
-          discardSession: Ref.set(sessionRef, Option.none()),
+          discardSession: Effect.gen(function* () {
+            const session = yield* Ref.modify(sessionRef, (current) => [current, Option.none()]);
+            if (Option.isNone(session)) return;
+            yield* writeRecord(session.value.runId, "backend child process stopped", "INFO", {
+              phase: "END",
+            });
+          }),
         } satisfies DesktopBackendOutputLogShape;
       }),
   });
 
-const backendOutputLogFactoryLayer = Layer.effect(
+const layerBackendOutputLogFactory = Layer.effect(
   DesktopBackendOutputLogFactory,
   Effect.gen(function* () {
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const factoryScope = yield* Scope.Scope;
-    // Per-file-path cache of the IO sink only. The per-call shape
-    // wraps the sink with the caller's instance id so a cache hit on
-    // a path collision (e.g. "wsl:default" and "wsl_default" both
-    // resolve to server-child-wsl_default.log) doesn't attribute the
-    // second caller's writes to the first caller's id. Each sink pins
-    // itself to the factory's scope so all log resources tear down
-    // together at app exit. Mutex serializes concurrent first-time
-    // lookups for the same file path.
     const cacheRef = yield* SynchronizedRef.make<
       ReadonlyMap<string, Option.Option<RotatingLogFileWriter>>
     >(new Map());
@@ -616,21 +525,18 @@ const backendOutputLogFactoryLayer = Layer.effect(
   }),
 );
 
-/**
- * Logs and traces for the main process, assembled together because they share
- * one read of the environment and Settings, and because a process gets exactly
- * one logger set.
- */
-const telemetryLayer = Layer.unwrap(
+const layerTelemetry = Layer.unwrap(
   Effect.gen(function* () {
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     const endpoints = yield* resolveOtlpEndpoints;
     const resource = {
       serviceName: "t3code-desktop",
+      serviceVersion: environment.appVersion,
       attributes: {
         "service.namespace": "t3code",
         "service.runtime": "desktop",
         "service.mode": environment.isDevelopment ? "development" : "packaged",
+        "host.name": endpoints.resourceAttributes["host.name"] || (yield* HostProcess.Hostname),
       },
     };
 
@@ -638,14 +544,13 @@ const telemetryLayer = Layer.unwrap(
     // every logger the main process wants has to be named in this one call.
     // Splitting the OTLP logger back out into a layer of its own silently
     // drops either it or the console output.
-    //
     // Swapping `Logger.tracerLogger` out for the OTLP logger matches the
     // server: both reach a collector, but the tracer logger covers only
     // messages logged inside a recorded span and files them under traces,
     // while the OTLP logger carries every message as a log record stamped
     // with its trace and span ids. Keeping both would export every in-span
     // message twice.
-    const loggerLayer = Logger.layer(
+    const layerLogger = Logger.layer(
       endpoints.logs === undefined
         ? [Logger.consolePretty(), Logger.tracerLogger]
         : [
@@ -661,11 +566,13 @@ const telemetryLayer = Layer.unwrap(
     ).pipe(
       Layer.provide(OtlpExporter.layerFlusher),
       Layer.provide(
-        otlpSerializationLayer(endpoints.logs?.export.protocol ?? environment.otlpProtocol),
+        SharedObservability.layerOtlpSerialization(
+          endpoints.logs?.export.protocol ?? environment.otlpProtocol,
+        ),
       ),
     );
 
-    const tracerLayer = Layer.unwrap(
+    const layerTracer = Layer.unwrap(
       Effect.gen(function* () {
         const tracePath = environment.path.join(environment.logDir, "desktop.trace.ndjson");
         const sink = yield* makeTraceSink({
@@ -682,7 +589,11 @@ const telemetryLayer = Layer.unwrap(
                 exportInterval: `${endpoints.traces.export.exportIntervalMs} millis`,
                 headers: endpoints.traces.export.headers,
                 resource,
-              }).pipe(Effect.provide(otlpSerializationLayer(endpoints.traces.export.protocol)));
+              }).pipe(
+                Effect.provide(
+                  SharedObservability.layerOtlpSerialization(endpoints.traces.export.protocol),
+                ),
+              );
         const tracer = yield* makeLocalFileTracer({
           filePath: tracePath,
           maxBytes: DESKTOP_LOG_FILE_MAX_BYTES,
@@ -696,37 +607,20 @@ const telemetryLayer = Layer.unwrap(
       }),
     ).pipe(Layer.provide(OtlpExporter.layerFlusher));
 
-    // Metrics stay off until the main process records one. `OtlpMetrics`
-    // exports on every interval even when the registry is empty, so wiring
-    // it up today would post an empty payload every ten seconds to any
-    // collector configured for the backend. Restore this when a desktop
-    // metric exists, and add it to the `Layer.mergeAll` below.
-    //
-    // const metricsLayer =
-    //   endpoints.metrics === undefined
-    //     ? Layer.empty
-    //     : OtlpMetrics.layer({
-    //         url: endpoints.metrics.url,
-    //         exportInterval: `${endpoints.metrics.export.exportIntervalMs} millis`,
-    //         headers: endpoints.metrics.export.headers,
-    //         resource,
-    //       }).pipe(Layer.provide(otlpSerializationLayer(endpoints.metrics.export.protocol)));
-
-    // Logged once the loggers above are installed, so the warnings use them.
-    const otelWarningsLayer = Layer.effectDiscard(
+    const layerOtelWarnings = Layer.effectDiscard(
       Effect.forEach(endpoints.warnings, (warning) => Effect.logWarning(warning)),
     );
 
-    return otelWarningsLayer.pipe(
-      Layer.provideMerge(Layer.mergeAll(loggerLayer, tracerLayer)),
+    return layerOtelWarnings.pipe(
+      Layer.provideMerge(Layer.mergeAll(layerLogger, layerTracer)),
       Layer.provide(OtelEnvironment.layerResourceAttributes(endpoints.resourceAttributes)),
     );
   }),
 );
 
 export const layer = Layer.mergeAll(
-  backendOutputLogFactoryLayer,
-  telemetryLayer,
+  layerBackendOutputLogFactory,
+  layerTelemetry,
   Layer.succeed(References.MinimumLogLevel, "Info"),
   Layer.succeed(Tracer.MinimumTraceLevel, "Info"),
   Layer.succeed(References.TracerTimingEnabled, true),

@@ -2,6 +2,8 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   EnvironmentId as EnvironmentIdSchema,
   ModelSelection as ModelSelectionSchema,
+  ProviderOptionSelection as ProviderOptionSelectionSchema,
+  type ProviderOptionSelection,
   ComposerContextId,
   ComposerContextRecord,
   COMPOSER_CONTEXT_MAX_RECORDS,
@@ -26,7 +28,7 @@ import {
   type ComposerSettingKey,
   type ComposerThreadSettings,
 } from "@t3tools/client-runtime/composer-settings-basis";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 
 import { writeFileAtomically } from "../lib/atomic-file";
 import { createComposerContextHistory, referencedComposerContext } from "../lib/composerContext";
@@ -416,6 +418,12 @@ const PersistedComposerDraftsSchema = Schema.Struct({
   schemaVersion: Schema.Literal(COMPOSER_DRAFTS_SCHEMA_VERSION),
   drafts: Schema.Record(Schema.String, ComposerDraftSchema),
   stickyModelSelection: Schema.optional(ModelSelectionSchema),
+  modelOptionMemory: Schema.optional(
+    Schema.Record(
+      Schema.String,
+      Schema.Record(Schema.String, Schema.Array(ProviderOptionSelectionSchema)),
+    ),
+  ),
   // Legacy: builds with T3 Connect archived a signed-out account's unsent work here.
   // Decoded only so upgraders get it back; `cloudAccountId` beside it is ignored.
   signedOutDrafts: Schema.optional(
@@ -446,6 +454,15 @@ export const composerDraftsAtom = Atom.make<Record<string, ComposerDraft>>({}).p
 export const stickyComposerModelSelectionAtom = Atom.make<ModelSelection | null>(null).pipe(
   Atom.keepAlive,
   Atom.withLabel("mobile:sticky-composer-model-selection"),
+);
+
+export type ModelOptionMemoryState = Readonly<
+  Record<string, Readonly<Record<string, ReadonlyArray<ProviderOptionSelection>>>>
+>;
+
+export const modelOptionMemoryAtom = Atom.make<ModelOptionMemoryState>({}).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("mobile:model-option-memory"),
 );
 
 interface LegacyArchive {
@@ -620,6 +637,7 @@ export function migrateLegacyNewTaskDraft(
 export function decodePersistedComposerState(value: unknown): {
   readonly drafts: Record<string, ComposerDraft>;
   readonly stickyModelSelection: ModelSelection | null;
+  readonly modelOptionMemory: ModelOptionMemoryState;
   readonly legacyArchives: ReadonlyArray<LegacyArchive>;
 } {
   const parsed = decodePersistedComposerDraftsDocument(value);
@@ -654,6 +672,7 @@ export function decodePersistedComposerState(value: unknown): {
         .filter(([, draft]) => !isEmptyDraft(draft) || (draft.importedShareIds?.length ?? 0) > 0),
     ),
     stickyModelSelection: parsed.stickyModelSelection ?? null,
+    modelOptionMemory: parsed.modelOptionMemory ?? {},
     legacyArchives: Object.values(parsed.signedOutDrafts ?? {}).map((saved) => ({
       drafts: Object.fromEntries(
         Object.entries(saved.drafts).map(([key, draft]) =>
@@ -786,7 +805,7 @@ async function loadPersistedComposerState(): Promise<
   try {
     const file = await getComposerDraftsFile();
     if (!file.exists) {
-      return { drafts: {}, stickyModelSelection: null, legacyArchives: [] };
+      return { drafts: {}, stickyModelSelection: null, modelOptionMemory: {}, legacyArchives: [] };
     }
     operation = "read";
     const raw = await file.text();
@@ -818,6 +837,9 @@ async function writePersistedComposerState(
       schemaVersion: COMPOSER_DRAFTS_SCHEMA_VERSION,
       drafts: nonEmptyDrafts,
       ...(stickyModelSelection ? { stickyModelSelection } : {}),
+      ...(Object.keys(appAtomRegistry.get(modelOptionMemoryAtom)).length > 0
+        ? { modelOptionMemory: appAtomRegistry.get(modelOptionMemoryAtom) }
+        : {}),
       ...(archives.length > 0
         ? {
             signedOutDrafts: Object.fromEntries(
@@ -1077,7 +1099,7 @@ registerComposerAttachmentUnusedHandler((attachment) => {
   scheduleUnusedComposerAttachmentCleanup([attachment]);
 });
 
-function schedulePersistComposerState(): void {
+export function schedulePersistComposerState(): void {
   if (persistTimer !== null) {
     clearTimeout(persistTimer);
   }
@@ -1128,6 +1150,18 @@ export function ensureComposerDraftsLoaded(): void {
       appAtomRegistry.get(stickyComposerModelSelectionAtom) === null
     ) {
       appAtomRegistry.set(stickyComposerModelSelectionAtom, persisted.stickyModelSelection);
+    }
+    if (Object.keys(persisted.modelOptionMemory).length > 0) {
+      const current = appAtomRegistry.get(modelOptionMemoryAtom);
+      appAtomRegistry.set(modelOptionMemoryAtom, {
+        ...persisted.modelOptionMemory,
+        ...Object.fromEntries(
+          Object.entries(current).map(([instanceId, models]) => [
+            instanceId,
+            { ...persisted.modelOptionMemory[instanceId], ...models },
+          ]),
+        ),
+      });
     }
     for (const archive of legacyArchives) {
       if (Object.keys(archive.drafts).length > 0) {

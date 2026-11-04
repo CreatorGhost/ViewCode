@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { Dialog, DialogHeader, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Input } from "../ui/input";
@@ -12,7 +12,7 @@ export function DiffFileJumpDialog(props: {
   onPick: (path: string) => void;
 }) {
   const [query, setQuery] = useState("");
-  const matches = useMemo(() => filterDiffFilePaths(props.paths, query), [props.paths, query]);
+  const matches = (() => filterDiffFilePaths(props.paths, query))();
   const pick = (path: string) => {
     props.onOpenChange(false);
     setQuery("");

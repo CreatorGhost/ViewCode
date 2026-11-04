@@ -1,73 +1,85 @@
-/**
- * RemoteOpenTargets - resolves the SSH hostnames this environment advertises
- * for remote open-in-editor deep links (`vscode://vscode-remote/ssh-remote+…`).
- *
- * The server can only check itself: sshd listening locally, tailscaled
- * reporting a MagicDNS name, and the machine hostname for mDNS. Whether a
- * given name resolves from the viewer's machine is inherently client-side.
- * Targets are ordered most-reachable first (tailnet name works from anywhere
- * on the tailnet; `<hostname>.local` only on the same LAN).
- */
 import { type RemoteOpenTarget } from "@t3tools/contracts";
-import { HostProcessHostname } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as NetService from "@t3tools/shared/Net";
-import { readTailscaleStatus } from "@t3tools/tailscale";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
+
+import * as TailscaleAccess from "./TailscaleAccess.ts";
 
 const SSH_PORT = 22;
 
 export class RemoteOpenTargets extends Context.Service<
   RemoteOpenTargets,
   {
+    /**
+     * Looks for SSH routes now: a local sshd, and Tailscale when it is allowed.
+     * Only "open in editor" asks, so loading the app runs no `tailscale`.
+     */
     readonly resolveTargets: () => Effect.Effect<ReadonlyArray<RemoteOpenTarget>>;
+    /** The last resolved routes for the server config, or none yet. Never probes. */
+    readonly cachedTargets: Effect.Effect<Option.Option<ReadonlyArray<RemoteOpenTarget>>>;
   }
 >()("t3/environment/RemoteOpenTargets") {}
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const net = yield* NetService.NetService;
+  const tailscale = yield* TailscaleAccess.TailscaleAccess;
+  const lastTargets = yield* Ref.make(Option.none<ReadonlyArray<RemoteOpenTarget>>());
 
   const resolveTargets = Effect.gen(function* () {
-    // No local sshd means no name can work; advertise nothing so clients
-    // render a clear "no SSH route" state instead of links that hang.
     // Check both loopback families: sshd can be bound IPv6-only.
     const sshdListening = yield* Effect.zipWith(
       net.hasListenerOnHost(SSH_PORT, "127.0.0.1"),
       net.hasListenerOnHost(SSH_PORT, "::1"),
       (ipv4, ipv6) => ipv4 || ipv6,
     );
-    if (!sshdListening) {
-      return [];
-    }
+
+    const magicDnsName = yield* tailscale.status.pipe(
+      Effect.map((status) => status.magicDnsName),
+      Effect.orElseSucceed(() => null),
+    );
 
     const targets: Array<RemoteOpenTarget> = [];
 
-    // Tailscale absent or down is the common case, not an error.
-    const magicDnsName = yield* readTailscaleStatus.pipe(
-      Effect.map((status) => status.magicDnsName),
-      Effect.orElseSucceed(() => null),
-      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-    );
+    if (!sshdListening) {
+      // Tailscale SSH answers on the tailnet name with no local sshd, so only
+      // that name can work. A running tailscaled alone is not an SSH route.
+      if (
+        magicDnsName !== null &&
+        (yield* tailscale.sshEnabled.pipe(Effect.orElseSucceed(() => false)))
+      ) {
+        targets.push({ kind: "tailscale", host: magicDnsName });
+      }
+      return targets;
+    }
+
     if (magicDnsName !== null) {
       targets.push({ kind: "tailscale", host: magicDnsName });
     }
 
     // os.hostname() may already be an FQDN (macOS often reports
     // "Name.local"); mDNS names are always `<first-label>.local`.
-    const hostname = yield* HostProcessHostname;
+    const hostname = yield* HostProcess.Hostname;
     const shortHostname = hostname.split(".")[0]?.trim();
     if (shortHostname !== undefined && shortHostname.length > 0) {
       targets.push({ kind: "mdns", host: `${shortHostname}.local` });
     }
 
     return targets;
+  }).pipe(Effect.tap((targets) => Ref.set(lastTargets, Option.some(targets))));
+
+  // A tailnet name found before Tailscale was turned off is no longer a route.
+  const cachedTargets = Effect.gen(function* () {
+    const last = yield* Ref.get(lastTargets);
+    if (Option.isNone(last) || (yield* tailscale.blockReason) === null) return last;
+    return Option.some(last.value.filter((target) => target.kind !== "tailscale"));
   });
 
-  return RemoteOpenTargets.of({ resolveTargets: () => resolveTargets });
+  return RemoteOpenTargets.of({ resolveTargets: () => resolveTargets, cachedTargets });
 });
 
 export const layer = Layer.effect(RemoteOpenTargets, make);

@@ -1,4 +1,4 @@
-import type { OrchestrationThread } from "@t3tools/contracts";
+import type { HistoryRecord } from "./searchHistory.ts";
 import { describe, expect, it } from "@effect/vitest";
 
 import { searchThreadHistory } from "./searchHistory.ts";
@@ -20,7 +20,7 @@ const thread = {
       payload: { detail: 'gh pr view 1541 --json title\n{"title":"Fix cordon rollback"}' },
     },
   ],
-} as unknown as Pick<OrchestrationThread, "messages" | "activities">;
+} satisfies HistoryRecord;
 
 describe("searchThreadHistory", () => {
   it("finds details that only exist in tool output", () => {

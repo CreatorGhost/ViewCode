@@ -1,7 +1,8 @@
 import { SmartphoneIcon } from "lucide-react";
 
-import { hasCloudPublicConfig } from "~/cloud/publicConfig";
-import { useUpdatePrimarySettings } from "../../hooks/useSettings";
+import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
+import { usePrimaryEnvironmentId } from "../../state/environments";
+import { describeTailscaleBlock, useTailscaleBlock } from "../../state/tailscaleAccess";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
@@ -17,10 +18,13 @@ import { useTailscalePhoneAccess } from "./useTailscalePhoneAccess";
 /** Top of Settings → Connections: the one-step way to pair the mobile app. */
 export function ConnectPhoneSettingsSection() {
   const tailscale = useTailscalePhoneAccess();
-  const cloudConfigured = hasCloudPublicConfig();
   const quickView = resolveQuickConnectView(useViewCodeRelayState());
   const quickSetup = useViewCodeRelaySetupState();
   const updateSettings = useUpdatePrimarySettings();
+  const tailscaleEnabled = usePrimarySettings((settings) => settings.tailscaleEnabled);
+  const tailscaleBlock = useTailscaleBlock(usePrimaryEnvironmentId());
+  // Only the setting is the user's to change; IT's policy and the environment switch are not.
+  const tailscaleLocked = tailscaleBlock !== null && tailscaleBlock !== "setting";
   const quickOn =
     quickView.kind !== "off" && quickView.kind !== "not-set-up" && quickView.kind !== "loading";
   return (
@@ -31,11 +35,7 @@ export function ConnectPhoneSettingsSection() {
     >
       <SettingsRow
         title="Connect phone"
-        description={
-          cloudConfigured
-            ? "Scan a code with the T3 Code mobile app. No account needed on the phone."
-            : "Scan a code with the T3 Code mobile app. T3 Connect (anywhere) is off: add the values in docs/operations/connect-setup.md and rebuild."
-        }
+        description="Scan a pairing code with the ViewCode phone app. No account needed on the phone."
         control={
           <Button size="sm" onClick={() => openConnectPhoneDialog()}>
             Connect phone
@@ -67,7 +67,23 @@ export function ConnectPhoneSettingsSection() {
           <CloudflareAccountPicker setup={quickSetup} />
         ) : null}
       </SettingsRow>
-      {tailscale.access?.installed ? (
+      <SettingsRow
+        title="Tailscale"
+        description={
+          tailscaleLocked
+            ? describeTailscaleBlock(tailscaleBlock)
+            : "Lets ViewCode run the Tailscale app for phone access, Tailscale HTTPS and opening files over Tailscale SSH. Turn it off where security software blocks Tailscale."
+        }
+        control={
+          <Switch
+            checked={tailscaleBlock === null && tailscaleEnabled}
+            disabled={tailscaleLocked}
+            onCheckedChange={(checked) => updateSettings({ tailscaleEnabled: checked === true })}
+            aria-label="Tailscale"
+          />
+        }
+      />
+      {tailscale.access?.installed && tailscaleBlock === null ? (
         <SettingsRow
           title="Turn on Tailscale phone access at launch"
           description="Starts Tailscale HTTPS when ViewCode opens so a paired phone can reach this computer over your tailnet. Turning Tailscale HTTPS off also turns this off."

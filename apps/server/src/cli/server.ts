@@ -1,52 +1,85 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
-import * as Predicate from "effect/Predicate";
-import { Command, GlobalFlag } from "effect/unstable/cli";
+import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import { Command, GlobalFlag } from "effect/cli";
+import * as CliError from "effect/cli/CliError";
 
-import { ServerConfig, type StartupPresentation } from "../config.ts";
+import * as ServerConfig from "../config.ts";
 import { recordFatalCause, recordFatalErrors } from "../fatalLog.ts";
+import { awaitLauncherLoss } from "../launcherWatch.ts";
 import { runServer } from "../server.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
+import { addressInUseMessage, isAddressInUse } from "./viewcodeAddressInUse.ts";
 
-/** A listen that failed because something already holds the port. */
-function isAddressInUse(error: unknown): boolean {
-  return (
-    Predicate.isTagged(error, "ServeError") &&
-    Predicate.hasProperty(error, "cause") &&
-    Predicate.hasProperty(error.cause, "code") &&
-    error.cause.code === "EADDRINUSE"
-  );
-}
+const encodeCommand = Schema.encodeEffect(Schema.fromJsonString(Schema.String));
 
-export const runServerCommand = (
+const runServerCommand = (
   flags: CliServerFlags,
   options?: {
-    readonly startupPresentation?: StartupPresentation;
+    readonly startupPresentation?: ServerConfig.StartupPresentation;
     readonly forceAutoBootstrapProjectFromCwd?: boolean;
+    readonly rejectRunningServer?: boolean;
   },
 ) =>
   Effect.gen(function* () {
     const logLevel = yield* GlobalFlag.LogLevel;
     const config = yield* resolveServerConfig(flags, logLevel, options);
+    // ViewCode: a dying server leaves its last error in server-fatal.log.
     yield* recordFatalErrors(config.logsDir);
-    return yield* runServer.pipe(
-      // A busy port (only an explicit one: the default moves to a free one) is a
-      // usage problem, not a crash, so it gets one line instead of a stack.
-      Effect.catchIf(isAddressInUse, () =>
-        Effect.sync(() => {
-          process.stderr.write(
-            `Port ${config.port} is already in use. Stop what is using it, or start ViewCode on another port with --port <number>.\n`,
-          );
-          process.exitCode = 1;
-        }),
+    const run = runServer.pipe(
+      // ViewCode: a taken port (only an explicit one: the default moves to a free one)
+      // is a usage problem, not a crash, so it gets one line instead of a stack.
+      Effect.catchIf(
+        (error) => config.listenPath === undefined && isAddressInUse(error),
+        () =>
+          Effect.sync(() => {
+            process.stderr.write(`${addressInUseMessage(config.port)}\n`);
+            process.exitCode = 1;
+          }),
       ),
       recordFatalCause(config.logsDir),
-      Effect.provideService(ServerConfig, config),
+      Effect.provideService(ServerConfig.ServerConfig, config),
+    );
+    if (config.mode !== "desktop" || config.desktopBootstrapToken === undefined) return yield* run;
+    return yield* Effect.raceFirst(
+      run,
+      awaitLauncherLoss().pipe(
+        // End like SIGTERM does (interrupt-only exit, so the runtime forces process exit).
+        Effect.andThen(Effect.interrupt),
+      ),
     );
   }).pipe(Effect.scoped);
 
+export const runDefaultServerCommand = (flags: CliServerFlags) =>
+  Effect.gen(function* () {
+    if (Option.isSome(flags.cwd)) {
+      const cwd = flags.cwd.value.trim();
+      const fs = yield* FileSystem.FileSystem;
+      const platform = yield* HostProcess.Platform;
+      const explicitPath =
+        cwd === "." ||
+        cwd === ".." ||
+        cwd === "~" ||
+        /[/\\]/.test(cwd) ||
+        (platform === "win32" && /^[a-z]:/i.test(cwd));
+      if (
+        !explicitPath &&
+        (!(yield* fs.exists(cwd)) || (yield* fs.stat(cwd)).type !== "Directory")
+      ) {
+        return yield* new CliError.UserError({
+          cause: cwd,
+          userMessage: `Unknown command ${yield* encodeCommand(cwd)}. Use "viewcode --help" for commands or an explicit path such as "viewcode ./my-project" for a new directory.`,
+        });
+      }
+    }
+    return yield* runServerCommand(flags, { rejectRunningServer: true });
+  });
+
 export const startCommand = Command.make("start", { ...sharedServerCommandFlags }).pipe(
   Command.withDescription("Run the ViewCode server."),
-  Command.withHandler((flags) => runServerCommand(flags)),
+  Command.withHandler((flags) => runServerCommand(flags, { rejectRunningServer: true })),
 );
 
 export const serveCommand = Command.make("serve", { ...sharedServerCommandFlags }).pipe(

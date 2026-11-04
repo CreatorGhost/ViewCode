@@ -13,7 +13,9 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { CheckIcon, CircleAlertIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
+import { useStableCallback } from "../../hooks/useStableCallback";
 
 import { useThreadShell } from "~/state/entities";
 import { usePrimaryEnvironmentId } from "~/state/environments";
@@ -73,9 +75,9 @@ function ComputerUseStatusLine({ environmentId }: { readonly environmentId: Envi
   // Only the latest request may write state; a slow earlier answer is stale.
   const latestRequest = useRef(0);
 
-  const fetchStatus = useCallback(async () => {
+  const fetchStatus = useStableCallback(async (targetEnvironmentId: EnvironmentId) => {
     const request = ++latestRequest.current;
-    const result = await getStatus({ environmentId, input: {} });
+    const result = await getStatus({ environmentId: targetEnvironmentId, input: {} });
     if (request !== latestRequest.current) return;
     if (result._tag === "Success") {
       setState({ phase: "ready", status: result.value });
@@ -90,14 +92,14 @@ function ComputerUseStatusLine({ environmentId }: { readonly environmentId: Envi
           ? cause.message
           : "Couldn't check computer use on this machine.",
     });
-  }, [environmentId, getStatus]);
+  });
 
   useEffect(() => {
-    void fetchStatus();
+    void fetchStatus(environmentId);
     return () => {
       latestRequest.current++;
     };
-  }, [fetchStatus]);
+  }, [environmentId, fetchStatus]);
 
   // The Mac this window runs on serves this environment: macOS can be asked directly, and its
   // own prompt (with a button to the pane) is how ViewCode gets into the Accessibility list.
@@ -108,15 +110,21 @@ function ComputerUseStatusLine({ environmentId }: { readonly environmentId: Envi
     bridge.openSystemSettings !== undefined &&
     primaryEnvironmentId === environmentId;
   const [trustedHere, setTrustedHere] = useState<boolean | null>(null);
-  const readTrustHere = useCallback(async () => {
-    if (!grantsHere || !bridge?.checkSystemPermission) return null;
-    const trusted = await bridge.checkSystemPermission("accessibility").catch(() => null);
+  const latestTrustRequest = useRef(0);
+  const readTrustHere = useStableCallback(async (canGrant: boolean, desktop: typeof bridge) => {
+    const request = ++latestTrustRequest.current;
+    if (!canGrant || !desktop?.checkSystemPermission) return null;
+    const trusted = await desktop.checkSystemPermission("accessibility").catch(() => null);
+    if (request !== latestTrustRequest.current) return null;
     setTrustedHere(trusted);
     return trusted;
-  }, [bridge, grantsHere]);
+  });
   useEffect(() => {
-    void readTrustHere();
-  }, [readTrustHere]);
+    void readTrustHere(grantsHere, bridge);
+    return () => {
+      latestTrustRequest.current++;
+    };
+  }, [bridge, grantsHere, readTrustHere]);
 
   const allowAccess = async () => {
     const opened = await bridge?.openSystemSettings?.("accessibility").catch(() => false);
@@ -130,11 +138,15 @@ function ComputerUseStatusLine({ environmentId }: { readonly environmentId: Envi
   };
 
   const check = () => {
+    const request = ++latestRequest.current;
     setState({ phase: "loading" });
     void (async () => {
       // Still not allowed: bring up macOS's own prompt rather than only asking again.
-      if ((await readTrustHere()) === false) await allowAccess();
-      await fetchStatus();
+      const trusted = await readTrustHere(grantsHere, bridge);
+      if (request !== latestRequest.current) return;
+      if (trusted === false) await allowAccess();
+      if (request !== latestRequest.current) return;
+      await fetchStatus(environmentId);
     })();
   };
 
@@ -146,7 +158,7 @@ function ComputerUseStatusLine({ environmentId }: { readonly environmentId: Envi
         : null;
   // macOS says this app is not trusted yet: say that, whatever the server's probe made of it.
   const line =
-    described !== null && !described.ready && trustedHere === false
+    described !== null && !described.ready && grantsHere && trustedHere === false
       ? { ready: false, message: MACOS_ACCESSIBILITY_GUIDANCE }
       : described;
   const Icon = line?.ready ? CheckIcon : CircleAlertIcon;
@@ -188,10 +200,7 @@ function ComputerUseActivityRow({
   readonly environmentId: EnvironmentId;
   readonly entry: ComputerUseActivityEntry;
 }) {
-  const threadRef = useMemo(
-    () => scopeThreadRef(environmentId, entry.threadId),
-    [environmentId, entry.threadId],
-  );
+  const threadRef = scopeThreadRef(environmentId, entry.threadId);
   const title = useThreadShell(threadRef)?.title;
   return (
     <li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-1.5">
@@ -221,9 +230,9 @@ function ComputerUseActivityList({ environmentId }: { readonly environmentId: En
   const [state, setState] = useState<ActivityState>({ phase: "loading" });
   const latestRequest = useRef(0);
 
-  const fetchActivity = useCallback(async () => {
+  const fetchActivity = useStableCallback(async (targetEnvironmentId: EnvironmentId) => {
     const request = ++latestRequest.current;
-    const result = await getActivity({ environmentId, input: {} });
+    const result = await getActivity({ environmentId: targetEnvironmentId, input: {} });
     if (request !== latestRequest.current) return;
     if (result._tag === "Success") {
       setState({ phase: "ready", entries: result.value.entries });
@@ -238,18 +247,18 @@ function ComputerUseActivityList({ environmentId }: { readonly environmentId: En
           ? cause.message
           : "Couldn't load recent computer actions.",
     });
-  }, [environmentId, getActivity]);
+  });
 
   useEffect(() => {
-    void fetchActivity();
+    void fetchActivity(environmentId);
     return () => {
       latestRequest.current++;
     };
-  }, [fetchActivity]);
+  }, [environmentId, fetchActivity]);
 
   const refresh = () => {
     setState({ phase: "loading" });
-    void fetchActivity();
+    void fetchActivity(environmentId);
   };
 
   return (

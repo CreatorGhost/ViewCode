@@ -208,7 +208,7 @@ export function parseResetTime(text: string, nowMs: number): number | null {
 }
 
 /** A window at or above this share of its allowance counts as spent. */
-export const SPENT_WINDOW_PERCENT = 95;
+const SPENT_WINDOW_PERCENT = 95;
 /** Wait past the reset so the provider has certainly cleared the window. */
 export const USAGE_RESET_MARGIN_MS = 60_000;
 
@@ -261,7 +261,7 @@ type UsageWindow = {
 };
 
 /** A usage reading older than this says little about the limit a turn just hit. */
-export const USAGE_SNAPSHOT_MAX_AGE_MS = 10 * 60_000;
+const USAGE_SNAPSHOT_MAX_AGE_MS = 10 * 60_000;
 
 /** The windows of a usage reading, or none when the reading is stale, failed or unsupported. */
 export function freshUsageWindows(
@@ -330,7 +330,7 @@ export function pickResetTime(input: {
 }
 
 /** A retry hint closer than this is a throttle ("try again in 20s"), not a usage window. */
-export const TRANSIENT_RETRY_HINT_MS = 5 * 60_000;
+const TRANSIENT_RETRY_HINT_MS = 5 * 60_000;
 
 /**
  * How a failed turn's error reads: the usage limit, a transient throttle

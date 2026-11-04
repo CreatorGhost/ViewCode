@@ -2,7 +2,7 @@ import { QuestionAnswerHistory } from "./QuestionAnswerHistory";
 import {
   getQuestionAnswerPreview,
   hasQuestionAnswer,
-} from "@t3tools/client-runtime/work-log/user-input";
+} from "@t3tools/client-runtime/viewcode-work-log/user-input";
 import { useAtomValue } from "@effect/atom-react";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
@@ -57,8 +57,8 @@ import {
   resolveWorkEntryToolPresentation,
   type ToolGroupSummaryKind,
   workEntryViewedImagePath,
-} from "@t3tools/client-runtime/work-log/presentation";
-import { resolveWorkGroupScrollAnchor } from "@t3tools/client-runtime/work-log/scroll-anchor";
+} from "@t3tools/client-runtime/viewcode-work-log/presentation";
+import { resolveWorkGroupScrollAnchor } from "@t3tools/client-runtime/viewcode-work-log/scroll-anchor";
 import type { MarkdownImageRenderer } from "../../native/SelectableMarkdownText";
 import Animated, {
   cancelAnimation,
@@ -75,6 +75,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useAssetUrl } from "../../state/assets";
+import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 
 const SHIMMER_WIDTH = 72;
 const SHIMMER_SWEEP_MS = 1_350;
@@ -102,7 +103,7 @@ function WorkLogIcon(props: {
     <SymbolView
       name={
         props.icon === "pull-request"
-          ? "arrow.triangle.pull"
+          ? PullRequestGlyph.pullRequest
           : props.icon === "browser"
             ? { ios: "globe", android: "public" }
             : props.icon === "device"
@@ -1380,7 +1381,7 @@ function toolGroupSummarySymbolName(kind: ToolGroupSummaryKind): AppSymbolName {
     case "link-pr":
     case "unlink-pr":
     case "list-prs":
-      return "arrow.triangle.pull";
+      return PullRequestGlyph.pullRequest;
     case "read":
       return { ios: "eye", android: "visibility" };
     case "edit":

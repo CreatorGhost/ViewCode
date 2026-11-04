@@ -28,7 +28,7 @@ import {
   resolveThreadCurrentPullRequestLink,
   visibleThreadPullRequests,
 } from "@t3tools/shared/threadPullRequests";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, View } from "react-native";
 
@@ -333,6 +333,7 @@ export function AgentReviewBar(props: {
             {modelSelection !== null ? (
               <SidechatModelPicker
                 environmentId={environmentId}
+                projectId={shell.projectId}
                 serverConfig={serverConfig}
                 selection={modelSelection}
                 runtimeMode={shell.runtimeMode}

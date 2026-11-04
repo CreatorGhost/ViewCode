@@ -21,7 +21,7 @@ import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient";
 import * as Undici from "@effect/platform-node/Undici";
 import { DESKTOP_LOCAL_BACKEND_SCHEME } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 
 /** The base URL the renderer uses for a socket-backed local instance. */
 export const localBackendHttpBaseUrl = (instanceId: string): URL =>
@@ -66,7 +66,7 @@ export function toSocketRequestOptions(
 const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
 
 /** Converts the backend's reply into the Response `protocol.handle` returns. */
-export function toProtocolResponse(response: NodeHttp.IncomingMessage, method: string): Response {
+function toProtocolResponse(response: NodeHttp.IncomingMessage, method: string): Response {
   const headers = new Headers();
   for (const [name, value] of Object.entries(response.headers)) {
     if (value === undefined || name === "connection" || name === "transfer-encoding") continue;

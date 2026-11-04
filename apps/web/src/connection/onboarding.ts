@@ -1,8 +1,4 @@
-import {
-  ConnectionOnboarding,
-  type PairingConnectionInput,
-  type SshConnectionInput,
-} from "@t3tools/client-runtime/connection";
+import { ConnectionOnboarding } from "@t3tools/client-runtime/connection";
 import {
   createAtomCommandScheduler,
   createRuntimeCommand,
@@ -19,10 +15,12 @@ export const connectPairing = createRuntimeCommand(connectionAtomRuntime, {
   scheduler: onboardingScheduler,
   concurrency: {
     mode: "singleFlight",
-    key: (input: PairingConnectionInput) => JSON.stringify(input),
+    key: (input: ConnectionOnboarding.PairingConnectionInput) => JSON.stringify(input),
   },
-  execute: (input: PairingConnectionInput) =>
-    ConnectionOnboarding.pipe(Effect.flatMap((onboarding) => onboarding.registerPairing(input))),
+  execute: (input: ConnectionOnboarding.PairingConnectionInput) =>
+    ConnectionOnboarding.ConnectionOnboarding.pipe(
+      Effect.flatMap((onboarding) => onboarding.registerPairing(input)),
+    ),
 });
 
 export const connectSshEnvironment = createRuntimeCommand(connectionAtomRuntime, {
@@ -32,6 +30,8 @@ export const connectSshEnvironment = createRuntimeCommand(connectionAtomRuntime,
     mode: "serial",
     key: (input: { readonly target: DesktopSshEnvironmentTarget }) => JSON.stringify(input.target),
   },
-  execute: (input: SshConnectionInput) =>
-    ConnectionOnboarding.pipe(Effect.flatMap((onboarding) => onboarding.registerSsh(input))),
+  execute: (input: ConnectionOnboarding.SshConnectionInput) =>
+    ConnectionOnboarding.ConnectionOnboarding.pipe(
+      Effect.flatMap((onboarding) => onboarding.registerSsh(input)),
+    ),
 });

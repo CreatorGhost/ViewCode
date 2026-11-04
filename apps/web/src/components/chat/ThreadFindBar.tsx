@@ -1,193 +1,128 @@
-import type { LegendListRef } from "@legendapp/list/react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 import { ChevronDownIcon, ChevronUpIcon, XIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-
-import type { TimelineEntry } from "../../session-logic";
 import { Button } from "../ui/button";
-import {
-  collectTextRanges,
-  findThreadMatches,
-  stepFindIndex,
-  type ThreadFindMatch,
-} from "./threadFind.logic";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
+import { cn } from "~/lib/utils";
+import { formatThreadFindCount } from "./threadFind";
+import { THREAD_DETAILS_CARD_GAP } from "./threadDetailsCardLayout";
 
-/** Fired by the command palette; ChatView opens its find bar. */
-export const THREAD_FIND_OPEN_EVENT = "viewcode:thread-find-open";
-
-const HIGHLIGHT = "viewcode-find";
-const HIGHLIGHT_ACTIVE = "viewcode-find-active";
-
-function setHighlights(all: Range[], active: Range | null) {
-  if (typeof CSS === "undefined" || !("highlights" in CSS) || typeof Highlight === "undefined")
-    return;
-  CSS.highlights.set(HIGHLIGHT, new Highlight(...all));
-  if (active) CSS.highlights.set(HIGHLIGHT_ACTIVE, new Highlight(active));
-  else CSS.highlights.delete(HIGHLIGHT_ACTIVE);
+interface ThreadFindBarProps {
+  readonly open: boolean;
+  readonly query: string;
+  readonly matchCount: number;
+  readonly counting?: boolean;
+  readonly status: "loading" | "error" | null;
+  readonly onRetry: () => void;
+  readonly activeIndex: number;
+  readonly focusRequestId: number;
+  readonly onQueryChange: (query: string) => void;
+  readonly onNext: () => void;
+  readonly onPrevious: () => void;
+  readonly onClose: () => void;
 }
 
-const clearHighlights = () => setHighlights([], null);
+export const THREAD_FIND_BAR_RESERVED_HEIGHT = 36 + THREAD_DETAILS_CARD_GAP;
 
-const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-
-/** How often streamed output may re-run the search and repaint the highlights. */
-export const THREAD_FIND_REFRESH_MS = 250;
-
-/**
- * `value`, updated at most once per `intervalMs` (leading and trailing), so a
- * transcript that changes per streamed token is searched a few times a second.
- */
-function useThrottledValue<T>(value: T, intervalMs: number): T {
-  const [throttled, setThrottled] = useState(value);
-  const committedAtRef = useRef(0);
-  useEffect(() => {
-    if (Object.is(value, throttled)) return;
-    const commit = () => {
-      committedAtRef.current = Date.now();
-      setThrottled(value);
-    };
-    const wait = committedAtRef.current + intervalMs - Date.now();
-    if (wait <= 0) {
-      commit();
-      return;
-    }
-    const timer = setTimeout(commit, wait);
-    return () => clearTimeout(timer);
-  }, [intervalMs, throttled, value]);
-  return throttled;
-}
-
-/**
- * Find in thread. Matches are computed from client state; for the active one
- * the virtualised row is scrolled into view, then the rendered text of the
- * mounted rows is highlighted through the CSS Custom Highlight API. While a
- * reply streams, the search and highlights refresh on a throttle and the
- * scroll position is only moved when the active match itself changes.
- */
-export function ThreadFindBar({
-  entries,
-  listRef,
-  getViewport,
-  focusRequest = 0,
-  onClose,
-}: {
-  entries: ReadonlyArray<TimelineEntry>;
-  listRef: RefObject<LegendListRef | null>;
-  getViewport: () => HTMLElement | null;
-  /** Bump to refocus and select the input (the find shortcut while the bar is already open). */
-  focusRequest?: number;
-  onClose: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [index, setIndex] = useState(-1);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const searchedEntries = useThrottledValue(entries, THREAD_FIND_REFRESH_MS);
-  const matches = useMemo(
-    () => findThreadMatches(searchedEntries, query),
-    [searchedEntries, query],
-  );
-  const current = matches.length === 0 ? -1 : Math.min(Math.max(index, 0), matches.length - 1);
-  const active: ThreadFindMatch | undefined = matches[current];
-  const activeEntryId = active?.entryId ?? null;
-  const activeMessageId = active?.messageId ?? null;
-  const activeOccurrence = active?.occurrence ?? -1;
-  // The match last scrolled to; new matches from streamed text leave it alone.
-  const scrolledKeyRef = useRef<string | null>(null);
+export function ThreadFindBar(props: ThreadFindBarProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    if (!props.open) return;
     inputRef.current?.focus();
     inputRef.current?.select();
-  }, [focusRequest]);
-  useEffect(() => clearHighlights, []);
+  }, [
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Each find shortcut bumps the request id, so an already-open bar refocuses and reselects its query.
+    props.focusRequestId,
+    props.open,
+  ]);
 
-  useEffect(() => {
-    let cancelled = false;
-    let settled = false;
-    const activeKey =
-      activeEntryId === null ? null : `${query}\u0000${activeEntryId}\u0000${activeOccurrence}`;
-    const shouldScroll = activeKey !== null && activeKey !== scrolledKeyRef.current;
-    scrolledKeyRef.current = activeKey;
-    void (async () => {
-      const list = listRef.current;
-      const viewport = getViewport();
-      if (!viewport || matches.length === 0) return clearHighlights();
-      const row = () =>
-        activeMessageId === null
-          ? null
-          : viewport.querySelector(`[data-message-id="${CSS.escape(activeMessageId)}"]`);
-      if (shouldScroll && activeEntryId !== null) {
-        const rowIndex = list?.getState().indexByKey(activeEntryId);
-        if (rowIndex !== undefined && row() === null) {
-          await list?.scrollToIndex({ index: rowIndex, animated: false, viewOffset: 80 });
-          // The row mounts and measures over a couple of frames.
-          for (let frame = 0; frame < 4 && row() === null; frame++) await nextFrame();
-        }
-        row()?.scrollIntoView({ block: "center" });
-      }
-      if (cancelled) return;
-      const all = collectTextRanges(viewport, query);
-      const activeRow = row();
-      const inMessage = activeRow ? collectTextRanges(activeRow, query) : [];
-      // Source text and rendered text can differ (markdown syntax), so clamp.
-      const activeRange =
-        activeOccurrence >= 0
-          ? (inMessage[Math.min(activeOccurrence, inMessage.length - 1)] ?? null)
-          : null;
-      setHighlights(all, activeRange);
-      settled = true;
-      if (shouldScroll)
-        activeRange?.startContainer.parentElement?.scrollIntoView({ block: "nearest" });
-    })();
-    return () => {
-      cancelled = true;
-      // Superseded before landing: let the next run scroll to the match again.
-      if (shouldScroll && !settled) scrolledKeyRef.current = null;
-    };
-  }, [matches, activeEntryId, activeMessageId, activeOccurrence, query, listRef, getViewport]);
+  if (!props.open) return null;
 
-  const step = (direction: 1 | -1) => setIndex(stepFindIndex(matches.length, current, direction));
+  const hasQuery = props.query.trim().length > 0;
+  const noResults = hasQuery && !props.status && props.matchCount === 0;
+  let label = "";
+  if (hasQuery) {
+    label = props.counting ? "1/…" : formatThreadFindCount(props.activeIndex, props.matchCount);
+  }
+  if (props.status === "loading") label = "Searching…";
+  if (props.status === "error") label = "Search failed";
+  const navigationDisabled =
+    props.matchCount === 0 || props.status === "loading" || props.counting === true;
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.shiftKey) props.onPrevious();
+      else props.onNext();
+    }
+  };
 
   return (
     <div
-      role="search"
-      className="absolute top-2 right-6 z-30 flex items-center gap-1 rounded-lg border border-border bg-popover p-1 shadow-lg"
+      data-thread-find-bar
+      className="absolute top-3 right-3 z-40 w-[min(var(--thread-details-panel-width),calc(100%-1.5rem))] transition-opacity duration-150 ease-out starting:opacity-0 motion-reduce:transition-none"
     >
-      <input
-        ref={inputRef}
-        value={query}
-        placeholder="Find in thread"
+      <InputGroup
+        variant="popover"
+        size="lg"
+        onContextMenu={(event) => event.stopPropagation()}
+        role="search"
         aria-label="Find in thread"
-        className="h-7 w-48 bg-transparent px-2 text-sm outline-none placeholder:text-placeholder"
-        onChange={(event) => {
-          setQuery(event.target.value);
-          setIndex(0);
-        }}
-        onKeyDown={(event) => {
-          event.stopPropagation();
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onClose();
-          } else if (event.key === "Enter") {
-            event.preventDefault();
-            step(event.shiftKey ? -1 : 1);
-          }
-        }}
-      />
-      <span className="min-w-12 text-center text-muted-foreground text-xs tabular-nums">
-        {query.trim() === ""
-          ? ""
-          : matches.length === 0
-            ? "No results"
-            : `${current + 1}/${matches.length}`}
-      </span>
-      <Button size="icon-xs" variant="ghost" aria-label="Previous match" onClick={() => step(-1)}>
-        <ChevronUpIcon />
-      </Button>
-      <Button size="icon-xs" variant="ghost" aria-label="Next match" onClick={() => step(1)}>
-        <ChevronDownIcon />
-      </Button>
-      <Button size="icon-xs" variant="ghost" aria-label="Close find" onClick={onClose}>
-        <XIcon />
-      </Button>
+        aria-busy={props.status === "loading" || props.counting === true}
+        className="w-full"
+      >
+        <InputGroupInput
+          ref={inputRef}
+          type="search"
+          size="sm"
+          value={props.query}
+          aria-label="Find in thread"
+          placeholder="Find in thread"
+          maxLength={200}
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(event) => props.onQueryChange(event.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+        <InputGroupAddon align="inline-end" inset="pill">
+          <span
+            aria-live="polite"
+            className={cn(
+              "min-w-10 text-center text-xs tabular-nums",
+              noResults ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {label}
+          </span>
+          {props.status === "error" ? (
+            <Button size="xs" variant="ghost" onClick={props.onRetry}>
+              Retry
+            </Button>
+          ) : null}
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Previous match"
+            disabled={navigationDisabled}
+            onClick={props.onPrevious}
+          >
+            <ChevronUpIcon />
+          </Button>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Next match"
+            disabled={navigationDisabled}
+            onClick={props.onNext}
+          >
+            <ChevronDownIcon />
+          </Button>
+          <Button size="icon-xs" variant="ghost" aria-label="Close find" onClick={props.onClose}>
+            <XIcon />
+          </Button>
+        </InputGroupAddon>
+      </InputGroup>
     </div>
   );
 }

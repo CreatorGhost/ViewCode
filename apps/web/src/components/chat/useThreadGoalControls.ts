@@ -1,12 +1,14 @@
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { isViewCodePanelThreadPreparing } from "./ensureViewCodePanelThread";
 import type { EnvironmentId, ThreadGoal, ThreadId } from "@t3tools/contracts";
 import { threadGoalUpdate, type GoalCommandAction } from "@t3tools/client-runtime/threadGoal";
-import { useCallback, useMemo } from "react";
 
 import { useComposerDraftStore, type ComposerThreadTarget } from "../../composerDraftStore";
 import { toastManager } from "../ui/toast";
 import {
   closeThreadGoalEditor,
   openThreadGoalEditor,
+  requestThreadGoalRun,
   useThreadGoalEditorStore,
   useUpdateThreadGoalState,
 } from "./threadGoal";
@@ -39,72 +41,80 @@ export function useThreadGoalControls(input: {
   } = input;
   const updateServer = useUpdateThreadGoalState();
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
-  const goal = useMemo<ThreadGoal | null>(
-    () =>
-      isServerThread
-        ? (serverGoal ?? null)
-        : draftGoal
-          ? { objective: draftGoal, pausedAt: null, updatedAt: "" }
-          : null,
-    [draftGoal, isServerThread, serverGoal],
-  );
+  const goal = (() =>
+    isServerThread
+      ? (serverGoal ?? null)
+      : draftGoal
+        ? { objective: draftGoal, pausedAt: null, updatedAt: "" }
+        : null)();
   const debugMode = isServerThread ? serverDebugMode === true : draftDebugMode === true;
   const editorOpen = useThreadGoalEditorStore((state) => state.threadKey === threadKey);
 
-  const change = useCallback(
-    (fields: {
-      readonly goal?: string | null;
-      readonly goalPaused?: boolean;
-      readonly debugMode?: boolean;
-    }) => {
-      if (isServerThread) {
-        if (environmentId !== null && threadId !== null) {
-          updateServer(environmentId, threadId, fields);
-        }
-        return;
-      }
-      if (draftTarget === null) return;
-      setDraftThreadContext(draftTarget, {
-        ...(fields.goal !== undefined ? { goal: fields.goal } : {}),
-        ...(fields.debugMode !== undefined ? { debugMode: fields.debugMode } : {}),
+  /** Resolves true once the change is stored (a draft's at once). */
+  const change = async (fields: {
+    readonly goal?: string | null;
+    readonly goalPaused?: boolean;
+    readonly debugMode?: boolean;
+  }): Promise<boolean> => {
+    // Record-only panel creation captures these fields before its receipt.
+    // Block edits across all callers until that handover finishes; a later
+    // reconciliation could overwrite another client's newer server values.
+    if (
+      environmentId !== null &&
+      threadId !== null &&
+      isViewCodePanelThreadPreparing(scopeThreadRef(environmentId, threadId))
+    ) {
+      toastManager.add({
+        type: "info",
+        title: "Preparing thread",
+        description: "Try changing the goal or debug mode again in a moment.",
       });
-    },
-    [draftTarget, environmentId, isServerThread, setDraftThreadContext, threadId, updateServer],
-  );
+      return false;
+    }
+    if (isServerThread) {
+      if (environmentId === null || threadId === null) return false;
+      return updateServer(environmentId, threadId, fields);
+    }
+    if (draftTarget === null) return false;
+    setDraftThreadContext(draftTarget, {
+      ...(fields.goal !== undefined ? { goal: fields.goal } : {}),
+      ...(fields.debugMode !== undefined ? { debugMode: fields.debugMode } : {}),
+    });
+    return true;
+  };
 
-  const setDebugMode = useCallback(
-    (next: boolean) => {
-      if (next !== debugMode) change({ debugMode: next });
-    },
-    [change, debugMode],
-  );
+  const setDebugMode = (next: boolean) => {
+    if (next !== debugMode) void change({ debugMode: next });
+  };
 
-  const applyGoalAction = useCallback(
-    (action: GoalCommandAction) => {
-      if (action.action === "edit") {
-        openThreadGoalEditor(threadKey);
-        return;
-      }
-      if (action.action === "too-long") {
-        toastManager.add({ type: "warning", title: "That goal is too long" });
-        return;
-      }
-      if ((action.action === "pause" || action.action === "resume") && goal === null) {
-        toastManager.add({ type: "info", title: "This thread has no goal yet" });
-        return;
-      }
-      if ((action.action === "pause" || action.action === "resume") && !isServerThread) {
-        toastManager.add({
-          type: "info",
-          title: "A goal can be paused once the thread has started",
-        });
-        return;
-      }
-      const update = threadGoalUpdate(action);
-      if (update !== null) change(update);
-    },
-    [change, goal, isServerThread, threadKey],
-  );
+  const applyGoalAction = (action: GoalCommandAction) => {
+    if (action.action === "edit") {
+      openThreadGoalEditor(threadKey);
+      return;
+    }
+    if (action.action === "too-long") {
+      toastManager.add({ type: "warning", title: "That goal is too long" });
+      return;
+    }
+    if (action.action === "run") {
+      // The chat view checks the goal and whether it can send, and says why when it can't.
+      requestThreadGoalRun(threadKey);
+      return;
+    }
+    if ((action.action === "pause" || action.action === "resume") && goal === null) {
+      toastManager.add({ type: "info", title: "This thread has no goal yet" });
+      return;
+    }
+    if ((action.action === "pause" || action.action === "resume") && !isServerThread) {
+      toastManager.add({
+        type: "info",
+        title: "A goal can be paused once the thread has started",
+      });
+      return;
+    }
+    const update = threadGoalUpdate(action);
+    if (update !== null) void change(update);
+  };
 
   return {
     goal,
@@ -112,10 +122,11 @@ export function useThreadGoalControls(input: {
     setDebugMode,
     applyGoalAction,
     editorOpen,
-    openEditor: useCallback(() => openThreadGoalEditor(threadKey), [threadKey]),
+    openEditor: () => openThreadGoalEditor(threadKey),
     closeEditor: closeThreadGoalEditor,
-    saveGoal: useCallback((objective: string) => change({ goal: objective }), [change]),
-    setGoalPaused: useCallback((paused: boolean) => change({ goalPaused: paused }), [change]),
-    clearGoal: useCallback(() => change({ goal: null }), [change]),
+    requestRun: () => requestThreadGoalRun(threadKey),
+    saveGoal: (objective: string) => change({ goal: objective }),
+    setGoalPaused: (paused: boolean) => void change({ goalPaused: paused }),
+    clearGoal: () => void change({ goal: null }),
   };
 }

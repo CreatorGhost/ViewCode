@@ -2,6 +2,7 @@ import { CheckIcon, CircleDotIcon, CircleIcon, ListTodoIcon } from "lucide-react
 import { memo, type ComponentProps } from "react";
 
 import { formatDuration } from "../../session-logic";
+import { BlurSwap } from "~/components/ui/blur-swap";
 import { cn } from "~/lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
 
@@ -78,19 +79,26 @@ function TaskSummary({
       </ComposerBanner.Icon>
       <ComposerBanner.Content>
         <span className="shrink-0 text-muted-foreground">Tasks</span>
-        <span
-          className="min-w-0 flex-1 truncate text-left font-medium text-foreground/80"
-          data-composer-task-current="true"
+        <BlurSwap
+          swapKey={progress.step}
+          render={
+            <span
+              className="min-w-0 flex-1 truncate text-left font-medium text-foreground/80"
+              data-composer-task-current="true"
+            />
+          }
         >
           {progress.step}
-        </span>
+        </BlurSwap>
       </ComposerBanner.Content>
       <ComposerBanner.Actions>
         <ComposerBanner.Count
           className={progress.completedSteps >= progress.totalSteps ? "text-success" : undefined}
           data-composer-task-progress="true"
         >
-          {progress.completedSteps}/{progress.totalSteps}
+          <BlurSwap swapKey={`${progress.completedSteps}/${progress.totalSteps}`}>
+            {progress.completedSteps}/{progress.totalSteps}
+          </BlurSwap>
         </ComposerBanner.Count>
         <TaskSegments className="hidden w-20 @min-[560px]:flex" steps={steps} />
         <ComposerBanner.ToggleIcon expanded={expanded} />

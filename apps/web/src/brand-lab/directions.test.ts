@@ -21,36 +21,36 @@ function contrast(a: string, b: string) {
 }
 
 describe("brand lab draft palettes", () => {
-  for (const direction of directions) {
-    for (const appearance of ["light", "dark"] as const) {
-      it(`${direction.name} ${appearance} maps every role without mutating the production palette`, () => {
-        const base = getThemeColorsForAppearance(VIEWCODE_THEME, appearance)!;
-        const original = { ...base };
-        const colors = directionColors(direction, appearance);
-        const variables = directionVariables(direction, appearance);
-        for (const role of THEME_COLOR_ROLES) {
-          expect(isThemeColor(colors[role]), role).toBe(true);
-          expect(variables[getThemeColorVariable(role)]).toBe(colors[role]);
-        }
-        expect(base).toEqual(original);
-        for (const surface of [
-          colors.canvas,
-          colors.chrome,
-          colors.surface,
-          colors.surfaceRaised,
-        ]) {
-          expect(contrast(colors.text, surface), "body contrast").toBeGreaterThanOrEqual(4.5);
-          expect(
-            contrast(colors.textMuted, surface),
-            "secondary text contrast",
-          ).toBeGreaterThanOrEqual(4.5);
-        }
+  const cases = directions.flatMap((direction) =>
+    (["light", "dark"] as const).map((appearance) => ({
+      direction,
+      appearance,
+    })),
+  );
+  it.each(cases)(
+    "$direction.name $appearance maps every role without mutating the production palette",
+    ({ direction, appearance }) => {
+      const base = getThemeColorsForAppearance(VIEWCODE_THEME, appearance)!;
+      const original = { ...base };
+      const colors = directionColors(direction, appearance);
+      const variables = directionVariables(direction, appearance);
+      for (const role of THEME_COLOR_ROLES) {
+        expect(isThemeColor(colors[role]), role).toBe(true);
+        expect(variables[getThemeColorVariable(role)]).toBe(colors[role]);
+      }
+      expect(base).toEqual(original);
+      for (const surface of [colors.canvas, colors.chrome, colors.surface, colors.surfaceRaised]) {
+        expect(contrast(colors.text, surface), "body contrast").toBeGreaterThanOrEqual(4.5);
         expect(
-          contrast(colors.messageAction, colors.messageActionForeground),
-          "action contrast",
+          contrast(colors.textMuted, surface),
+          "secondary text contrast",
         ).toBeGreaterThanOrEqual(4.5);
-        expect(contrast(colors.focus, colors.canvas), "focus contrast").toBeGreaterThanOrEqual(3);
-      });
-    }
-  }
+      }
+      expect(
+        contrast(colors.messageAction, colors.messageActionForeground),
+        "action contrast",
+      ).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(colors.focus, colors.canvas), "focus contrast").toBeGreaterThanOrEqual(3);
+    },
+  );
 });

@@ -11,8 +11,8 @@ there in the `pi` terminal app), because ViewCode cannot show Pi's trust prompt.
 Install Pi 0.99 or newer on the machine running your environment
 (`npm install -g @earendil-works/pi-coding-agent`), then run `pi` in a terminal and use
 `/login`, or put a provider API key in the provider instance's environment variables in
-**Settings > Providers**. Pi is turned on automatically when `pi` is on the server's
-`PATH`; otherwise enable it there and set **Binary path** if needed.
+**Settings > Providers**. Turn Pi on there, and set **Binary path** if
+`pi` is not on the server's `PATH`.
 
 ## Models and threads
 

@@ -1,7 +1,7 @@
 import { DarkTheme, DefaultTheme, type Theme } from "@react-navigation/native";
 import { useMemo } from "react";
 
-import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
+import { useAppearancePreferences } from "./appearancePreferencesContext";
 import { useUniwindTheme } from "./useUniwindTheme";
 
 /**

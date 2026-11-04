@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { EventId, type OrchestrationThreadActivity } from "@t3tools/contracts";
-import { deriveWorkLogEntries } from "../../session-logic";
+import { deriveViewCodeAgentWorkLogEntries as deriveWorkLogEntries } from "./viewcodeAgentTimeline";
 import {
   agentMessageBodyIsLong,
   agentToolkitLabel,

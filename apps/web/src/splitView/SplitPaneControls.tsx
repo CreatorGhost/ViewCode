@@ -6,13 +6,13 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip"
 /** Swap and close for a split-view pane, on the pane's own header row. */
 export function SplitPaneControls(props: { onSwap: () => void; onClose: () => void }) {
   return (
-    <div className="flex shrink-0 items-center gap-0.5">
+    <div className="flex shrink-0 items-center gap-2">
       <Tooltip>
         <TooltipTrigger
           render={
             <Button
-              variant="ghost-muted"
-              size="icon-xs"
+              variant="header"
+              size="icon-header"
               aria-label="Swap panes"
               onClick={props.onSwap}
             />
@@ -26,8 +26,8 @@ export function SplitPaneControls(props: { onSwap: () => void; onClose: () => vo
         <TooltipTrigger
           render={
             <Button
-              variant="ghost-muted"
-              size="icon-xs"
+              variant="header"
+              size="icon-header"
               aria-label="Close pane"
               onClick={props.onClose}
             />

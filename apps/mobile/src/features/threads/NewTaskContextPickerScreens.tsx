@@ -2,7 +2,7 @@ import { MaterialListRow } from "../../components/MaterialListRow";
 import type { VcsRef } from "@t3tools/client-runtime/state/vcs";
 import { type EnvironmentId, resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { LegendList } from "@legendapp/list/react-native";
 import {
   isAtomCommandInterrupted,
@@ -207,7 +207,7 @@ export function NewTaskEnvironmentPickerRouteScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const serverConfigs = useServerConfigs();
-  const ensureScratch = useAtomCommand(projectEnvironment.ensureScratch, {
+  const ensureScratch = useAtomCommand(projectEnvironment.openScratch, {
     reportFailure: false,
   });
   const [movingToEnvironmentId, setMovingToEnvironmentId] = useState<EnvironmentId | null>(null);
@@ -228,7 +228,7 @@ export function NewTaskEnvironmentPickerRouteScreen() {
         );
         return;
       }
-      const project = await waitForProject({ environmentId, projectId: result.value.projectId });
+      const project = await waitForProject({ environmentId, projectId: result.value.id });
       if (project === null) {
         Alert.alert("Could not switch machine", "It has not reached this device yet. Try again.");
         return;

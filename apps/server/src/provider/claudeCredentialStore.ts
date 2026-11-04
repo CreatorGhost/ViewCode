@@ -5,7 +5,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as Schema from "effect/Schema";
 
-import { makeCachedKeychainSecretReader, readKeychainPassword } from "./cursorCredentialStore.ts";
+import { makeCachedKeychainSecretReader, readKeychainPassword } from "./viewcode/keychainSecret.ts";
 
 /**
  * Where Claude Code keeps its OAuth login on macOS when no `CLAUDE_CONFIG_DIR`
@@ -18,7 +18,7 @@ import { makeCachedKeychainSecretReader, readKeychainPassword } from "./cursorCr
  * real Mac. Confirm with `security find-generic-password -s "Claude Code-credentials"`
  * (attributes only; never pass `-w`, which prints the secret).
  */
-export const CLAUDE_KEYCHAIN_ITEM = {
+const CLAUDE_KEYCHAIN_ITEM = {
   service: "Claude Code-credentials",
   account: () => {
     let user: string;

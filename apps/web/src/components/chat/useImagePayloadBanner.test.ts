@@ -1,5 +1,5 @@
-import { threadImagePayloadBytes } from "@t3tools/client-runtime/state/threads";
-import type { OrchestrationMessage } from "@t3tools/contracts";
+import { threadImagePayloadBytes } from "@t3tools/client-runtime/viewcodeThreadAtoms";
+import type { OrchestrationMessage } from "@t3tools/client-runtime/viewcodeThread";
 import { describe, expect, it } from "vite-plus/test";
 
 import {

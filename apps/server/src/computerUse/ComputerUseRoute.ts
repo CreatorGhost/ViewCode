@@ -10,7 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import { ComputerUseService } from "./ComputerUseService.ts";
@@ -81,11 +81,11 @@ export const computerUseRouteLayer = Layer.unwrap(
             ? authorization.slice("Bearer ".length).trim()
             : "";
         const scope = token.length > 0 ? yield* registry.resolve(token) : undefined;
-        if (!scope) {
+        if (!scope || scope.thread === undefined) {
           yield* logRejected({ code: "CU-CON-001", status: 401, reason: "credential" });
           return unauthorized;
         }
-        const threadId = scope.threadId;
+        const threadId = scope.thread.threadId;
         if (!scope.capabilities.has("computer")) {
           yield* logRejected({ code: "CU-CON-001", status: 200, reason: "not-enabled", threadId });
           return respond({
@@ -147,7 +147,7 @@ export const computerUseRouteLayer = Layer.unwrap(
         }
         // The thread is the credential's, never anything the body claims.
         const response = yield* computerUse.handle(
-          { threadId, providerInstanceId: scope.providerInstanceId },
+          { threadId, providerInstanceId: scope.thread.providerInstanceId },
           body.value,
         );
         return respond(response);

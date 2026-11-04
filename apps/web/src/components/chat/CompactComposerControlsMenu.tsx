@@ -1,9 +1,4 @@
-import {
-  ProviderInteractionMode,
-  providerRuntimeModeLimit,
-  type ProviderRuntimeModeLimits,
-  RuntimeMode,
-} from "@t3tools/contracts";
+import { ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
 import { memo, type ReactNode } from "react";
 import { EllipsisIcon } from "lucide-react";
 import {
@@ -22,8 +17,10 @@ import { useComposerMenuState } from "./useComposerMenuState";
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
   runtimeMode: RuntimeMode;
-  /** The selected provider's status: why a mode does less there, if it does. */
-  runtimeModeLimits?: ProviderRuntimeModeLimits | null | undefined;
+  runtimeModeOptions: ReadonlyArray<{
+    readonly mode: RuntimeMode;
+    readonly label: string;
+  }>;
   showInteractionModeToggle: boolean;
   traitsMenuContent?: ReactNode;
   size?: "sm" | "xs";
@@ -33,18 +30,14 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
    * open menu closes when its trigger hides.
    */
   hidden?: boolean;
-  onToggleInteractionMode: () => void;
-  onRuntimeModeChange: (mode: RuntimeMode) => void;
   /** Set when the debug-mode control is hidden in this menu. */
   debugMode?: { readonly on: boolean; readonly onChange: (debugMode: boolean) => void };
+  onToggleInteractionMode: () => void;
+  onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const size = props.size ?? "sm";
   const [open, setOpen] = useComposerMenuState(props.hidden);
-  // The selected mode's limit, else Full access's, so a policy shows before it is picked.
-  const runtimeModeNote =
-    providerRuntimeModeLimit(props.runtimeModeLimits, props.runtimeMode) ??
-    props.runtimeModeLimits?.fullAccessUnavailableReason;
 
   return (
     <Menu open={open} onOpenChange={setOpen}>
@@ -104,16 +97,12 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             props.onRuntimeModeChange(value as RuntimeMode);
           }}
         >
-          <MenuRadioItem value="approval-required">Supervised</MenuRadioItem>
-          <MenuRadioItem value="auto-accept-edits">Auto-accept edits</MenuRadioItem>
-          <MenuRadioItem value="auto">Auto</MenuRadioItem>
-          <MenuRadioItem value="full-access">Full access</MenuRadioItem>
+          {props.runtimeModeOptions.map((option) => (
+            <MenuRadioItem key={option.mode} value={option.mode}>
+              {option.label}
+            </MenuRadioItem>
+          ))}
         </MenuRadioGroup>
-        {runtimeModeNote ? (
-          <div className="max-w-64 px-2 py-1.5 text-muted-foreground text-xs">
-            {runtimeModeNote}
-          </div>
-        ) : null}
       </MenuPopup>
     </Menu>
   );

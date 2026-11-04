@@ -1,14 +1,14 @@
 // @effect-diagnostics nodeBuiltinImport:off - realpathSync.native resolves Windows 8.3 short names, which the Effect realPath does not.
 import * as NodeFS from "node:fs";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { SourceControlProviderError } from "@t3tools/contracts";
+import { SourceControlProviderError, SourceControlProviderKind } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { TestClock } from "effect/testing";
 
 import * as ProcessRunner from "../processRunner.ts";
@@ -71,7 +71,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
           if (refinementFails)
             return Effect.fail(
               new SourceControlProviderError({
-                provider: "forgejo",
+                provider: SourceControlProviderKind.make("forgejo"),
                 operation: "detectProvider",
                 cwd: rootPath,
                 detail: "account unavailable",
@@ -81,7 +81,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
             identity.canonicalKey.startsWith("ssh.forge.test/")
               ? {
                   ...identity,
-                  provider: "forgejo",
+                  provider: SourceControlProviderKind.make("forgejo"),
                   webUrl: "http://forge.test:3000/git/team/repo",
                 }
               : identity,
@@ -195,9 +195,9 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       expect(identity).not.toBeNull();
       expect(identity?.canonicalKey).toBe("github.com/t3tools/t3code");
       expect(normalizeResolvedPath(resolvedIdentityRoot)).toBe(normalizeResolvedPath(resolvedCwd));
-      expect(identity?.displayName).toBe("t3tools/t3code");
+      expect(identity?.displayName).toBe("T3Tools/t3code");
       expect(identity?.provider).toBe("github");
-      expect(identity?.owner).toBe("t3tools");
+      expect(identity?.owner).toBe("T3Tools");
       expect(identity?.name).toBe("t3code");
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
@@ -250,6 +250,33 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
 
+  it.effect("ignores local-path remotes such as GitButler's gb-local", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const localOnlyDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-repository-identity-local-remote-",
+      });
+      const mixedDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-repository-identity-mixed-remote-",
+      });
+
+      yield* git(localOnlyDir, ["init"]);
+      yield* git(localOnlyDir, ["remote", "add", "gb-local", "."]);
+      yield* git(localOnlyDir, ["remote", "add", "backup", "/srv/git/repo.git"]);
+      yield* git(localOnlyDir, ["remote", "add", "archive", "file:///srv/git/repo.git"]);
+      yield* git(mixedDir, ["init"]);
+      yield* git(mixedDir, ["remote", "add", "gb-local", "."]);
+      yield* git(mixedDir, ["remote", "add", "mirror", "git@github.com:T3Tools/t3code.git"]);
+
+      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+      expect(yield* resolver.resolve(localOnlyDir)).toBeNull();
+
+      const mixedIdentity = yield* resolver.resolve(mixedDir);
+      expect(mixedIdentity?.locator.remoteName).toBe("mirror");
+      expect(mixedIdentity?.canonicalKey).toBe("github.com/t3tools/t3code");
+    }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
+  );
+
   it.effect.each(["add", "replace"] as const)(
     "refreshes the primary upstream after %s before cache expiry",
     (change) =>
@@ -283,7 +310,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
         expect(identity).not.toBeNull();
         expect(identity?.locator.remoteName).toBe("upstream");
         expect(identity?.canonicalKey).toBe("github.com/t3tools/t3code");
-        expect(identity?.displayName).toBe("t3tools/t3code");
+        expect(identity?.displayName).toBe("T3Tools/t3code");
         expect(yield* resolver.resolve(cwd)).toEqual(identity);
       }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
@@ -303,7 +330,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       const identity = yield* resolver.resolve(cwd);
 
       expect(identity?.canonicalKey).toBe("github.com/t3tools/t3code");
-      expect(identity?.displayName).toBe("t3tools/t3code");
+      expect(identity?.displayName).toBe("T3Tools/t3code");
       expect(identity?.origin).toEqual({
         canonicalKey: "github.com/julius/t3code-fork",
         displayName: "julius/t3code-fork",
@@ -346,8 +373,8 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
 
       expect(identity).not.toBeNull();
       expect(identity?.canonicalKey).toBe("gitlab.com/t3tools/platform/t3code");
-      expect(identity?.displayName).toBe("t3tools/platform/t3code");
-      expect(identity?.owner).toBe("t3tools");
+      expect(identity?.displayName).toBe("T3Tools/platform/t3code");
+      expect(identity?.owner).toBe("T3Tools");
       expect(identity?.name).toBe("t3code");
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
@@ -419,7 +446,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       const refreshedIdentity = yield* resolver.resolve(cwd);
       expect(refreshedIdentity).not.toBeNull();
       expect(refreshedIdentity?.canonicalKey).toBe("github.com/t3tools/t3code-next");
-      expect(refreshedIdentity?.displayName).toBe("t3tools/t3code-next");
+      expect(refreshedIdentity?.displayName).toBe("T3Tools/t3code-next");
       expect(refreshedIdentity?.name).toBe("t3code-next");
     }).pipe(
       Effect.provide(
@@ -475,6 +502,63 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolver SSH aliases", (it) => {
       });
       expect(calls.filter((command) => command === "ssh")).toHaveLength(1);
     }).pipe(Effect.provide(resolverLayer));
+  });
+
+  it.effect("asks again soon when an SSH alias lookup went unanswered", () => {
+    let sshAnswers = false;
+    let sshCalls = 0;
+    const processRunner = Layer.succeed(ProcessRunner.ProcessRunner, {
+      run: (input) =>
+        Effect.sync(() => {
+          if (input.command === "ssh") sshCalls++;
+          const failedSsh = input.command === "ssh" && !sshAnswers;
+          return {
+            stdout:
+              input.command === "ssh"
+                ? failedSsh
+                  ? ""
+                  : "user git\nhostname github.com\nport 22\n"
+                : input.args.includes("rev-parse")
+                  ? "/repo\n"
+                  : [
+                      "origin\tgit@github-unanswered-test:CreatorGhost/ViewCode.git (fetch)",
+                      "upstream\thttps://github.com/pingdotgg/t3code.git (fetch)",
+                    ].join("\n"),
+            stderr: "",
+            code: ChildProcessSpawner.ExitCode(failedSsh ? 255 : 0),
+            timedOut: false,
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            stdoutInvalidUtf8: false,
+            stderrInvalidUtf8: false,
+          };
+        }),
+    });
+    const resolverLayer = Layer.effect(
+      RepositoryIdentityResolver.RepositoryIdentityResolver,
+      RepositoryIdentityResolver.make({
+        negativeCacheTtl: Duration.minutes(1),
+        positiveCacheTtl: Duration.minutes(15),
+      }),
+    ).pipe(Layer.provide(processRunner));
+    return Effect.gen(function* () {
+      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+      // Without the alias resolved, origin looks like another host and wins over upstream.
+      const unresolved = yield* resolver.resolve("/repo");
+      expect(unresolved?.canonicalKey).toBe("github-unanswered-test/creatorghost/viewcode");
+
+      sshAnswers = true;
+      yield* TestClock.adjust(Duration.seconds(61));
+      const resolved = yield* resolver.resolve("/repo");
+      expect(resolved?.canonicalKey).toBe("github.com/pingdotgg/t3code");
+      expect(resolved?.origin?.canonicalKey).toBe("github.com/creatorghost/viewcode");
+
+      // A settled answer is kept for the positive TTL, not re-asked every minute.
+      const callsAfterAnswer = sshCalls;
+      yield* TestClock.adjust(Duration.minutes(2));
+      expect(yield* resolver.resolve("/repo")).toEqual(resolved);
+      expect(sshCalls).toBe(callsAfterAnswer);
+    }).pipe(Effect.provide(Layer.merge(TestClock.layer(), resolverLayer)));
   });
 
   it.effect("prefers upstream when origin's SSH alias points at upstream's host", () => {

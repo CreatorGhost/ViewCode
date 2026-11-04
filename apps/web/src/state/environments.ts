@@ -7,10 +7,13 @@ import {
 import { Discovery } from "@t3tools/client-runtime/relay";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { useMemo } from "react";
 
 import { environmentCatalog } from "../connection/catalog";
-import { environmentPresentations, useEnvironmentPresentation } from "./presentation";
+import {
+  environmentPresentations,
+  environmentSummaries,
+  useEnvironmentPresentation,
+} from "./presentation";
 import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
 import { relayEnvironmentDiscovery } from "./relay";
 import { usePreparedConnection } from "./session";
@@ -40,12 +43,8 @@ export function useEnvironments() {
   const networkStatus = useAtomValue(environmentCatalog.networkStatusValueAtom);
   const presentationById = useAtomValue(environmentPresentations.presentationsAtom);
 
-  const environments = useMemo(
-    () =>
-      [...presentationById.entries()].map(([environmentId, presentation]) =>
-        projectEnvironmentPresentation(environmentId, presentation),
-      ),
-    [presentationById],
+  const environments = [...presentationById.entries()].map(([environmentId, presentation]) =>
+    projectEnvironmentPresentation(environmentId, presentation),
   );
 
   return {
@@ -56,6 +55,11 @@ export function useEnvironments() {
   };
 }
 
+/** Provider statuses change on every push, so they live apart from the presentations. */
+export function useEnvironmentProviders() {
+  return useAtomValue(environmentPresentations.providersByEnvironmentAtom);
+}
+
 export function usePrimaryEnvironmentId(): EnvironmentId | null {
   return useAtomValue(primaryEnvironmentIdAtom);
 }
@@ -64,13 +68,9 @@ export function useEnvironment(
   environmentId: EnvironmentId | null,
 ): EnvironmentPresentation | null {
   const { presentation } = useEnvironmentPresentation(environmentId);
-  return useMemo(
-    () =>
-      environmentId === null || presentation === null
-        ? null
-        : projectEnvironmentPresentation(environmentId, presentation),
-    [environmentId, presentation],
-  );
+  return environmentId === null || presentation === null
+    ? null
+    : projectEnvironmentPresentation(environmentId, presentation);
 }
 
 export function usePrimaryEnvironment(): EnvironmentPresentation | null {
@@ -84,4 +84,24 @@ export function useEnvironmentHttpBaseUrl(environmentId: EnvironmentId | null): 
 
 export function useRelayEnvironmentDiscovery(): Discovery.RelayEnvironmentDiscoveryState {
   return useAtomValue(relayEnvironmentDiscovery.stateValueAtom);
+}
+
+export function useEnvironmentIds() {
+  return useAtomValue(environmentSummaries.environmentIdsAtom);
+}
+
+export function useEnvironmentIdentities() {
+  return useAtomValue(environmentSummaries.identitiesAtom);
+}
+
+export function usePullRequestsSupported() {
+  return useAtomValue(environmentSummaries.pullRequestsSupportedAtom);
+}
+
+export function useEnvironmentMachines() {
+  return useAtomValue(environmentSummaries.machineByIdAtom);
+}
+
+export function useConnectedEnvironmentIds() {
+  return useAtomValue(environmentSummaries.connectedEnvironmentIdsAtom);
 }

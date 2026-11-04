@@ -1,5 +1,5 @@
 import Constants from "expo-constants";
-import { makeRelayClientTracingLayer } from "@t3tools/shared/relayTracing";
+import { layer as makeRelayClientTracingLayer } from "@t3tools/shared/relayTracing";
 
 export interface TracingConfig {
   readonly tracesUrl: string;

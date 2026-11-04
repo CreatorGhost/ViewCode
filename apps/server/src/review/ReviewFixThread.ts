@@ -24,8 +24,12 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
-import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as ReviewActivityStore from "../review/ReviewActivityStoreV2.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ReviewThreadContext from "../review/ReviewThreadContextV2.ts";
 import * as ServerSettings from "../serverSettings.ts";
 
 /**
@@ -58,12 +62,22 @@ export class ReviewFixThread extends Context.Service<
 >()("t3/review/ReviewFixThread") {}
 
 const make = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngine.OrchestrationEngineService;
-  const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+  const threads = yield* ThreadManagement.ThreadManagementService;
+  const activities = yield* ReviewActivityStore.ReviewActivityStoreV2;
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const projects = yield* ProjectStore.ProjectStoreV2;
+  const readThread = (
+    threadId: import("@t3tools/contracts").ThreadId,
+    options?: { readonly activityKinds?: ReadonlyArray<string>; readonly allActivities?: boolean },
+  ) =>
+    ReviewThreadContext.read(threadId, options?.activityKinds).pipe(
+      Effect.provideService(ProjectionStore.ProjectionStoreV2, projections),
+      Effect.provideService(ReviewActivityStore.ReviewActivityStoreV2, activities),
+    );
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const git = yield* GitWorkflowService.GitWorkflowService;
   const crypto = yield* Crypto.Crypto;
-  const uuid = crypto.randomUUIDv4.pipe(Effect.orDie);
+  const uuid = crypto.randomUUIDv4().pipe(Effect.orDie);
 
   const start = Effect.fn("ReviewFixThread.start")(function* (input: ReviewStartFixThreadInput) {
     const failure =
@@ -71,14 +85,14 @@ const make = Effect.gen(function* () {
       (cause: unknown): ReviewFixThreadError =>
         new ReviewFixThreadError({ stage, cause });
 
-    const review = yield* snapshots
-      .getThreadShellById(input.reviewThreadId)
-      .pipe(Effect.mapError(failure("review-thread")));
+    const review = yield* readThread(input.reviewThreadId).pipe(
+      Effect.mapError(failure("review-thread")),
+    );
     if (Option.isNone(review)) {
       return yield* new ReviewFixThreadError({ stage: "review-thread" });
     }
-    const project = yield* snapshots
-      .getProjectShellById(review.value.projectId)
+    const project = yield* projects
+      .getShell(review.value.projectId)
       .pipe(Effect.mapError(failure("project")));
     if (Option.isNone(project)) return yield* new ReviewFixThreadError({ stage: "project" });
     const settings = yield* serverSettings.getSettings.pipe(Effect.mapError(failure("settings")));
@@ -115,21 +129,20 @@ const make = Effect.gen(function* () {
           };
 
     if (target.kind === "pull-request" && checkout.worktreePath !== null) {
-      const snapshot = yield* snapshots
-        .getShellSnapshot()
-        .pipe(Effect.mapError(failure("checkout")));
+      const snapshot = yield* threads.getShellSnapshot().pipe(Effect.mapError(failure("checkout")));
       const busy = snapshot.threads.some(
         (thread) =>
           thread.id !== threadId &&
           thread.archivedAt === null &&
           thread.worktreePath === checkout.worktreePath &&
-          (thread.session?.status === "running" || thread.session?.activeTurnId != null),
+          (thread.activeRunId !== null ||
+            ["preparing", "queued", "starting", "running", "waiting"].includes(thread.status)),
       );
       if (busy) return yield* new ReviewFixThreadError({ stage: "checkout-busy" });
     }
 
     const createdAt = DateTime.formatIso(yield* DateTime.now);
-    yield* engine
+    yield* threads
       .dispatch({
         type: "thread.create",
         commandId: CommandId.make(`server:review-fix:${threadId}`),
@@ -141,11 +154,12 @@ const make = Effect.gen(function* () {
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         branch: checkout.branch,
         worktreePath: checkout.worktreePath,
-        createdAt,
+        createdBy: "user",
+        creationSource: "server",
       })
       .pipe(Effect.mapError(failure("create-thread")));
     if (target.kind === "pull-request") {
-      yield* engine
+      yield* threads
         .dispatch({
           type: "thread.pull-request.link",
           commandId: CommandId.make(`server:review-fix-link:${threadId}`),
@@ -166,9 +180,8 @@ const make = Effect.gen(function* () {
         : { findingsActivityId: input.findingsActivityId }),
       turnCountBefore: 0,
     };
-    yield* engine
-      .dispatch({
-        type: "thread.activity.append",
+    yield* activities
+      .append({
         commandId: CommandId.make(`server:review-fix-started:${threadId}`),
         threadId,
         activity: {
@@ -180,79 +193,75 @@ const make = Effect.gen(function* () {
           turnId: null,
           createdAt,
         },
-        createdAt,
       })
       .pipe(Effect.mapError(failure("start-turn")));
-    yield* engine
-      .dispatch({
-        type: "thread.turn.start",
+    yield* threads
+      .sendToThread({
         commandId: CommandId.make(`server:review-fix-turn:${threadId}`),
+        projectId: project.value.id,
         threadId,
-        message: {
-          messageId: MessageId.make(yield* uuid),
-          role: "user",
-          text: buildReviewFixMessage({
-            reviewTitle: review.value.title,
-            target,
-            findings: input.findings,
-          }),
-          attachments: [],
-        },
+        messageId: MessageId.make(yield* uuid),
+        text: buildReviewFixMessage({
+          reviewTitle: review.value.title,
+          target,
+          findings: input.findings,
+        }),
+        attachments: [],
         modelSelection,
-        runtimeMode,
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        createdAt,
+        mode: "auto",
+        createdBy: "user",
+        creationSource: "server",
       })
       .pipe(Effect.mapError(failure("start-turn")));
+
     return { threadId, title: checkout.title };
   });
 
   const undo = Effect.fn("ReviewFixThread.undo")(function* (input: ReviewUndoFixesInput) {
     const failure =
       (stage: ReviewUndoFixesError["stage"]) =>
-      (cause: unknown): ReviewUndoFixesError =>
-        new ReviewUndoFixesError({ stage, cause });
-    const [shell, detail, checkpoints] = yield* Effect.all([
-      snapshots.getThreadShellById(input.threadId),
-      snapshots.getThreadDetailById(input.threadId, {
-        activityKinds: [REVIEW_FIX_STARTED_ACTIVITY_KIND],
-      }),
-      snapshots.getThreadCheckpointContext(input.threadId),
-    ]).pipe(Effect.mapError(failure("thread")));
-    if (Option.isNone(shell) || Option.isNone(detail)) {
-      return yield* new ReviewUndoFixesError({ stage: "thread" });
-    }
+      (cause: unknown): ReviewUndoFixesError => {
+        const detail = stage === "revert" ? userFacingDispatchErrorMessage(cause) : undefined;
+        return new ReviewUndoFixesError({
+          stage,
+          cause,
+          ...(detail === undefined ? {} : { detail }),
+        });
+      };
+    const detail = yield* readThread(input.threadId, {
+      activityKinds: [REVIEW_FIX_STARTED_ACTIVITY_KIND],
+    }).pipe(Effect.mapError(failure("thread")));
+    if (Option.isNone(detail)) return yield* new ReviewUndoFixesError({ stage: "thread" });
     const marker = detail.value.activities.findLast(
       (activity) => activity.kind === REVIEW_FIX_STARTED_ACTIVITY_KIND,
     );
     const started = marker === undefined ? Option.none() : decodeFixStarted(marker.payload);
     if (Option.isNone(started)) return yield* new ReviewUndoFixesError({ stage: "not-a-fix" });
-    const status = shell.value.session?.status;
-    if (status === "running" || status === "starting") {
+    if (detail.value.activeRunId !== null)
       return yield* new ReviewUndoFixesError({ stage: "running" });
-    }
+    const projection = yield* threads
+      .getThreadProjection(input.threadId)
+      .pipe(Effect.mapError(failure("thread")));
     const turnCount = started.value.turnCountBefore;
-    const current = Option.match(checkpoints, {
-      onNone: () => 0,
-      onSome: (context) =>
-        context.checkpoints.reduce(
-          (latest, checkpoint) => Math.max(latest, checkpoint.checkpointTurnCount),
-          0,
-        ),
-    });
+    const current = projection.runs.reduce((latest, run) => Math.max(latest, run.ordinal), 0);
     if (current <= turnCount) return yield* new ReviewUndoFixesError({ stage: "nothing" });
-    // The chat's own revert: it restores the files where the session's worktree is its own, and
-    // refuses with a visible reason where another thread shares it.
-    const createdAt = DateTime.formatIso(yield* DateTime.now);
-    yield* engine
+    const checkpoint = projection.checkpoints.findLast(
+      (entry) => (entry.appRunOrdinal ?? 0) === turnCount && entry.status === "ready",
+    );
+    if (checkpoint === undefined) return yield* new ReviewUndoFixesError({ stage: "nothing" });
+    yield* threads
       .dispatch({
-        type: "thread.checkpoint.revert",
-        commandId: CommandId.make(`server:review-fix-undo:${input.threadId}:${yield* uuid}`),
+        type: "checkpoint.rollback",
+        commandId:
+          input.commandId ??
+          CommandId.make(`server:review-fix-undo:${input.threadId}:${yield* uuid}`),
         threadId: input.threadId,
-        turnCount,
-        createdAt,
+        checkpointId: checkpoint.id,
+        scopeId: checkpoint.scopeId,
+        restoreFiles: true,
       })
       .pipe(Effect.mapError(failure("revert")));
+
     return { turnCount, undoneTurns: current - turnCount };
   });
 

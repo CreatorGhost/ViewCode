@@ -5,6 +5,12 @@ import type {
   ProjectId,
 } from "@t3tools/contracts";
 import {
+  importSelection,
+  partitionImportableSessions,
+  sessionKey,
+  toggleSelectAll,
+} from "@t3tools/client-runtime/agent-session-import";
+import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
@@ -13,7 +19,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { agentSessionImport, agentSessionList } from "../../state/agentSessions";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
-import { ClaudeAI, CursorIcon, OpenAI, T3CodeIcon, type Icon } from "../Icons";
+import { ClaudeAI, CursorIcon, OpenAI, type Icon } from "../Icons";
+import { T3Wordmark } from "../T3Wordmark";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
@@ -28,11 +35,7 @@ import {
 } from "../ui/dialog";
 import { Spinner } from "../ui/spinner";
 import { toastManager } from "../ui/toast";
-import {
-  HIDDEN_REASON_LABELS,
-  partitionImportableSessions,
-  sessionKey,
-} from "./agentSessionImport.logic";
+import { HIDDEN_REASON_LABELS } from "./agentSessionImport.logic";
 
 export interface ImportSessionsTarget {
   readonly environmentId: EnvironmentId;
@@ -106,7 +109,7 @@ function ImportSessionsPopup({
   // Only the latest listing may land, and none after the dialog closes.
   const listRequestRef = useRef(0);
 
-  const fetchSessions = useCallback(() => {
+  const fetchSessions = () => {
     const request = ++listRequestRef.current;
     void listSessions({
       environmentId: target.environmentId,
@@ -119,7 +122,7 @@ function ImportSessionsPopup({
           : { status: "error", message: errorMessage(squashAtomCommandFailure(result)) },
       );
     });
-  }, [listSessions, target.environmentId, target.projectId, target.workspaceRoot]);
+  };
 
   useEffect(() => {
     fetchSessions();
@@ -133,14 +136,12 @@ function ImportSessionsPopup({
     fetchSessions();
   };
 
-  const { visible, hidden } = useMemo(
-    () => partitionImportableSessions(list.status === "ready" ? list.sessions : []),
-    [list],
+  const { visible, hidden } = partitionImportableSessions(
+    list.status === "ready" ? list.sessions : [],
   );
   const shown = showHidden ? [...visible, ...hidden] : visible;
-  const selected = (list.status === "ready" ? list.sessions : []).filter(
-    (session) => !session.alreadyImported && checked.has(sessionKey(session)),
-  );
+  const { selected, state: selectAllState } = importSelection(shown, checked);
+  const canSelectAny = shown.some((session) => !session.alreadyImported);
 
   const toggle = (session: AgentSessionSummary, value: boolean) => {
     const next = new Set(checked);
@@ -229,6 +230,17 @@ function ImportSessionsPopup({
                 short; show hidden to see them.
               </p>
             ) : null}
+            {canSelectAny ? (
+              <label className="flex cursor-pointer items-center gap-2.5 border-b border-border/60 px-2 pt-0.5 pb-2 text-sm has-disabled:cursor-default">
+                <Checkbox
+                  checked={selectAllState === "all"}
+                  indeterminate={selectAllState === "some"}
+                  disabled={importing}
+                  onCheckedChange={() => setChecked(toggleSelectAll(shown, checked))}
+                />
+                Select all
+              </label>
+            ) : null}
             {shown.map((session) => (
               <SessionRow
                 key={sessionKey(session)}
@@ -276,7 +288,7 @@ const SOURCE_ICONS = {
   claudeAgent: { Icon: ClaudeAI, label: "Claude Code" },
   codex: { Icon: OpenAI, label: "Codex" },
   cursor: { Icon: CursorIcon, label: "Cursor" },
-  t3code: { Icon: T3CodeIcon, label: "T3 Code" },
+  t3code: { Icon: T3Wordmark, label: "T3 Code" },
 } satisfies Record<AgentSessionSummary["provider"], { Icon: Icon; label: string }>;
 
 function SessionRow({

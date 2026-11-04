@@ -8,7 +8,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { Platform as HostProcessPlatform } from "@t3tools/shared/HostProcess";
 
 import { REVIEW_CLI_MANUAL } from "./ReviewCli.ts";
 import { ensureReviewCliShim } from "./ReviewCliShim.ts";

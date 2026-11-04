@@ -1,4 +1,6 @@
+import { threadGoalRunState } from "@t3tools/client-runtime/threadGoal";
 import { THREAD_GOAL_MAX_CHARS, type ThreadGoal } from "@t3tools/contracts";
+import { PlayIcon } from "lucide-react";
 import { useId, useState } from "react";
 
 import { Button } from "../ui/button";
@@ -14,13 +16,23 @@ import {
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 
+export interface ThreadGoalDialogRun {
+  readonly working: boolean;
+  /** Why the thread cannot send right now, or null. */
+  readonly blockedReason: string | null;
+  readonly onSaveAndRun: (objective: string, changed: boolean) => void;
+}
+
 /**
  * Edits a thread's goal: the objective, pause or resume, and clear. A draft's goal cannot be
- * paused (`canPause` false); it applies from the first send.
+ * paused (`canPause` false); it applies from the first send. With `run`, Save & run also sends
+ * the message that starts the agent on it.
  */
 export function ThreadGoalDialog(props: {
   readonly goal: ThreadGoal | null;
   readonly canPause: boolean;
+  readonly disabled?: boolean;
+  readonly run?: ThreadGoalDialogRun;
   readonly onSave: (objective: string) => void;
   readonly onSetPaused: (paused: boolean) => void;
   readonly onClear: () => void;
@@ -31,6 +43,28 @@ export function ThreadGoalDialog(props: {
   const trimmed = objective.trim();
   const paused = props.goal?.pausedAt != null;
   const tooLong = trimmed.length > THREAD_GOAL_MAX_CHARS;
+  const changed = trimmed !== props.goal?.objective;
+  const run = props.run;
+  // Saving a changed objective also resumes it, so only an unchanged paused goal stays paused.
+  const runState =
+    run === undefined
+      ? null
+      : threadGoalRunState({
+          goal:
+            trimmed === "" || tooLong
+              ? null
+              : { pausedAt: changed ? null : (props.goal?.pausedAt ?? null) },
+          working: run.working,
+          canSend: run.blockedReason === null,
+        });
+  const runReason =
+    runState === "working"
+      ? "Run is available when the current turn ends."
+      : runState === "paused"
+        ? "Resume the goal to run it."
+        : runState === "blocked"
+          ? run?.blockedReason
+          : null;
   return (
     <Dialog
       open
@@ -43,7 +77,7 @@ export function ThreadGoalDialog(props: {
           className="flex min-h-0 flex-col"
           onSubmit={(event) => {
             event.preventDefault();
-            if (trimmed === "" || tooLong) return;
+            if (props.disabled || trimmed === "" || tooLong) return;
             if (trimmed !== props.goal?.objective) props.onSave(trimmed);
             props.onClose();
           }}
@@ -53,6 +87,7 @@ export function ThreadGoalDialog(props: {
             <DialogDescription>
               The agent is given this goal with every message while it is active.
               {paused ? " It is paused now." : ""}
+              {run ? " Save & run also starts the agent on it now." : ""}
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -75,6 +110,8 @@ export function ThreadGoalDialog(props: {
                 <p role="alert" className="text-destructive text-xs">
                   Keep the goal under {THREAD_GOAL_MAX_CHARS} characters.
                 </p>
+              ) : runReason ? (
+                <p className="text-muted-foreground text-xs">{runReason}</p>
               ) : null}
             </div>
           </DialogPanel>
@@ -83,6 +120,7 @@ export function ThreadGoalDialog(props: {
               <Button
                 type="button"
                 variant="destructive-outline"
+                disabled={props.disabled}
                 onClick={() => {
                   props.onClear();
                   props.onClose();
@@ -95,6 +133,7 @@ export function ThreadGoalDialog(props: {
               <Button
                 type="button"
                 variant="outline"
+                disabled={props.disabled}
                 onClick={() => {
                   props.onSetPaused(!paused);
                   props.onClose();
@@ -103,9 +142,26 @@ export function ThreadGoalDialog(props: {
                 {paused ? "Resume" : "Pause"}
               </Button>
             ) : null}
-            <Button type="submit" disabled={trimmed === "" || tooLong}>
+            <Button
+              type="submit"
+              variant={run ? "outline" : "default"}
+              disabled={props.disabled || trimmed === "" || tooLong}
+            >
               Save
             </Button>
+            {run ? (
+              <Button
+                type="button"
+                disabled={props.disabled || runState !== "ready"}
+                onClick={() => {
+                  run.onSaveAndRun(trimmed, changed);
+                  props.onClose();
+                }}
+              >
+                <PlayIcon aria-hidden="true" />
+                Save &amp; run
+              </Button>
+            ) : null}
           </DialogFooter>
         </form>
       </DialogPopup>

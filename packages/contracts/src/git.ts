@@ -1,13 +1,18 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  NonNegativeInt,
+  PositiveInt,
+  ProjectId,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { SourceControlProviderError, SourceControlProviderInfo } from "./sourceControl.ts";
 import { VcsDriverKind } from "./vcs.ts";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
+const GitFilePath = Schema.String.check(Schema.isNonEmpty());
 const GIT_LIST_BRANCHES_MAX_LIMIT = 200;
-
-// Domain Types
 
 export const GitStackedAction = Schema.Literals([
   "commit",
@@ -98,12 +103,17 @@ const GitResolvedPullRequest = Schema.Struct({
 });
 export type GitResolvedPullRequest = typeof GitResolvedPullRequest.Type;
 
-// RPC Inputs
-
 export const VcsStatusInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
 });
 export type VcsStatusInput = typeof VcsStatusInput.Type;
+
+export const VcsStatusSubscriptionInput = Schema.Struct({
+  ...VcsStatusInput.fields,
+  /** Passive observers receive cached remote status without retaining its refresh loop. */
+  includeRemote: Schema.optional(Schema.Boolean),
+});
+export type VcsStatusSubscriptionInput = typeof VcsStatusSubscriptionInput.Type;
 
 export const VcsPullInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -116,11 +126,9 @@ export const GitRunStackedActionInput = Schema.Struct({
   action: GitStackedAction,
   commitMessage: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(10_000))),
   featureBranch: Schema.optional(Schema.Boolean),
-  filePaths: Schema.optional(
-    Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
-  ),
-  /** The thread the action runs beside; a pull request it creates is linked to it. */
+  filePaths: Schema.optional(Schema.Array(GitFilePath).check(Schema.isMinLength(1))),
   threadId: Schema.optional(ThreadId),
+  projectId: Schema.optional(ProjectId),
 });
 export type GitRunStackedActionInput = typeof GitRunStackedActionInput.Type;
 
@@ -191,8 +199,6 @@ export const VcsInitInput = Schema.Struct({
 });
 export type VcsInitInput = typeof VcsInitInput.Type;
 
-// RPC Results
-
 const VcsStatusChangeRequest = Schema.Struct({
   number: PositiveInt,
   title: TrimmedNonEmptyStringSchema,
@@ -200,13 +206,7 @@ const VcsStatusChangeRequest = Schema.Struct({
   baseRef: TrimmedNonEmptyStringSchema,
   headRef: TrimmedNonEmptyStringSchema,
   state: VcsStatusChangeRequestState,
-  /** Optional for compatibility with older servers and providers. */
   isDraft: Schema.optional(Schema.Boolean),
-  /**
-   * Last provider-side activity (ISO), including comments and metadata edits.
-   * This is not the time a change request closed or merged. Optional for old
-   * servers and providers whose lookups do not report it.
-   */
   updatedAt: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
@@ -220,7 +220,7 @@ const VcsStatusLocalShape = {
   workingTree: Schema.Struct({
     files: Schema.Array(
       Schema.Struct({
-        path: TrimmedNonEmptyStringSchema,
+        path: GitFilePath,
         insertions: NonNegativeInt,
         deletions: NonNegativeInt,
       }),
@@ -228,6 +228,13 @@ const VcsStatusLocalShape = {
     insertions: NonNegativeInt,
     deletions: NonNegativeInt,
   }),
+  branchChanges: Schema.optional(
+    Schema.Struct({
+      baseRef: Schema.NullOr(TrimmedNonEmptyStringSchema),
+      insertions: NonNegativeInt,
+      deletions: NonNegativeInt,
+    }),
+  ),
 };
 
 const VcsStatusRemoteShape = {
@@ -330,6 +337,82 @@ export const GitRunStackedActionResult = Schema.Struct({
 });
 export type GitRunStackedActionResult = typeof GitRunStackedActionResult.Type;
 
+export const GitPullRequestGraphInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  baseBranch: TrimmedNonEmptyStringSchema,
+  headBranch: TrimmedNonEmptyStringSchema,
+});
+export type GitPullRequestGraphInput = typeof GitPullRequestGraphInput.Type;
+
+/** `head` is the branch's own first-parent line, `base` the base's, `side` a branch merged into the base. */
+export const GitGraphLane = Schema.Literals(["head", "base", "side"]);
+export type GitGraphLane = typeof GitGraphLane.Type;
+
+export const GitGraphCommit = Schema.Struct({
+  sha: TrimmedNonEmptyStringSchema,
+  subject: Schema.String,
+  authorName: Schema.String,
+  authoredAt: Schema.String,
+  parents: Schema.Array(TrimmedNonEmptyStringSchema),
+  /** Branch names pointing at the commit, remote prefix dropped. */
+  refs: Schema.Array(TrimmedNonEmptyStringSchema),
+  lane: GitGraphLane,
+  /** A base commit the head branch has already merged in. */
+  inHead: Schema.optional(Schema.Boolean),
+});
+export type GitGraphCommit = typeof GitGraphCommit.Type;
+
+export const GitConflictHunk = Schema.Struct({
+  /** Where the clash starts in the head branch's copy of the file. */
+  line: PositiveInt,
+  ours: Schema.Array(Schema.String),
+  theirs: Schema.Array(Schema.String),
+});
+export type GitConflictHunk = typeof GitConflictHunk.Type;
+
+export const GitConflictFile = Schema.Struct({
+  path: GitFilePath,
+  count: PositiveInt,
+  /** Base commits since the fork that touched the file, newest first. */
+  baseCommits: Schema.Array(TrimmedNonEmptyStringSchema),
+  oursAuthor: Schema.NullOr(Schema.String),
+  theirsAuthor: Schema.NullOr(Schema.String),
+  /** The first few clashes only, each cut to a few lines a side. */
+  hunks: Schema.Array(GitConflictHunk),
+});
+export type GitConflictFile = typeof GitConflictFile.Type;
+
+export const GitPullRequestGraph = Schema.Struct({
+  /** Where the head branch left the base: the oldest own commit's parent. */
+  mergeBase: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  /** Newest first, capped; `*Truncated` says more exist. */
+  head: Schema.Array(GitGraphCommit),
+  headTruncated: Schema.Boolean,
+  base: Schema.Array(GitGraphCommit),
+  baseTruncated: Schema.Boolean,
+  /** The fork commit itself, the graph's last row. */
+  fork: Schema.NullOr(GitGraphCommit),
+  /** The head branch is already part of the base (merged with a merge commit). */
+  merged: Schema.Boolean,
+  /** Null when Git cannot say without touching the checkout (older than 2.38). */
+  conflicts: Schema.NullOr(
+    Schema.Struct({
+      files: Schema.Array(GitConflictFile),
+      truncated: Schema.Boolean,
+    }),
+  ),
+  /** Set while the checkout is in the middle of a merge. */
+  resolving: Schema.NullOr(
+    Schema.Struct({
+      total: NonNegativeInt,
+      unresolved: Schema.Array(GitFilePath),
+    }),
+  ),
+  /** The checkout's `user.name`, so the card can say "You". */
+  viewerName: Schema.NullOr(Schema.String),
+});
+export type GitPullRequestGraph = typeof GitPullRequestGraph.Type;
+
 export const VcsPullResult = Schema.Struct({
   status: Schema.Literals(["pulled", "skipped_up_to_date"]),
   refName: TrimmedNonEmptyStringSchema,
@@ -337,12 +420,9 @@ export const VcsPullResult = Schema.Struct({
 });
 export type VcsPullResult = typeof VcsPullResult.Type;
 
-// RPC / domain errors
-
-// Well-known git failures, recognized from stderr at the driver and carried as
-// a closed set of diagnostic tags. Git's stderr itself stays off the error: it
-// echoes argv and remote URLs, which can hold credentials. The tag names the
-// cause for logs and callers; it does not select a message.
+// Git's stderr itself stays off the error: it echoes argv and remote URLs,
+// which can hold credentials. The tag names the cause for logs and callers; it
+// does not select a message.
 export const GitCommandFailureReason = Schema.Literals([
   "authentication_failed",
   "branch_already_exists",

@@ -9,6 +9,8 @@ import * as Path from "effect/Path";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
 
+import * as ProcessRunner from "./processRunner.ts";
+import * as ServerOwnership from "./serverOwnership.ts";
 import * as ServerRuntimeState from "./serverRuntimeState.ts";
 
 const isServerRuntimeStateError = Schema.is(ServerRuntimeState.ServerRuntimeStateError);
@@ -18,7 +20,126 @@ interface CapturedLog {
   readonly annotations: Readonly<Record<string, unknown>>;
 }
 
+describe("server ownership", () => {
+  const layerOwnership = ProcessRunner.layer.pipe(Layer.provideMerge(NodeServices.layer));
+  const makeState = ServerRuntimeState.makePersistedServerRuntimeState({
+    config: { host: undefined, devUrl: undefined },
+    port: 3773,
+  });
+
+  it.effect("lets only one of two racing starts own a state directory", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-owner-race-" });
+      const statePath = path.join(root, "server-runtime.json");
+      const attempts = yield* Effect.all(
+        [
+          ServerOwnership.acquireServerOwnership(statePath).pipe(Effect.result),
+          ServerOwnership.acquireServerOwnership(statePath).pipe(Effect.result),
+        ],
+        { concurrency: "unbounded" },
+      );
+      assert.equal(attempts.filter((result) => result._tag === "Success").length, 1);
+      const refused = attempts.find((result) => result._tag === "Failure");
+      assert.equal(refused?.failure._tag, "ServerAlreadyRunningError");
+    }).pipe(Effect.provide(layerOwnership)),
+  );
+
+  it.effect("refuses a second owner without touching its record, then allows a restart", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-owner-" });
+      const statePath = path.join(root, "server-runtime.json");
+      const state = yield* makeState;
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const owner = yield* ServerOwnership.acquireServerOwnership(statePath);
+          yield* owner.publish(state);
+          const before = yield* fs.readFileString(statePath);
+          const refused = yield* ServerOwnership.acquireServerOwnership(statePath).pipe(
+            Effect.flip,
+          );
+          assert.equal(refused._tag, "ServerAlreadyRunningError");
+          assert.equal(yield* fs.readFileString(statePath), before);
+        }),
+      );
+      assert.isFalse(yield* fs.exists(statePath));
+      yield* Effect.scoped(ServerOwnership.acquireServerOwnership(statePath));
+    }).pipe(Effect.provide(layerOwnership)),
+  );
+
+  it.effect("refuses beside a live pre-lock server and ignores a stale record", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-owner-legacy-" });
+      const statePath = path.join(root, "server-runtime.json");
+      const state = yield* makeState;
+      yield* ServerRuntimeState.persistServerRuntimeState({
+        path: statePath,
+        // @effect-diagnostics-next-line globalDateInEffect:off - Legacy identity uses the real process start time, not TestClock.
+        state: { ...state, startedAt: new Date().toISOString() },
+      });
+      const refused = yield* Effect.scoped(ServerOwnership.acquireServerOwnership(statePath)).pipe(
+        Effect.flip,
+      );
+      assert.equal(refused._tag, "ServerAlreadyRunningError");
+      yield* ServerRuntimeState.persistServerRuntimeState({
+        path: statePath,
+        state: { ...state, pid: 0 },
+      });
+      yield* Effect.scoped(ServerOwnership.acquireServerOwnership(statePath));
+    }).pipe(Effect.provide(layerOwnership)),
+  );
+
+  it.effect("never removes a runtime record another server published", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-owner-cleanup-" });
+      const statePath = path.join(root, "server-runtime.json");
+      const state = yield* makeState;
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const owner = yield* ServerOwnership.acquireServerOwnership(statePath);
+          yield* owner.publish(state);
+          yield* ServerRuntimeState.persistServerRuntimeState({
+            path: statePath,
+            state: { ...state, ownerId: "other-owner" },
+          });
+        }),
+      );
+      const remaining = yield* ServerRuntimeState.readPersistedServerRuntimeState(statePath);
+      assert.equal(Option.getOrThrow(remaining).ownerId, "other-owner");
+    }).pipe(Effect.provide(layerOwnership)),
+  );
+});
+
 describe("serverRuntimeState", () => {
+  it.effect("records an optional socket address without changing the nominal TCP fields", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-runtime-uds-" });
+      const statePath = path.join(directory, "server-runtime.json");
+      const listenPath = path.join(directory, "local.sock");
+      const state = yield* ServerRuntimeState.makePersistedServerRuntimeState({
+        config: { host: "127.0.0.1", devUrl: undefined, listenPath },
+        port: 3773,
+      });
+      assert.equal(state.listenPath, listenPath);
+      assert.equal(state.origin, "http://127.0.0.1:3773");
+      assert.equal(state.port, 3773);
+      yield* ServerRuntimeState.persistServerRuntimeState({ path: statePath, state });
+      assert.deepEqual(
+        Option.getOrThrow(yield* ServerRuntimeState.readPersistedServerRuntimeState(statePath)),
+        state,
+      );
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("persists and reads the runtime state", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -75,8 +196,6 @@ describe("serverRuntimeState", () => {
       });
 
       assert.isTrue(managed.serviceManaged);
-      // Older readers decode the file without the field, so it is omitted
-      // rather than written as false.
       assert.isFalse("serviceManaged" in manual);
     }),
   );

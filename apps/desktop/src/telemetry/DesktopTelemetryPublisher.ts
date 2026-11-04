@@ -70,11 +70,7 @@ export class DesktopTelemetryPublisher extends Context.Service<
       message: DesktopTelemetryControlMessage,
     ) => Effect.Effect<void>;
     readonly removeControlSource: (sourceId: string) => Effect.Effect<void>;
-    /** Sends the report to the attached backend and replays the latest one
-        to backends that attach later (including the one spawned after a
-        relaunch). */
     readonly publishUpdateReport: (report: DesktopUpdateStatusReport) => Effect.Effect<void>;
-    /** Update requests received over the control channel. Single consumer. */
     readonly updateRequests: Stream.Stream<DesktopTelemetryRequestDesktopUpdate>;
     readonly updateCommits: Stream.Stream<DesktopTelemetryCommitDesktopUpdate>;
     readonly updateCancellations: Stream.Stream<DesktopTelemetryCancelDesktopUpdate>;
@@ -147,7 +143,10 @@ function sampleInterval(
 }
 
 /** @public Service construction is part of the canonical Effect module API. */
+import * as DesktopRendererHistory from "./DesktopRendererHistory.ts";
+
 export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
+  const rendererHistory = yield* DesktopRendererHistory.DesktopRendererHistory;
   const electronApp = yield* ElectronApp.ElectronApp;
   const powerMonitor = yield* ElectronPowerMonitor.ElectronPowerMonitor;
   const cursor = yield* AgentCursor;
@@ -221,10 +220,12 @@ export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
           powerMonitor.getSystemIdleTime,
           powerMonitor.getSystemIdleState(IDLE_THRESHOLD_SECONDS),
           powerMonitor.isOnBatteryPower,
-          demand ? electronApp.getAppMetrics : Effect.succeed([]),
+          electronApp.getAppMetrics,
         ],
         { concurrency: "unbounded" },
       );
+      // One Electron sampler preserves the shared CPU measurement interval.
+      yield* rendererHistory.recordMetrics(metrics);
       const polledLocked =
         systemIdleState === "unknown"
           ? currentPower.locked
@@ -279,7 +280,7 @@ export const make = Effect.fn("desktop.telemetryPublisher.make")(function* () {
           updatedAt: sampledAt,
         },
         speedLimitPercent: observedPower.speedLimitPercent,
-        electronProcesses: metrics.map((metric) => ({
+        electronProcesses: (demand ? metrics : []).map((metric) => ({
           pid: metric.pid,
           creationTimeMs: Math.max(0, Math.round(metric.creationTime)),
           type: metric.type,

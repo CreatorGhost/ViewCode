@@ -8,6 +8,7 @@ import {
   type ComputerUseScreen,
   type ComputerUseMode,
   type ResponseStreamingMode,
+  type SpeakMode,
   type ServerSettings,
   type ServerSettingsPatch,
   type ThreadEnvMode,
@@ -16,7 +17,7 @@ import {
   type ProjectScopedServerSettingKey,
 } from "@t3tools/contracts";
 import { useRef, useState, type ComponentProps } from "react";
-import { Alert, Platform, Pressable, View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { RUNTIME_MODE_CHOICES } from "../threads/thread-settings-options";
@@ -113,10 +114,23 @@ const STREAMING_CHOICES: ReadonlyArray<{
     label: "Finished paragraphs",
     description: "Show each paragraph or code block as it completes.",
   },
+];
+
+const SPEAK_CHOICES: ReadonlyArray<{
+  readonly mode: SpeakMode;
+  readonly label: string;
+  readonly description: string;
+}> = [
+  { mode: "off", label: "Off", description: "Replies are read only when you tap Read aloud." },
   {
-    mode: "token",
-    label: "Token by token (legacy)",
-    description: "Repaint for every token; this can be slower.",
+    mode: "summary",
+    label: "Summary",
+    description: "Read a short spoken summary when a reply finishes in the open thread.",
+  },
+  {
+    mode: "full",
+    label: "Full reply",
+    description: "Read the whole reply when it finishes in the open thread, skipping code.",
   },
 ];
 
@@ -209,6 +223,12 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
   );
   const [pendingWrites, setPendingWrites] = useState(0);
   const writeInFlight = useRef(false);
+  // A closing view can still save its drafts while a write is pending, after
+  // the controls disabled. Those patches run once the current write settles.
+  const queuedPatch = useRef<{ key: string; patch: ServerSettingsPatch } | null>(null);
+  const targetsKey = targets
+    .map((target) => `${target.environment.environmentId}:${target.projectId}`)
+    .join(",");
   const [pendingTargets, setPendingTargets] = useState<
     readonly ScopedMobileSettingsTarget[] | null
   >(null);
@@ -229,7 +249,15 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
     reportFailure: true,
   });
   const write = (patch: ServerSettingsPatch) => {
-    if (writeInFlight.current || !hasConnectedSelection) return;
+    if (writeInFlight.current) {
+      const queued = queuedPatch.current;
+      queuedPatch.current = {
+        key: targetsKey,
+        patch: queued?.key === targetsKey ? { ...queued.patch, ...patch } : patch,
+      };
+      return;
+    }
+    if (!hasConnectedSelection) return;
     const writes = planMobileScopedSettingsPatch(targets, projectSelected, patch);
     if (writes.length === 0) return;
     writeInFlight.current = true;
@@ -243,6 +271,11 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
       writeInFlight.current = false;
       setPendingTargets(null);
       setPendingWrites((count) => count - 1);
+      const queued = queuedPatch.current;
+      queuedPatch.current = null;
+      // These targets may not show this write yet, so send it again with the
+      // queued patch; project overrides are replaced whole.
+      if (queued?.key === targetsKey) write({ ...patch, ...queued.patch });
     });
   };
   const clearProjectOverrides = () => {
@@ -258,6 +291,8 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
       ),
     ).finally(() => {
       writeInFlight.current = false;
+      // Resending a draft over these pre-clear targets would undo the clear.
+      queuedPatch.current = null;
       setPendingTargets(null);
       setPendingWrites((count) => count - 1);
     });
@@ -431,25 +466,37 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                         separated={index > 0}
                         disabled={disabledFor("responseStreamingMode")}
                         onPress={() => {
-                          if (choice.mode !== "token") {
-                            write({ responseStreamingMode: choice.mode });
-                            return;
-                          }
-                          Alert.alert(
-                            "Use legacy token streaming?",
-                            "Repainting every token can make the app slower.",
-                            [
-                              { text: "Cancel", style: "cancel" },
-                              {
-                                text: "Use token streaming",
-                                onPress: () => write({ responseStreamingMode: "token" }),
-                              },
-                            ],
-                          );
+                          write({ responseStreamingMode: choice.mode });
                         }}
                       />
                     ))}
                   </SettingsSection>
+                  <View className="gap-2">
+                    <SettingsSection
+                      title="Speak replies"
+                      trailing={
+                        pendingWrites === 0 && uniform("speakMode") === null ? (
+                          <MixedValuesLabel projectSelected={projectSelected} />
+                        ) : null
+                      }
+                    >
+                      {SPEAK_CHOICES.map((choice, index) => (
+                        <ChoiceRow
+                          key={choice.mode}
+                          label={choice.label}
+                          description={choice.description}
+                          selected={uniform("speakMode") === choice.mode}
+                          separated={index > 0}
+                          disabled={disabledFor("speakMode")}
+                          onPress={() => write({ speakMode: choice.mode })}
+                        />
+                      ))}
+                    </SettingsSection>
+                    <Text className="px-2 text-sm text-foreground-muted">
+                      Shared by every device on this environment. Each device speaks with its own
+                      voice, and only while the app is open on that thread.
+                    </Text>
+                  </View>
                   <SettingsSection title="Preview browser">
                     <FanoutSwitchRow
                       icon="globe"

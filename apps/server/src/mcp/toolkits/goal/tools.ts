@@ -1,15 +1,22 @@
-import { McpCapabilityUnavailableError, ThreadGoalObjective } from "@t3tools/contracts";
+import {
+  McpCapabilityUnavailableError,
+  OrchestratorMcpFailure,
+  ThreadGoalObjective,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import * as Tool from "effect/unstable/ai/Tool";
-import * as Toolkit from "effect/unstable/ai/Toolkit";
+import * as Tool from "effect/ai/Tool";
+import * as Toolkit from "effect/ai/Toolkit";
 
-import * as ThreadGoals from "../../../orchestration/ThreadGoals.ts";
+import * as ThreadGoals from "../../../orchestration-v2/ViewCodeGoals.ts";
+import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 export const GoalToolError = Schema.Union([
   McpCapabilityUnavailableError,
+  OrchestratorMcpFailure,
   ThreadGoals.ThreadGoalThreadNotFoundError,
   ThreadGoals.ThreadGoalMissingError,
+  ThreadGoals.ThreadGoalInvalidObjectiveError,
   ThreadGoals.ThreadGoalStoreError,
 ]);
 
@@ -36,7 +43,11 @@ const GetGoalTool = Tool.make("viewcode_get_goal", {
     "Read this thread's goal: the objective the user set for it and whether it is paused. goal is null when none is set.",
   success: GoalResult,
   failure: GoalToolError,
-  dependencies: [McpInvocationContext.McpInvocationContext],
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadGoals.ViewCodeGoals,
+    ThreadManagement.ThreadManagementService,
+  ],
 })
   .annotate(Tool.Title, "Read thread goal")
   .annotate(Tool.Readonly, true)
@@ -59,7 +70,11 @@ const SetGoalTool = Tool.make("viewcode_set_goal", {
   }),
   success: GoalResult,
   failure: GoalToolError,
-  dependencies: [McpInvocationContext.McpInvocationContext],
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadGoals.ViewCodeGoals,
+    ThreadManagement.ThreadManagementService,
+  ],
 })
   .annotate(Tool.Title, "Set thread goal")
   .annotate(Tool.Readonly, false)
@@ -67,4 +82,34 @@ const SetGoalTool = Tool.make("viewcode_set_goal", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
-export const GoalToolkit = Toolkit.make(GetGoalTool, SetGoalTool);
+const GetDebugTool = Tool.make("viewcode_get_debug_mode", {
+  description: "Read whether this thread's ViewCode debug mode is enabled.",
+  success: Schema.Struct({ enabled: Schema.Boolean }),
+  failure: GoalToolError,
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadGoals.ViewCodeGoals,
+    ThreadManagement.ThreadManagementService,
+  ],
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+const SetDebugTool = Tool.make("viewcode_set_debug_mode", {
+  description:
+    "Enable or disable this thread's ViewCode debug mode only when the user explicitly requests it. Debug mode asks every provider to reproduce, gather evidence and test causes before changing code. It grants no extra access.",
+  parameters: Schema.Struct({ enabled: Schema.Boolean }),
+  success: Schema.Struct({ enabled: Schema.Boolean }),
+  failure: GoalToolError,
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadGoals.ViewCodeGoals,
+    ThreadManagement.ThreadManagementService,
+  ],
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+export const GoalToolkit = Toolkit.make(GetGoalTool, SetGoalTool, GetDebugTool, SetDebugTool);

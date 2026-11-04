@@ -9,6 +9,7 @@ import { ControlPillMenu } from "../../components/ControlPillMenu";
 import { PullRequestAvatar } from "./PullRequestPresentation";
 import { PullRequestCardRow } from "./PullRequestControls";
 import { PullRequestAgentRow } from "./PullRequestAgentRow";
+import { PullRequestGlyph } from "./pullRequestGlyphs";
 import { composerPullRequests } from "../../state/pull-requests";
 import { useEnvironmentQuery } from "../../state/query";
 import { allowedUpdateMethods, PR_ACTION_ICONS, PR_ACTION_LABELS } from "./pullRequestActions";
@@ -181,7 +182,9 @@ export function PullRequestBranchRow(props: RowProps) {
             ? `No conflicts with ${props.pr.baseBranch}`
             : "Branch"
       }
-      icon={conflicting ? "exclamationmark.triangle" : clean ? "checkmark.circle" : "arrow.branch"}
+      icon={
+        conflicting ? PullRequestGlyph.conflicting : clean ? "checkmark.circle" : "arrow.branch"
+      }
       tint={
         conflicting
           ? "accent-danger-foreground"

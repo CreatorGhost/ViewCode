@@ -1,7 +1,7 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { PullRequestDetail, PullRequestMergeMethod } from "@t3tools/contracts";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useRef, useState } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, View } from "react-native";
 import { AppText as Text } from "../../components/AppText";
@@ -23,6 +23,7 @@ import { pullRequestStackMerge, singlePullRequestMergeAllowed } from "./pullRequ
 import { pullRequestTarget, type PullRequestParams } from "./usePullRequestDiff";
 import { usePullRequestPermissions } from "./usePullRequestPermissions";
 import type { PullRequestStackState } from "./usePullRequestStack";
+import { PullRequestGlyph } from "./pullRequestGlyphs";
 
 export function PullRequestMergeControls(props: {
   readonly pr: PullRequestDetail;
@@ -195,7 +196,7 @@ export function PullRequestMergeControls(props: {
               <ActivityIndicator size="small" colorClassName="accent-icon-muted" />
             ) : (
               <SymbolView
-                name="arrow.triangle.merge"
+                name={PullRequestGlyph.merged}
                 size={16}
                 tintColorClassName={canMerge ? "accent-screen" : "accent-icon-muted"}
               />

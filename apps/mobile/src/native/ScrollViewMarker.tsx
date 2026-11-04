@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { View, type StyleProp, type ViewStyle } from "react-native";
 
 /**
- * Stand-in for react-native-screens 5's `ScrollViewMarker`, which upstream T3 Code uses for iOS
+ * Stand-in for react-native-screens 5's `ScrollViewMarker`, which upstream ViewCode uses for iOS
  * scroll-edge effects. ViewCode is on react-native-screens 4, so the marker only keeps the layout
  * its children expect: a styled wrapper when given a style, nothing otherwise.
  */

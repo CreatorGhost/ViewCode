@@ -8,6 +8,8 @@ import type {
 } from "@t3tools/contracts";
 import type { AppSymbolName } from "../../components/AppSymbol";
 
+import { PullRequestGlyph } from "./pullRequestGlyphs";
+
 type ActionDetail = Pick<
   PullRequestDetail,
   "state" | "isDraft" | "mergeability" | "autoMergeEnabled" | "workflowApprovalsRequired"
@@ -43,10 +45,11 @@ export const PR_ACTION_LABELS = {
   "disable-auto-merge": "Disable auto-merge",
   revert: "Create revert pull request",
   "approve-workflows": "Approve workflows",
+  "delete-branch": "Delete branch",
 } as const satisfies Record<PullRequestAction, string>;
 
 export const PR_ACTION_ICONS = {
-  merge: "arrow.triangle.merge",
+  merge: PullRequestGlyph.merged,
   ready: "checkmark.circle",
   draft: "pencil",
   close: "xmark",
@@ -56,6 +59,7 @@ export const PR_ACTION_ICONS = {
   "disable-auto-merge": "xmark",
   revert: "arrow.uturn.backward",
   "approve-workflows": "checkmark",
+  "delete-branch": "trash",
 } as const satisfies Record<PullRequestAction, AppSymbolName>;
 
 export const ALL_PR_ACTIONS: readonly PullRequestAction[] = [
@@ -69,6 +73,7 @@ export const ALL_PR_ACTIONS: readonly PullRequestAction[] = [
   "close",
   "reopen",
   "revert",
+  "delete-branch",
 ];
 
 export function allowedMergeMethods(pr: ActionDetail) {

@@ -30,4 +30,4 @@ is not affected.
 - A side chat that has been idle for 24 hours is archived. It is not listed in
   the sidebar while it is a side chat.
 
-Mobile has no side chat panel; side chats are hidden from the mobile thread list.
+On mobile, open a side chat from the thread header; it opens as a sheet. Side chats are hidden from the mobile thread list.

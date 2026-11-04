@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - opaque local identifiers use Node UUIDs.
 /**
  * Per-thread window ids and element refs. The agent only ever sees these
  * small integers; the driver's handles stay on the server.
@@ -60,7 +61,7 @@ export type RefLookup =
   | { readonly _tag: "Retired"; readonly reason: "newer-observation" | "window-closed" };
 
 /** Refs kept per thread; the oldest observations go first. */
-export const MAX_REFS_PER_THREAD = 2000;
+const MAX_REFS_PER_THREAD = 2000;
 
 /** First number of this server run; ids before it belong to another run. */
 const RUN_ID_BASE = NodeCrypto.randomInt(1, 100_000) * 100;

@@ -10,8 +10,9 @@ import {
   ThreadId,
   type ThreadPullRequestKey,
 } from "@t3tools/contracts";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 
+import { scopeThreadShell } from "../viewcodeThread.ts";
 import { scopeThreadRef } from "../environment/scoped.ts";
 import {
   type ReviewRunState,
@@ -110,9 +111,9 @@ export function createLinkedReviewThreadsAtomFamily(input: {
     const asking = threadId === null ? null : ThreadId.make(threadId);
     let previous: ReadonlyArray<LinkedReviewThread> = NO_LINKED;
     return Atom.make((get) => {
-      const threads = get(input.threadShellsAtom).filter(
-        (shell) => shell.environmentId === environmentId,
-      );
+      const threads = get(input.threadShellsAtom)
+        .filter((shell) => shell.environmentId === environmentId)
+        .map((shell) => scopeThreadShell(shell.environmentId, shell.source));
       const control =
         input.agentControlAtom === undefined ? null : get(input.agentControlAtom(environmentId));
       const queued = (threadId: ThreadId) => control?.get(threadId)?.queued ?? 0;

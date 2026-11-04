@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { useEffect, useRef } from "react";
 
 import { prepareTurnAttachments } from "../lib/attachmentUpload";
@@ -18,6 +18,7 @@ import { useServerConfigs } from "./entities";
 import { flattenQueuedThreadMessages, threadOutboxManager } from "./thread-outbox";
 import { useThreadOutboxMessages } from "./use-thread-outbox";
 import {
+  ComposerDraftPersistenceError,
   composerDraftsAtom,
   ensureComposerDraftsLoaded,
   flushComposerDrafts,
@@ -89,7 +90,13 @@ export function useComposerAttachmentUploadWorker() {
                 }
               }
               if (!retained) return "abandon";
-              await flushComposerDrafts();
+              // The reference is already in the in-memory draft, and Send copies it into the
+              // outbox, which saves on its own. A failed draft save only costs a re-upload after
+              // a restart, so it must not fail an upload the server already accepted.
+              await flushComposerDrafts().catch((error: unknown) => {
+                if (!(error instanceof ComposerDraftPersistenceError)) throw error;
+                console.warn("[composer-attachments] could not save the uploaded reference", error);
+              });
               return "persisted";
             },
           });

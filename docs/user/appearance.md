@@ -37,12 +37,20 @@ theme. With **All projects**, or a project without a colour, they use the theme'
 **Settings → Appearance → Project colour**, turn off **Colour the app with the active project**
 to keep the theme accent everywhere, or **Composer glow** to drop the glow.
 
+## Composer context
+
+Git-backed projects show branch and worktree controls below the composer while you create a thread.
+The controls retreat as the composer docks after you send the first message.
+
+Turn on **Composer context** to keep those controls visible after the thread starts. This preference
+applies to the web and desktop clients.
+
 ## Motion
 
-The main sidebar, right panel, and terminal drawer open and close immediately by default. Move the
-**Panel animations** slider above 0 ms to add motion, up to 400 ms, unless reduced motion is enabled
-in your operating system. Moving between threads always snaps to the selected thread's panel state
-without replaying its transitions.
+The main sidebar, right panel, and terminal drawer slide open and closed in 300 ms by default. Use the
+**Panel animations** slider to change the speed, up to 400 ms, or set it to 0 ms to open and close them
+immediately. Motion is off when reduced motion is enabled in your operating system. Moving between
+threads always snaps to the selected thread's panel state without replaying its transitions.
 
 ## Read aloud
 
@@ -64,6 +72,20 @@ Under **Read aloud** in **Settings → Appearance** you can:
   MB, the fullest sound), or **System voice (no download)**. Choosing a size downloads it once.
 - Choose the voice and speed, and select **Preview** to hear them.
 - Select **Remove downloaded voice** to delete every downloaded size and free the space.
+- Set **Speak replies** to read each reply aloud when its turn finishes, without pressing anything.
+
+**Speak replies** reads only the chat you have open, and only turns that finish while it is open.
+**Summary** reads a short spoken version of the reply, which the turn's provider writes with its
+smaller model a moment after the turn ends; the chat still shows the full reply. **Full reply**
+reads the whole reply. The setting is saved on the server, so every device connected to it does the
+same. Change it from the speaker menu in the chat's top bar or with **Speak mode** in the command
+palette, and stop a reading the way you stop any other.
+
+On the phone, tap the speaker button beside Copy under a finished reply; tap it again to stop. The
+phone uses its system voice.
+
+On the phone, set **Speak replies** in **Settings → Agent behavior**. **Full reply** there skips the
+reply's code, and nothing is read while the app is in the background.
 
 Speech runs on your device; your replies are never sent anywhere. Natural voices speak English. On
 macOS, download more system voices in **System Settings → Accessibility → Spoken Content → System
@@ -78,31 +100,31 @@ change. Export your theme as JSON to share it.
 ## Environment themes
 
 Environment themes and defaults come from the server serving your web app or the desktop app's
-main local environment. app.t3.codes and additional connections do not use them.
+main local environment. Additional connections do not use them.
 
 Select a published theme in **Settings → Appearance** to follow its palette as the server updates
 it. **Duplicate** makes an independent copy you can edit. A saved custom theme with the same ID
-takes precedence. If the server stops publishing the selected theme, T3 Code falls back to its
+takes precedence. If the server stops publishing the selected theme, ViewCode falls back to its
 standard theme.
 
 Run this on the server to set a default and switch connected clients to it:
 
 ```bash
-t3 theme set nightfall
+viewcode theme set nightfall
 ```
 
 Clients that are offline apply it when they reconnect. Each client applies the setting once;
-choosing another theme afterward sticks until the next `t3 theme set`. Run the command again to
+choosing another theme afterward sticks until the next `viewcode theme set`. Run the command again to
 reapply it, even if the name is unchanged.
 
-`t3 theme clear` removes the default without changing anyone's current theme. `t3 theme show` lists
+`viewcode theme clear` removes the default without changing anyone's current theme. `viewcode theme show` lists
 the default and published themes.
 
 ### Publish a theme
 
-Save a theme exported from T3 Code into `~/.t3/userdata/themes/` on the server, or the `themes`
-directory under your custom state directory. The filename supplies the theme ID: `nightfall.json`
-can be selected with `t3 theme set nightfall`. Keep the filename stable when updating its colors.
+Save a theme exported from ViewCode into `~/.viewcode/userdata/themes/` on the server, or the `themes`
+directory under your custom state directory. An existing installation configured with a different home keeps that location. The filename supplies the theme ID: `nightfall.json`
+can be selected with `viewcode theme set nightfall`. Keep the filename stable when updating its colors.
 Do not use `system`, `light`, `dark`, or a built-in theme's ID.
 
 For an integration that generates a palette, this shorter format also works:
@@ -120,7 +142,7 @@ For an integration that generates a palette, this shorter format also works:
 }
 ```
 
-Set `appearance` to `light` or `dark` and supply hex colors for `canvas` and `accent`. T3 Code
+Set `appearance` to `light` or `dark` and supply hex colors for `canvas` and `accent`. ViewCode
 generates the rest. The optional `colors` overrides use the names in the theme editor's advanced
 view.
 

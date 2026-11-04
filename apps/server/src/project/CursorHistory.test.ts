@@ -16,25 +16,12 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
 
-import * as ServerConfig from "../config.ts";
-import { OrchestrationCommandReceiptRepositoryLive } from "../persistence/Layers/OrchestrationCommandReceipts.ts";
-import { OrchestrationEventStoreLive } from "../persistence/Layers/OrchestrationEventStore.ts";
-import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as ProviderSessionRuntime from "../persistence/ProviderSessionRuntime.ts";
-import { OrchestrationEngineLive } from "../orchestration/Layers/OrchestrationEngine.ts";
-import { OrchestrationProjectionPipelineLive } from "../orchestration/Layers/ProjectionPipeline.ts";
-import { OrchestrationProjectionSnapshotQueryLive } from "../orchestration/Layers/ProjectionSnapshotQuery.ts";
-import * as ThreadBackgroundLiveness from "../orchestration/ThreadBackgroundLiveness.ts";
-import * as ThreadPlanProgress from "../orchestration/ThreadPlanProgress.ts";
-import * as OrchestrationEngine from "../orchestration/Services/OrchestrationEngine.ts";
-import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ProviderSessionDirectoryLive } from "../provider/Layers/ProviderSessionDirectory.ts";
-import * as ProviderSessionDirectory from "../provider/Services/ProviderSessionDirectory.ts";
-import * as ServerSettings from "../serverSettings.ts";
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
-import { importRecentAgentThreads, listImportableAgentSessions } from "./AgentSessionImporter.ts";
+import * as AgentSessionImporter from "./AgentSessionImporter.ts";
+import * as ImportHarness from "./testkit/AgentSessionImportHarness.ts";
+import * as CursorFixtures from "./testkit/CursorHistoryFixtures.ts";
 import * as CursorHistory from "./CursorHistory.ts";
-import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
 
 const FIXTURE_DIR = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "viewcode-cursor-test-"));
 const WORKSPACE = NodePath.join(FIXTURE_DIR, "workspace");
@@ -56,61 +43,11 @@ const paths: CursorHistory.CursorPaths = { chatsDir: CHATS_DIR, editorUserDir: E
 const sha256 = (file: string) =>
   NodeCrypto.createHash("sha256").update(NodeFS.readFileSync(file)).digest("hex");
 
-/** A root blob: other fields around field 1 entries holding the message blob ids. */
-const rootBlob = (messageIds: ReadonlyArray<string>) =>
-  Buffer.concat([
-    Buffer.from([0x10, 0x05]),
-    ...messageIds.flatMap((id) => [Buffer.from([0x0a, 0x20]), Buffer.from(id, "hex")]),
-    Buffer.from([0x1a, 0x03, 1, 2, 3]),
-    Buffer.from([0x25, 0, 0, 0, 0]),
-  ]);
-
-interface CliChatOptions {
-  readonly hash: string;
-  readonly id: string;
-  readonly meta: Record<string, unknown>;
-  readonly name?: string;
-  readonly messages?: ReadonlyArray<unknown>;
-  readonly skipStore?: boolean;
-  readonly storeSchema?: string;
-  readonly chatsDir?: string;
-}
-
-const buildCliChat = (options: CliChatOptions) => {
-  const dir = NodePath.join(options.chatsDir ?? CHATS_DIR, options.hash, options.id);
-  NodeFS.mkdirSync(dir, { recursive: true });
-  NodeFS.writeFileSync(NodePath.join(dir, "meta.json"), JSON.stringify(options.meta));
-  if (options.skipStore === true) return;
-  const db = new NodeSqlite.DatabaseSync(NodePath.join(dir, "store.db"));
-  db.exec(
-    options.storeSchema ??
-      "CREATE TABLE meta (key TEXT, value TEXT); CREATE TABLE blobs (id TEXT, data BLOB)",
-  );
-  if (options.storeSchema === undefined) {
-    const insert = db.prepare("INSERT INTO blobs (id, data) VALUES (?, ?)");
-    const ids = (options.messages ?? []).map((message) => {
-      const data = Buffer.from(JSON.stringify(message));
-      const id = NodeCrypto.createHash("sha256").update(data).digest("hex");
-      insert.run(id, data);
-      return id;
-    });
-    const root = rootBlob(ids);
-    const rootId = NodeCrypto.createHash("sha256").update(root).digest("hex");
-    insert.run(rootId, root);
-    db.prepare("INSERT INTO meta (key, value) VALUES ('0', ?)").run(
-      Buffer.from(
-        JSON.stringify({
-          agentId: options.id,
-          latestRootBlobId: rootId,
-          name: options.name ?? "",
-          lastUsedModel: "composer-2",
-          blobEncryptionKey: "SECRET-KEY-MATERIAL",
-        }),
-      ).toString("hex"),
-    );
-  }
-  db.close();
-};
+const buildCliChat = (
+  options: Omit<Parameters<typeof CursorFixtures.writeCliChat>[0], "chatsDir"> & {
+    readonly chatsDir?: string;
+  },
+) => CursorFixtures.writeCliChat({ ...options, chatsDir: options.chatsDir ?? CHATS_DIR });
 
 const cliMeta = (extra: Record<string, unknown> = {}) => ({
   schemaVersion: 1,
@@ -121,15 +58,7 @@ const cliMeta = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-const userPrompt = (query: string) => ({
-  role: "user",
-  content: [
-    {
-      type: "text",
-      text: `<user_info>OS: darwin</user_info>\n<user_query>\n${query}\n</user_query>`,
-    },
-  ],
-});
+const userPrompt = CursorFixtures.userPrompt;
 
 const buildCliFixtures = () => {
   buildCliChat({
@@ -371,36 +300,7 @@ it("finds the editor store where Cursor keeps it on each platform", () => {
   );
 });
 
-const runtimeRepository = ProviderSessionRuntime.layer.pipe(Layer.provide(SqlitePersistenceMemory));
-const integrationLayer = Layer.mergeAll(
-  OrchestrationEngineLive.pipe(
-    Layer.provide(OrchestrationProjectionSnapshotQueryLive),
-    Layer.provide(OrchestrationProjectionPipelineLive),
-  ),
-  OrchestrationProjectionSnapshotQueryLive,
-  ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepository)),
-  AgentSessionScanner.layer.pipe(
-    Layer.provide(CursorHistory.layerFromPaths(paths)),
-    Layer.provide(OrchestrationProjectionSnapshotQueryLive),
-    // Claude and Codex are off so the scan never reads this machine's homes.
-    Layer.provide(
-      ServerSettings.layerTest({
-        providers: { claudeAgent: { enabled: false }, codex: { enabled: false } },
-      }),
-    ),
-  ),
-).pipe(
-  Layer.provide(ThreadBackgroundLiveness.layer),
-  Layer.provide(ThreadPlanProgress.layer),
-  Layer.provide(OrchestrationEventStoreLive),
-  Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-  Layer.provide(RepositoryIdentityResolver.layer),
-  Layer.provide(SqlitePersistenceMemory),
-  Layer.provideMerge(
-    ServerConfig.layerTest(process.cwd(), { prefix: "viewcode-cursor-import-config-" }),
-  ),
-  Layer.provideMerge(NodeServices.layer),
-);
+const integrationLayer = ImportHarness.layer(CursorHistory.layerFromPaths(paths));
 
 it.layer(integrationLayer)("Cursor import", (it) => {
   it.effect("scans, lists and imports Cursor chats as import:cursor threads", () =>
@@ -408,9 +308,9 @@ it.layer(integrationLayer)("Cursor import", (it) => {
       // The recency window is measured from when the fixtures were written, not the test clock's 0.
       yield* TestClock.setTime(NOW);
       const scanner = yield* AgentSessionScanner.AgentSessionScanner;
-      const engine = yield* OrchestrationEngine.OrchestrationEngineService;
-      const snapshots = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
-      const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+      const harness = yield* ImportHarness.AgentSessionImportHarness;
+      const importer = yield* AgentSessionImporter.AgentSessionImporter;
+      const runtimes = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
 
       const scan = yield* scanner.scan;
       expect(scan.candidates).toEqual(
@@ -420,17 +320,9 @@ it.layer(integrationLayer)("Cursor import", (it) => {
       );
 
       const projectId = ProjectId.make("project-from-cursor");
-      yield* engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.make("create-project-from-cursor"),
-        projectId,
-        title: "workspace",
-        workspaceRoot: WORKSPACE,
-        defaultModelSelection: null,
-        createdAt: "2026-03-01T00:00:00.000Z",
-      });
+      yield* harness.createProject({ projectId, workspaceRoot: WORKSPACE });
 
-      const listed = yield* listImportableAgentSessions({ projectId });
+      const listed = yield* importer.listImportableAgentSessions({ projectId });
       expect(listed.warning).toBeUndefined();
       expect(
         listed.sessions
@@ -452,13 +344,13 @@ it.layer(integrationLayer)("Cursor import", (it) => {
         providerInstanceId,
         providerSessionId,
       }));
-      expect(yield* importRecentAgentThreads({ projectId, sessions: selection })).toEqual({
+      expect(yield* importer.importRecentAgentThreads({ projectId, sessions: selection })).toEqual({
         importedCount: 2,
         skippedCount: 0,
       });
 
       const threadId = ThreadId.make("import:cursor:chat-main");
-      const thread = Option.getOrThrow(yield* snapshots.getThreadDetailById(threadId));
+      const thread = yield* harness.thread(threadId);
       expect(thread.messages.map((message) => [message.role, message.text])).toEqual([
         ["user", "Why is the router slow?"],
         ["assistant", "Let me look."],
@@ -466,18 +358,17 @@ it.layer(integrationLayer)("Cursor import", (it) => {
         ["user", "Fix it please."],
       ]);
       expect(thread.modelSelection.instanceId).toBe("cursor");
-      expect(Option.getOrThrow(yield* directory.getBinding(threadId))).toMatchObject({
-        provider: "cursor",
+      expect(Option.getOrThrow(yield* runtimes.getByThreadId({ threadId }))).toMatchObject({
+        providerName: "cursor",
         providerInstanceId: "cursor",
         resumeCursor: null,
       });
       expect(
-        Option.isSome(
-          yield* snapshots.getThreadDetailById(ThreadId.make("import:cursor:editor:comp-main")),
-        ),
-      ).toBe(true);
+        (yield* harness.thread(ThreadId.make("import:cursor:editor:comp-main"))).modelSelection
+          .instanceId,
+      ).toBe("cursor");
 
-      const relisted = yield* listImportableAgentSessions({ projectId });
+      const relisted = yield* importer.listImportableAgentSessions({ projectId });
       expect(relisted.sessions.every((session) => session.alreadyImported)).toBe(true);
     }),
   );

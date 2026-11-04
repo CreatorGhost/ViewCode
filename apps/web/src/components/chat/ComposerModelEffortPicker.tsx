@@ -1,5 +1,7 @@
+import { useStableCallback } from "../../hooks/useStableCallback";
 import {
   type ProviderDriverKind,
+  type EnvironmentId,
   type ProviderInstanceId,
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
@@ -15,10 +17,8 @@ import {
   type CSSProperties,
   memo,
   type RefObject,
-  useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -72,9 +72,10 @@ import {
 } from "./effortTrack";
 import { ModelPickerContent } from "./ModelPickerContent";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
-import { resolveModelPickerTrigger, useModelPickerScrollLock } from "./ProviderModelPicker";
+import { resolveModelPickerTrigger, useModelPickerScrollLock } from "./viewcodeModelPicker";
 import type { ModelEsque } from "./providerIconUtils";
-import { type TraitsPersistence, useTraitsController } from "./TraitsPicker";
+import type { TraitsPersistence } from "./TraitsPicker";
+import { useTraitsController } from "./viewcodeTraitsController";
 
 export type ComposerModelEffortView = "effort" | "model";
 
@@ -100,6 +101,7 @@ export type ComposerModelEffortTraits = {
  * slider (and fast mode) that can flip to a flat model list.
  */
 export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker(props: {
+  environmentId: EnvironmentId | null;
   activeInstanceId: ProviderInstanceId;
   /** The model as the picker resolves it against the instance's options. */
   model: string;
@@ -121,6 +123,7 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
   /** Shift-select adds a model to a multi-model draft. */
+  selectedModels?: ReadonlyArray<{ instanceId: ProviderInstanceId; model: string }>;
   onToggleModel?: (instanceId: ProviderInstanceId, model: string) => void;
 }) {
   const { traits, view, onViewChange } = props;
@@ -129,11 +132,8 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
   const open = view !== null;
   useModelPickerScrollLock(view === "model");
 
-  const activeEntry = useMemo(
-    () =>
-      props.instanceEntries.find((entry) => entry.instanceId === props.activeInstanceId) ?? null,
-    [props.activeInstanceId, props.instanceEntries],
-  );
+  const activeEntry =
+    props.instanceEntries.find((entry) => entry.instanceId === props.activeInstanceId) ?? null;
   const { selectedModel, triggerTitle } = resolveModelPickerTrigger({
     activeEntry,
     model: props.model,
@@ -271,7 +271,7 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
                   data-chat-provider-model-picker="true"
                   data-composer-shortcut="composer.effort"
                   className={cn(
-                    "inline-flex min-w-13 shrink cursor-pointer items-center whitespace-nowrap rounded-full bg-primary/15 text-foreground outline-none transition-colors hover:bg-primary/22 focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-64 data-popup-open:bg-primary/22",
+                    "inline-flex min-w-13 shrink cursor-pointer items-center whitespace-nowrap rounded-full bg-primary/15 text-foreground outline-none transition-colors hover:bg-primary/22 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-64 data-popup-open:bg-primary/22",
                     size === "xs" ? "h-7 gap-1 px-2 text-xs sm:h-6" : "h-8 gap-1.5 px-3 text-sm",
                   )}
                 />
@@ -335,20 +335,21 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
                   type="button"
                   aria-label="Back to effort"
                   onClick={() => onViewChange("effort")}
-                  className="inline-flex size-8 cursor-pointer items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  className="inline-flex size-8 cursor-pointer items-center justify-center rounded-full text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 >
                   <ChevronLeftIcon className="size-4" aria-hidden="true" />
                 </button>
                 <span className="font-semibold text-sm">Select model</span>
               </div>
               <ModelPickerContent
-                layout="sidebar"
-                fillContainer
+                {...(props.selectedModels === undefined
+                  ? {}
+                  : { selectedModels: props.selectedModels })}
+                environmentId={props.environmentId}
                 activeInstanceId={props.activeInstanceId}
                 model={props.model}
                 lockedProvider={props.lockedProvider}
                 lockedContinuationGroupKey={props.lockedContinuationGroupKey ?? null}
-                handoffFromContinuationGroupKey={props.handoffFromContinuationGroupKey ?? null}
                 instanceEntries={props.instanceEntries}
                 {...(props.keybindings ? { keybindings: props.keybindings } : {})}
                 modelOptionsByInstance={props.modelOptionsByInstance}
@@ -387,7 +388,7 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
                           aria-pressed={fastMode.enabled}
                           disabled={readOnly}
                           onClick={toggleFastMode}
-                          className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/8 text-muted-foreground outline-none transition-colors duration-300 hover:bg-foreground/12 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+                          className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/8 text-muted-foreground outline-none transition-colors duration-300 hover:bg-foreground/12 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
                           style={
                             fastMode.enabled
                               ? { color: rgba(FAST_TITLE), backgroundColor: rgba(FAST_TITLE, 0.16) }
@@ -412,7 +413,7 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
                   type="button"
                   aria-label={`Change model (${triggerTitle})`}
                   onClick={() => onViewChange("model")}
-                  className="flex h-11 min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl px-2 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex h-11 min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl px-2 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 >
                   <EffortTitle
                     text={effortLabel ?? "Standard"}
@@ -441,7 +442,7 @@ export const ComposerModelEffortPicker = memo(function ComposerModelEffortPicker
                             }),
                           );
                         }}
-                        className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/8 text-muted-foreground outline-none transition-colors hover:bg-foreground/12 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-40"
+                        className="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground/8 text-muted-foreground outline-none transition-colors hover:bg-foreground/12 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-default disabled:opacity-40"
                       />
                     }
                   >
@@ -562,7 +563,7 @@ function EffortTitle(props: {
     if (!hasOutgoing) return;
     const timer = window.setTimeout(() => setLabels((all) => all.slice(-1)), 450);
     return () => window.clearTimeout(timer);
-  }, [hasOutgoing, current?.id]);
+  }, [hasOutgoing]);
   if (current && current.text !== props.text) {
     const roll = props.rank < current.rank ? -1 : 1;
     setLabels([
@@ -658,21 +659,18 @@ const EffortSlider = memo(function EffortSlider(props: {
     onIndexChangeRef.current = onIndexChange;
   }, [onIndexChange]);
 
-  const writePosition = useCallback(
-    (fraction: number) => {
-      rootRef.current?.style.setProperty("--effort-pos", String(fraction));
-      // A stop lights once the knob's centre has reached it.
-      dotRefs.current.forEach((dot, stopIndex) => {
-        if (!dot) return;
-        if (effortStopFraction(stopIndex, stopCount) <= fraction + 1e-6) {
-          dot.dataset.passed = "true";
-        } else {
-          delete dot.dataset.passed;
-        }
-      });
-    },
-    [stopCount],
-  );
+  const writePosition = useStableCallback((fraction: number) => {
+    rootRef.current?.style.setProperty("--effort-pos", String(fraction));
+    // A stop lights once the knob's centre has reached it.
+    dotRefs.current.forEach((dot, stopIndex) => {
+      if (!dot) return;
+      if (effortStopFraction(stopIndex, stopCount) <= fraction + 1e-6) {
+        dot.dataset.passed = "true";
+      } else {
+        delete dot.dataset.passed;
+      }
+    });
+  });
 
   useLayoutEffect(() => {
     if (draggingRef.current) return;
@@ -841,7 +839,7 @@ const EffortSlider = memo(function EffortSlider(props: {
             if (next !== activeIndex) onIndexChange(next);
           }}
           className={cn(
-            "pointer-events-auto absolute top-1/2 left-0 size-10.5 -translate-1/2 rounded-full border outline-none backdrop-blur-md backdrop-saturate-150 transition-[scale,background-color,border-color] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring",
+            "pointer-events-auto absolute top-1/2 left-0 size-10.5 -translate-1/2 rounded-full border outline-none backdrop-blur-md backdrop-saturate-150 transition-[scale,background-color,border-color] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
             dragging && "scale-106",
           )}
           style={{ backgroundColor: style.knobTint, borderColor: style.knobEdge }}

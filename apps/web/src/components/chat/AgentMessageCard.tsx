@@ -34,10 +34,7 @@ function AgentThreadName({
   threadId: string;
   name: string;
 }) {
-  const ref = useMemo(
-    () => scopeThreadRef(environmentId, ThreadId.make(threadId)),
-    [environmentId, threadId],
-  );
+  const ref = scopeThreadRef(environmentId, ThreadId.make(threadId));
   const shell = useThreadShell(ref);
   const label = name.trim() || "agent";
   if (!shell) {

@@ -1,4 +1,3 @@
-import type { DOMPurify } from "dompurify";
 import { TriangleAlertIcon } from "lucide-react";
 import type { Mermaid } from "mermaid";
 import {
@@ -35,9 +34,7 @@ interface DiagramTheme {
   readonly signature: string;
 }
 
-// ---------------------------------------------------------------------------
 // Theme: read the live tokens so diagrams follow every theme and appearance.
-// ---------------------------------------------------------------------------
 
 const TOKEN_EXPRESSIONS: Record<keyof DiagramTokens, string> = {
   canvas: "var(--background)",
@@ -151,9 +148,7 @@ function getDiagramTheme(): DiagramTheme {
   return currentTheme;
 }
 
-// ---------------------------------------------------------------------------
 // Rendering: one diagram at a time, cached by theme and source.
-// ---------------------------------------------------------------------------
 
 type MermaidRenderResult =
   | { readonly status: "rendered"; readonly svg: string }
@@ -161,7 +156,7 @@ type MermaidRenderResult =
 
 interface MermaidModules {
   readonly mermaid: Mermaid;
-  readonly purifier: DOMPurify;
+  readonly sanitizeMermaidSvg: (svg: string) => string;
 }
 
 let modulesPromise: Promise<MermaidModules> | null = null;
@@ -172,30 +167,12 @@ const MAX_CACHED_RENDERS = 64;
 const renderCache = new Map<string, Promise<MermaidRenderResult>>();
 const settledRenders = new WeakSet<Promise<MermaidRenderResult>>();
 
-const REMOTE_CSS_URL = /url\(\s*(?!['"]?#)[^)]*\)/gi;
-
-// Diagrams can come from untrusted PR descriptions, so strip anything that can
-// navigate, run script, or fetch remote content on top of Mermaid's own strict
-// sanitization. CSS keeps only local url(#id) references; label text is untouched.
-function createPurifier(createDOMPurify: DOMPurify): DOMPurify {
-  const purifier = createDOMPurify(window);
-  purifier.addHook("uponSanitizeElement", (node, data) => {
-    if (data.tagName === "style" && node.textContent) {
-      node.textContent = node.textContent.replace(REMOTE_CSS_URL, "none");
-    }
-  });
-  purifier.addHook("uponSanitizeAttribute", (_node, data) => {
-    if (data.attrName === "style") data.attrValue = data.attrValue.replace(REMOTE_CSS_URL, "none");
-  });
-  return purifier;
-}
-
 // Mermaid and its sanitizer are ~1MB, so they only load once a diagram is shown.
 function loadModules(): Promise<MermaidModules> {
-  modulesPromise ??= Promise.all([import("mermaid"), import("dompurify")])
-    .then(([mermaid, dompurify]) => ({
+  modulesPromise ??= Promise.all([import("mermaid"), import("./mermaidSvgSanitizer")])
+    .then(([mermaid, sanitizer]) => ({
       mermaid: mermaid.default,
-      purifier: createPurifier(dompurify.default),
+      sanitizeMermaidSvg: sanitizer.sanitizeMermaidSvg,
     }))
     .catch((error: unknown) => {
       modulesPromise = null;
@@ -336,14 +313,8 @@ const LABEL_PILL_X = 6;
 const LABEL_PILL_Y = 3;
 
 /** Sanitizes, then gives edge labels a padded, rounded background. */
-function finishSvg(purifier: DOMPurify, svg: string): string {
-  const sanitized = purifier.sanitize(svg, {
-    ADD_TAGS: ["foreignObject"],
-    HTML_INTEGRATION_POINTS: { foreignobject: true },
-    FORBID_ATTR: ["href", "xlink:href", "src", "srcset"],
-    FORBID_TAGS: ["a", "img", "image", "script"],
-    USE_PROFILES: { svg: true, svgFilters: true, html: true },
-  });
+function finishSvg(sanitizeMermaidSvg: (svg: string) => string, svg: string): string {
+  const sanitized = sanitizeMermaidSvg(svg);
   // Template content is inert: nothing in it loads or runs while it is edited.
   const template = document.createElement("template");
   template.innerHTML = sanitized;
@@ -365,7 +336,7 @@ function finishSvg(purifier: DOMPurify, svg: string): string {
     rect.setAttribute("height", String(paddedHeight));
     rect.setAttribute("rx", String(Math.min(6, paddedHeight / 2)));
   }
-  return template.innerHTML;
+  return template.innerHTML.replaceAll("&nbsp;", "&#160;");
 }
 
 // Mermaid also lazy-loads diagram chunks inside render(); losing the network
@@ -379,7 +350,7 @@ async function renderMermaid(source: string, theme: DiagramTheme): Promise<Merma
   } catch {
     return { status: "error", message: "Mermaid failed to load.", retryable: true };
   }
-  const { mermaid, purifier } = modules;
+  const { mermaid, sanitizeMermaidSvg } = modules;
   try {
     // initialize() mutates global config, so renders run one at a time.
     configureMermaid(mermaid, theme.palette);
@@ -394,7 +365,7 @@ async function renderMermaid(source: string, theme: DiagramTheme): Promise<Merma
       if (statements.length === 0) throw error;
       svg = await renderOnce(mermaid, source);
     }
-    return { status: "rendered", svg: finishSvg(purifier, svg) };
+    return { status: "rendered", svg: finishSvg(sanitizeMermaidSvg, svg) };
   } catch (error) {
     const message = error instanceof Error ? error.message : "The diagram could not be rendered.";
     return { status: "error", message, retryable: CHUNK_LOAD_ERROR.test(message) };
@@ -491,7 +462,7 @@ export function MermaidDiagram({
       <button
         type="button"
         aria-label="Expand diagram"
-        className="flex w-full cursor-zoom-in justify-center rounded-md bg-background px-4 py-5 outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:h-auto [&_svg]:max-w-full"
+        className="flex w-full cursor-zoom-in justify-center rounded-md bg-background px-4 py-5 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&_svg]:h-auto [&_svg]:max-w-full"
         onClick={() => onExpandedChange(true)}
         dangerouslySetInnerHTML={{ __html: result.svg }}
       />

@@ -181,8 +181,6 @@ export class RelayDurableObject extends DurableObject<Env> {
     }
   }
 
-  // --- host connection -----------------------------------------------------
-
   #hostRecords(): Array<HostSocketRecord & { readonly socket: WebSocket }> {
     const records: Array<HostSocketRecord & { readonly socket: WebSocket }> = [];
     for (const socket of this.ctx.getWebSockets(HOST_TAG)) {
@@ -241,8 +239,6 @@ export class RelayDurableObject extends DurableObject<Env> {
       }
     }
   }
-
-  // --- proxied HTTP ----------------------------------------------------------
 
   #allocateStreamId(): number {
     const id = this.#nextStreamId;
@@ -369,8 +365,6 @@ export class RelayDurableObject extends DurableObject<Env> {
     }
   }
 
-  // --- proxied WebSockets ------------------------------------------------------
-
   #proxyWebSocket(request: Request, url: URL): Response {
     const host = this.#host();
     if (!host) return this.#unavailable();
@@ -408,8 +402,6 @@ export class RelayDurableObject extends DurableObject<Env> {
     for (const socket of this.ctx.getWebSockets(`stream-${streamId}`)) return socket;
     return null;
   }
-
-  // --- hibernation handlers ------------------------------------------------------
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     const attachment = ws.deserializeAttachment() as Attachment | null;

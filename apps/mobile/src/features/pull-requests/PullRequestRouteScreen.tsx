@@ -21,6 +21,7 @@ import { useAtomRefresh } from "@effect/atom-react";
 import { pullRequestReviewKey } from "./pullRequestReviewDrafts";
 import { type PullRequestDetail, type PullRequestListEntry } from "@t3tools/contracts";
 import { PullRequestOverviewLoading } from "./PullRequestOverviewLoading";
+import { copyPullRequestLink, sharePullRequestLink } from "./pullRequestLink";
 import { pullRequestStatus } from "./pullRequestStatus";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
@@ -178,7 +179,7 @@ function usePullRequestActivityRows(params: PullRequestParams, commitsOnly: bool
       });
     return rows;
   }, [commitsOnly, navigation, params, result.data]);
-  return { rows, pending: result.isPending, error: result.error };
+  return { rows, pending: result.isPending && !result.data, error: result.error };
 }
 
 function PullRequestIdentity(props: {
@@ -416,12 +417,22 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
                     },
                   ]
                 : []),
-              ...(pr
+              ...(identity
                 ? [
                     {
-                      accessibilityLabel: openOnProviderLabel(pr.provider),
+                      accessibilityLabel: openOnProviderLabel(identity.provider),
                       icon: "arrow.up.right" as const,
-                      onPress: () => void Linking.openURL(pr.url),
+                      onPress: () => void Linking.openURL(identity.url),
+                    },
+                    {
+                      accessibilityLabel: "Copy link",
+                      icon: "link" as const,
+                      onPress: () => copyPullRequestLink(identity),
+                    },
+                    {
+                      accessibilityLabel: "Share…",
+                      icon: "square.and.arrow.up" as const,
+                      onPress: () => sharePullRequestLink(identity),
                     },
                   ]
                 : []),
@@ -454,14 +465,30 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
                 <NativeHeaderToolbar.Label>Add comment</NativeHeaderToolbar.Label>
               </NativeHeaderToolbar.MenuAction>
             ) : null}
-            {pr ? (
+            {identity ? (
               <NativeHeaderToolbar.MenuAction
                 icon="arrow.up.right"
-                onPress={() => void Linking.openURL(pr.url)}
+                onPress={() => void Linking.openURL(identity.url)}
               >
                 <NativeHeaderToolbar.Label>
-                  {openOnProviderLabel(pr.provider)}
+                  {openOnProviderLabel(identity.provider)}
                 </NativeHeaderToolbar.Label>
+              </NativeHeaderToolbar.MenuAction>
+            ) : null}
+            {identity ? (
+              <NativeHeaderToolbar.MenuAction
+                icon="link"
+                onPress={() => copyPullRequestLink(identity)}
+              >
+                <NativeHeaderToolbar.Label>Copy link</NativeHeaderToolbar.Label>
+              </NativeHeaderToolbar.MenuAction>
+            ) : null}
+            {identity ? (
+              <NativeHeaderToolbar.MenuAction
+                icon="square.and.arrow.up"
+                onPress={() => sharePullRequestLink(identity)}
+              >
+                <NativeHeaderToolbar.Label>Share…</NativeHeaderToolbar.Label>
               </NativeHeaderToolbar.MenuAction>
             ) : null}
           </NativeHeaderToolbar.Menu>

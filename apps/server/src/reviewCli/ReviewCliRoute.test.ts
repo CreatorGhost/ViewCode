@@ -8,22 +8,21 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
-  type OrchestrationCommand,
-  type OrchestrationThread,
   type OrchestrationThreadActivity,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
+import { liveThreadShell } from "../mcp/McpToolAccess.testkit.ts";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Stream from "effect/Stream";
-import { HttpBody, HttpClient, HttpRouter } from "effect/unstable/http";
+import { HttpBody, HttpClient, HttpRouter } from "effect/http";
 
 import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProjectionStoreV2 } from "../orchestration-v2/ProjectionStore.ts";
+import { ReviewActivityStoreV2 } from "../review/ReviewActivityStoreV2.ts";
 import * as PullRequestAgentReview from "../pullRequest/PullRequestAgentReview.ts";
 import { reviewCliRouteLayer } from "./ReviewCliRoute.ts";
 
@@ -33,16 +32,21 @@ const otherThread = ThreadId.make("other-thread");
 const scope = (
   threadId: ThreadId,
   capabilities: ReadonlyArray<McpInvocationContext.McpCapability> = ["pull-requests"],
-): McpInvocationContext.McpInvocationScope => ({
+): McpInvocationContext.McpThreadInvocationScope => ({
   environmentId: EnvironmentId.make("environment"),
-  threadId,
-  providerSessionId: "provider-session",
-  providerInstanceId: ProviderInstanceId.make("claude"),
+  requestNamespace: "review-cli-test",
+  thread: {
+    threadId,
+    providerSessionId: "provider-session",
+    providerInstanceId: ProviderInstanceId.make("claude"),
+  },
+  client: undefined,
   capabilities: new Set(capabilities),
   issuedAt: 1,
 });
 
-const thread: OrchestrationThreadShell = {
+const thread: OrchestrationV2ThreadShell = {
+  ...liveThreadShell(reviewThread),
   id: reviewThread,
   projectId: ProjectId.make("project"),
   title: "Review: #7",
@@ -63,16 +67,13 @@ const thread: OrchestrationThreadShell = {
       stack: null,
     },
   ],
-  latestTurn: null,
-  createdAt: "2026-08-01T00:00:00.000Z",
-  updatedAt: "2026-08-20T00:00:00.000Z",
+  createdAt: DateTime.makeUnsafe("2026-08-01T00:00:00.000Z"),
+  updatedAt: DateTime.makeUnsafe("2026-08-20T00:00:00.000Z"),
   archivedAt: null,
   settledOverride: null,
   settledAt: null,
-  session: null,
-  latestUserMessageAt: "2026-08-20T00:00:00.000Z",
-  hasPendingApprovals: false,
-  hasPendingUserInput: false,
+  activeRunId: null,
+  latestUserMessageAt: DateTime.makeUnsafe("2026-08-20T00:00:00.000Z"),
   hasActionableProposedPlan: false,
 };
 
@@ -110,7 +111,7 @@ const report = {
 };
 
 const serve = Effect.gen(function* () {
-  const commands: Array<OrchestrationCommand> = [];
+  const commands: Array<Parameters<ReviewActivityStoreV2["Service"]["append"]>[0]> = [];
   const routes = reviewCliRouteLayer.pipe(
     Layer.provide(
       Layer.mock(McpSessionRegistry.McpSessionRegistry)({
@@ -121,35 +122,26 @@ const serve = Effect.gen(function* () {
               : token === "gone"
                 ? scope(otherThread)
                 : token === "no-pull-requests"
-                  ? scope(reviewThread, ["agents"])
+                  ? scope(reviewThread, ["orchestration"])
                   : undefined,
           ),
       }),
     ),
     Layer.provide(
-      Layer.mock(ProjectionSnapshotQuery)({
-        getThreadShellById: (threadId) =>
-          Effect.succeed(threadId === reviewThread ? Option.some(thread) : Option.none()),
-        getThreadDetailById: (threadId, query) =>
-          Effect.succeedSome({
-            id: threadId,
-            activities: [started].filter(
-              (activity) =>
-                query?.activityKinds === undefined || query.activityKinds.includes(activity.kind),
-            ),
-          } as unknown as OrchestrationThread),
+      Layer.mock(ProjectionStoreV2)({
+        getThreadShell: (threadId) => Effect.succeed(threadId === reviewThread ? thread : null),
       }),
     ),
     Layer.provide(
-      Layer.mock(OrchestrationEngineService)({
-        readEvents: () => Stream.empty,
-        dispatch: (command) =>
+      Layer.mock(ReviewActivityStoreV2)({
+        list: (_threadId, kinds) =>
+          Effect.succeed(
+            [started].filter((activity) => kinds === undefined || kinds.includes(activity.kind)),
+          ),
+        append: (command) =>
           Effect.sync(() => {
             commands.push(command);
-            return { sequence: 1 };
           }),
-        streamDomainEvents: Stream.empty,
-        latestSequence: Effect.succeed(0),
       }),
     ),
     Layer.provide(
@@ -242,7 +234,6 @@ it.effect("records a re-review's findings on the credential's thread, ignoring t
       });
       expect(commands).toMatchObject([
         {
-          type: "thread.activity.append",
           threadId: reviewThread,
           activity: {
             kind: "viewcode.review.findings",

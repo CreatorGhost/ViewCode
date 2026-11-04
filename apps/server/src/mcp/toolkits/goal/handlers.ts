@@ -1,33 +1,43 @@
 import type { ThreadGoal } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
-import * as ThreadGoals from "../../../orchestration/ThreadGoals.ts";
+import * as ViewCodeGoals from "../../../orchestration-v2/ViewCodeGoals.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as McpToolAccess from "../../McpToolAccess.ts";
 import { GoalToolkit } from "./tools.ts";
 
 const toResult = (goal: ThreadGoal | null) => ({
   goal: goal === null ? null : { objective: goal.objective, paused: goal.pausedAt !== null },
 });
-
-const make = Effect.gen(function* () {
-  const goals = yield* ThreadGoals.ThreadGoals;
-  // The caller's own thread only: every session that has agent tools may read and set its goal.
-  const caller = McpInvocationContext.requireMcpCapability("agents").pipe(
-    Effect.map((scope) => scope.threadId),
-  );
-  return GoalToolkit.of({
-    viewcode_get_goal: () => caller.pipe(Effect.flatMap(goals.get), Effect.map(toResult)),
-    viewcode_set_goal: (input) =>
-      caller.pipe(
-        Effect.flatMap((threadId) =>
-          goals.set(threadId, {
-            ...(input.objective !== undefined ? { objective: input.objective } : {}),
-            ...(input.paused !== undefined ? { paused: input.paused } : {}),
-          }),
-        ),
-        Effect.map(toResult),
-      ),
-  });
+const caller = McpInvocationContext.requireMcpCapability("orchestration").pipe(
+  Effect.flatMap((scope) =>
+    McpInvocationContext.requireThreadScope(scope, "ViewCode goals and debug mode"),
+  ),
+  Effect.map((scope) => scope.thread.threadId),
+);
+export const layer = McpToolAccess.toLayer(GoalToolkit, {
+  viewcode_get_goal: McpToolAccess.readsAsCaller(() =>
+    Effect.gen(function* () {
+      const goals = yield* ViewCodeGoals.ViewCodeGoals;
+      return toResult(yield* goals.get(yield* caller));
+    }),
+  ),
+  viewcode_set_goal: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const goals = yield* ViewCodeGoals.ViewCodeGoals;
+      return toResult(yield* goals.set(yield* caller, input));
+    }),
+  ),
+  viewcode_get_debug_mode: McpToolAccess.readsAsCaller(() =>
+    Effect.gen(function* () {
+      const goals = yield* ViewCodeGoals.ViewCodeGoals;
+      return { enabled: yield* goals.getDebug(yield* caller) };
+    }),
+  ),
+  viewcode_set_debug_mode: McpToolAccess.actsAsCaller((input) =>
+    Effect.gen(function* () {
+      const goals = yield* ViewCodeGoals.ViewCodeGoals;
+      return { enabled: yield* goals.setDebug(yield* caller, input.enabled) };
+    }),
+  ),
 });
-
-export const GoalToolkitHandlersLive = GoalToolkit.toLayer(make);

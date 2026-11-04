@@ -1,8 +1,70 @@
+diff --git a/android/src/main/java/expo/modules/widgets/ExpoWidgetsPeekWidget.kt b/android/src/main/java/expo/modules/widgets/ExpoWidgetsPeekWidget.kt
+index 4c27e67e3039555b66a180fac5e59113ab627887..7c090e9c0f6c34b8eacfbdb2f9820ec1267fbcc4 100644
+--- a/android/src/main/java/expo/modules/widgets/ExpoWidgetsPeekWidget.kt
++++ b/android/src/main/java/expo/modules/widgets/ExpoWidgetsPeekWidget.kt
+@@ -25,7 +25,10 @@ internal class ExpoWidgetsPeekWidget(
+     val layout = WidgetsLayoutRegistry.layout(appContext, widgetName)
+       ?: return createErrorRoot("No layout found for $widgetName")
+     val props = WidgetsLayoutRegistry.props(appContext, widgetName)
+-    val environment = getWidgetEnvironment(appContext)
++    // Layouts adapt to the space they get; Android has no widget family to go by.
++    val environment = getWidgetEnvironment(appContext) + (
++      "widgetSize" to mapOf("width" to size.width.value.toDouble(), "height" to size.height.value.toDouble())
++    )
+     val node = evaluateLayout(appContext, layout, props, environment)
+ 
+     return node.toPeekRoot(appContext, widgetName, size)
+diff --git a/android/src/main/java/expo/modules/widgets/WidgetInteractionAction.kt b/android/src/main/java/expo/modules/widgets/WidgetInteractionAction.kt
+index b747d9125c455d457e318093570cd86449d69778..73b76d02a75cc92d732b573e87b8d059991d8eb6 100644
+--- a/android/src/main/java/expo/modules/widgets/WidgetInteractionAction.kt
++++ b/android/src/main/java/expo/modules/widgets/WidgetInteractionAction.kt
+@@ -2,8 +2,10 @@ package expo.modules.widgets
+ 
+ import android.content.Context
+ import android.content.Intent
++import android.net.Uri
+ import androidx.glance.action.Action
+ import androidx.glance.appwidget.action.actionSendBroadcast
++import androidx.glance.appwidget.action.actionStartActivity
+ 
+ internal const val WIDGET_INTERACTION_ACTION = "expo.modules.widgets.ACTION_WIDGET_INTERACTION"
+ internal const val WIDGET_INTERACTION_SOURCE_EXTRA = "expo.modules.widgets.extra.SOURCE"
+@@ -15,6 +17,15 @@ internal data class WidgetInteraction(
+ )
+ 
+ internal fun WidgetInteraction.toGlanceAction(context: Context): Action {
++  // An explicit target with a URI scheme opens straight in this app, so a tap works while the
++  // app is closed: the URI when the app handles it, otherwise the launcher activity.
++  val uri = Uri.parse(target)
++  if (!target.startsWith("__expo_widgets_target_") && uri.scheme != null) {
++    val view = Intent(Intent.ACTION_VIEW, uri).setPackage(context.packageName)
++    val open = view.takeIf { it.resolveActivity(context.packageManager) != null }
++      ?: context.packageManager.getLaunchIntentForPackage(context.packageName)
++    if (open != null) return actionStartActivity(open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
++  }
+   val intent = Intent(WIDGET_INTERACTION_ACTION)
+     .setComponent(widgetProviderComponentName(context, source))
+     .putExtra(WIDGET_INTERACTION_SOURCE_EXTRA, source)
 diff --git a/build/Widgets.types.d.ts b/build/Widgets.types.d.ts
-index c9f4dfe1f10a3a65ab72bd7e639f6f6d148e5f95..dc0792e1cd7b6762394de5e3fefa0863a253f70c 100644
+index c9f4dfe1f10a3a65ab72bd7e639f6f6d148e5f95..2d2efff99478fbd7095b25db34d0cca2ee4420cc 100644
 --- a/build/Widgets.types.d.ts
 +++ b/build/Widgets.types.d.ts
-@@ -93,6 +93,10 @@ export type LiveActivityEnvironment = {
+@@ -35,6 +35,14 @@ export type ActivityFamily = 'small' | 'medium';
+  */
+ export type WidgetFamily = 'systemSmall' | 'systemMedium' | 'systemLarge' | 'systemExtraLarge' | 'accessoryCircular' | 'accessoryRectangular' | 'accessoryInline';
+ export type WidgetEnvironment<T extends object | undefined = undefined> = {
++    /**
++     * The widget's size in dp.
++     * @platform android
++     */
++    widgetSize?: {
++        width: number;
++        height: number;
++    };
+     /**
+      * The date of this timeline entry.
+      * @platform iOS
+@@ -93,6 +101,10 @@ export type LiveActivityEnvironment = {
       * The color scheme of the activity's environment.
       */
      colorScheme: 'light' | 'dark';
@@ -165,10 +227,22 @@ index d52a60e342c8e0a8a1d78f7174da5e60e6bd1c53..fa9bd77c5c04d459038a5b4a00e13917
    await main();
  }
 diff --git a/src/Widgets.types.ts b/src/Widgets.types.ts
-index 07706139379384dae27befef4e3e5ae09d04a0db..924fa0029243664e369ce08c81e504b6300bfc7f 100644
+index 07706139379384dae27befef4e3e5ae09d04a0db..bea1d874506cdadb813bed18049ff26f4b440f9d 100644
 --- a/src/Widgets.types.ts
 +++ b/src/Widgets.types.ts
-@@ -107,6 +107,10 @@ export type LiveActivityEnvironment = {
+@@ -48,6 +48,11 @@ export type WidgetFamily =
+   | 'accessoryInline';
+ 
+ export type WidgetEnvironment<T extends object | undefined = undefined> = {
++  /**
++   * The widget's size in dp.
++   * @platform android
++   */
++  widgetSize?: { width: number; height: number };
+   /**
+    * The date of this timeline entry.
+    * @platform iOS
+@@ -107,6 +112,10 @@ export type LiveActivityEnvironment = {
     * The color scheme of the activity's environment.
     */
    colorScheme: 'light' | 'dark';

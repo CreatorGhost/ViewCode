@@ -28,11 +28,13 @@ squashfs-root/
 .vercel
 .gstack/
 .plans/
+/audits/
 dist-electron/
 .electron-runtime/
 .showcase/
 apps/mobile/.showcase/
 apps/mobile/.generated/
+apps/mobile/.android-cache/
 /.generated/*
 # Vendored SPDX license texts, so desktop builds work offline / behind TLS inspection.
 !/.generated/third-party-licenses/

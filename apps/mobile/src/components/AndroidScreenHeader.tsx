@@ -6,7 +6,7 @@ import { AppText as Text } from "./AppText";
 import { cn } from "../lib/cn";
 import { MaterialIconButton } from "./MaterialIconButton";
 import { AndroidAnchoredMenu } from "./AndroidAnchoredMenu";
-import { useScaledTextRole } from "../features/settings/appearance/useScaledTextRole";
+import { useScaledTextRole } from "../lib/useScaledTextRole";
 import { useMaterialToolbarLayout } from "./useMaterialToolbarLayout";
 
 export interface AndroidHeaderAction {

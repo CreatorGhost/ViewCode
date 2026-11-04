@@ -108,6 +108,8 @@ const FAVICON_CANDIDATES = [
   "assets/logo.svg",
   "assets/logo.png",
   ".idea/icon.svg",
+  "Resources/AppIcon.icns",
+  "AppIcon.icns",
 ] as const;
 
 // Files that may contain a <link rel="icon"> or icon metadata declaration.
@@ -149,6 +151,10 @@ export class ProjectFaviconResolutionError extends Schema.TaggedError<ProjectFav
     return `Failed to resolve project favicon during ${this.operation} for workspace ${this.workspaceRoot}.`;
   }
 }
+
+const isWorkspaceRootNotExistsError = Schema.is(WorkspacePaths.WorkspaceRootNotExistsError);
+export const isMissingWorkspaceRoot = (error: ProjectFaviconResolutionError): boolean =>
+  error.operation === "normalize-workspace" && isWorkspaceRootNotExistsError(error.cause);
 
 /** Service tag for project favicon resolution. */
 export class ProjectFaviconResolver extends Context.Service<

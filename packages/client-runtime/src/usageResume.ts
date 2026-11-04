@@ -1,7 +1,7 @@
+import type { OrchestrationLatestTurn } from "./viewcodeThread.ts";
 import {
   USAGE_RESUME_ACTIVITY_KIND,
   UsageResumePayload,
-  type OrchestrationLatestTurn,
   type OrchestrationThreadActivity,
 } from "@t3tools/contracts";
 import { formatResumeAt, formatResumeTime } from "@t3tools/shared/usageLimit";
@@ -37,11 +37,7 @@ export function formatUsageResumeTime(
 }
 
 /** `formatUsageResumeTime` after a verb: "at 6:01 AM", "tomorrow at 9:00 AM", "on Oct 8, 9:00 AM". */
-export function formatUsageResumeAt(
-  iso: string,
-  nowMs: number,
-  locale?: string | undefined,
-): string {
+function formatUsageResumeAt(iso: string, nowMs: number, locale?: string | undefined): string {
   return formatResumeAt(iso, nowMs, locale);
 }
 

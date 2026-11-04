@@ -1,4 +1,6 @@
-import { planPinnedMove } from "@t3tools/client-runtime/state/thread-sort";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
+import { planPinnedMove } from "@t3tools/client-runtime/viewcodeThreadSort";
 import {
   createPendingThreadOrder,
   createThreadMovePlanner,
@@ -8,7 +10,7 @@ import {
   type PendingThreadOrder,
   type ThreadMoveAvailability,
 } from "./threadOrder";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import { resolveSnoozePresets } from "@t3tools/client-runtime/state/thread-settled";
 import {

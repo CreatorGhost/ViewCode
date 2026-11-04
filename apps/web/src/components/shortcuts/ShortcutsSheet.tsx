@@ -1,5 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { resolveShortcutCommand } from "../../keybindings";
 import { isEditableFocused } from "../../lib/editableFocus";
@@ -36,11 +36,8 @@ export function ShortcutsSheet() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [keybindings]);
 
-  const rows = useMemo(
-    () => (open ? buildShortcutSheetRows(keybindings) : []),
-    [open, keybindings],
-  );
-  const visible = useMemo(() => filterShortcutSheetRows(rows, query), [rows, query]);
+  const rows = (() => (open ? buildShortcutSheetRows(keybindings) : []))();
+  const visible = (() => filterShortcutSheetRows(rows, query))();
 
   return (
     <Dialog

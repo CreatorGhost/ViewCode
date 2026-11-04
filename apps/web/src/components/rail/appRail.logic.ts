@@ -1,4 +1,6 @@
 import type { EnvironmentId, ServerProviderUsageWindow } from "@t3tools/contracts";
+import { threadOwnNeed } from "@t3tools/shared/threadNeedsYou";
+import { CURSOR_KEYCHAIN_USAGE_OFF_MESSAGE } from "@t3tools/shared/usageLimits";
 
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
@@ -26,12 +28,12 @@ export type RailUsageRing = {
   tone: RailRingTone;
   /** What the ring draws, outermost first: weekly outside, the session window inside (as Synara does). Empty when idle. */
   tracks: ReadonlyArray<RailRingTrack>;
+  /** A Mac's Cursor account whose usage waits for the Keychain opt-in: a dimmed ring offering Enable. */
+  usageOff?: true;
 };
 
 /** The window closest to exhaustion; the ring warns about whichever limit hits first. */
-export function mostConstrainedWindow(
-  entry: ProviderInstanceEntry,
-): ServerProviderUsageWindow | null {
+function mostConstrainedWindow(entry: ProviderInstanceEntry): ServerProviderUsageWindow | null {
   const limits = entry.snapshot.usageLimits;
   const headline = planUsageWindow(limits, entry.driverKind);
   if (!headline || !limits) return null;
@@ -48,8 +50,9 @@ export function mostConstrainedWindow(
 /**
  * One ring per enabled, reachable account that reports usage limits. An account whose
  * limits read fine but have no window yet gets an idle ring, so the rail is not blank
- * until the first message. No subscription limits, a failed probe, or a provider that
- * reports none gets no ring.
+ * until the first message. A Mac's Cursor account waiting for the Keychain opt-in gets
+ * an "off" ring, so it does not vanish unexplained. No subscription limits, a failed
+ * probe, or a provider that reports none gets no ring.
  */
 export function buildRailUsageRings(
   entries: ReadonlyArray<ProviderInstanceEntry>,
@@ -60,6 +63,18 @@ export function buildRailUsageRings(
       const window = mostConstrainedWindow(entry);
       if (!window) {
         const limits = entry.snapshot.usageLimits;
+        if (limits?.unavailable?.message === CURSOR_KEYCHAIN_USAGE_OFF_MESSAGE) {
+          return [
+            {
+              entry,
+              window: null,
+              remainingPercent: 0,
+              tone: "healthy",
+              tracks: [],
+              usageOff: true,
+            },
+          ];
+        }
         const idle = !!limits && !limits.unavailable && limits.windows.length === 0;
         return idle
           ? [{ entry, window: null, remainingPercent: 100, tone: "healthy", tracks: [] }]
@@ -114,10 +129,17 @@ export function buildRailProjectActivity(
   }
   const activity = new Map<string, { needsYou: number; working: number }>();
   for (const thread of threads) {
-    if (thread.archivedAt !== null || thread.kind === "sidechat") continue;
-    const status = resolveSidebarThreadStatus(thread);
-    const needsYou = status === "approval" || status === "input";
-    if (!needsYou && status !== "working") continue;
+    // Side chats and RockBot are not project work; RockBot's own button counts its waits.
+    if (thread.archivedAt !== null || thread.kind != null) continue;
+    // Each thread counts only its own wait: a blocked child agent is listed itself, so
+    // counting it again on its lead would report one wait as two.
+    const needsYou = threadOwnNeed(thread) !== null;
+    if (
+      !needsYou &&
+      resolveSidebarThreadStatus({ ...thread, pendingSubagentRequest: null }) !== "working"
+    ) {
+      continue;
+    }
     const groupKey = groupKeyByPhysicalKey.get(`${thread.environmentId}:${thread.projectId}`);
     if (groupKey === undefined) continue;
     const entry = activity.get(groupKey) ?? { needsYou: 0, working: 0 };

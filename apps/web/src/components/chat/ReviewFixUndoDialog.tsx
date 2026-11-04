@@ -1,3 +1,4 @@
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useState } from "react";
 
@@ -26,34 +27,39 @@ export const REVIEW_FIX_UNDO_OPEN_EVENT = "viewcode:review-fix-undo-open";
 export function ReviewFixUndoDialog({
   threadRef,
   undoneTurns,
+  blockedReason,
   onClose,
 }: {
   threadRef: ScopedThreadRef;
   undoneTurns: number;
+  blockedReason?: string | null;
   onClose: () => void;
 }) {
   const undoFixes = useAtomCommand(reviewEnvironment.undoFixes, { reportFailure: false });
   const [pending, setPending] = useState(false);
 
   const undo = async () => {
-    if (pending) return;
+    if (pending || blockedReason) return;
     setPending(true);
-    try {
-      const completed = await undoReviewFixes(threadRef, () =>
+    const operation = await settlePromise(async () => {
+      const completed = await undoReviewFixes(threadRef, (commandId) =>
         undoFixes({
           environmentId: threadRef.environmentId,
-          input: { threadId: threadRef.threadId },
+          input: { threadId: threadRef.threadId, commandId },
         }),
       );
       if (completed) onClose();
-    } catch (error) {
+    });
+
+    setPending(false);
+
+    if (operation._tag === "Failure") {
+      const error = squashAtomCommandFailure(operation);
       toastManager.add({
         type: "error",
         title: "Could not undo the review fixes",
         description: error instanceof Error ? error.message : "An error occurred.",
       });
-    } finally {
-      setPending(false);
     }
   };
 
@@ -68,15 +74,23 @@ export function ReviewFixUndoDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Undo review fixes?</AlertDialogTitle>
           <AlertDialogDescription>
-            Reverts this session to before the fixes: {undoneTurns}{" "}
-            {undoneTurns === 1 ? "turn" : "turns"} and their file changes.
+            {blockedReason ?? (
+              <>
+                Reverts this session to before the fixes: {undoneTurns}{" "}
+                {undoneTurns === 1 ? "turn" : "turns"} and their file changes.
+              </>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="outline" disabled={pending} />}>
             Cancel
           </AlertDialogClose>
-          <Button variant="destructive" disabled={pending} onClick={() => void undo()}>
+          <Button
+            variant="destructive"
+            disabled={pending || Boolean(blockedReason)}
+            onClick={() => void undo()}
+          >
             {pending ? "Undoing..." : "Undo fixes"}
           </Button>
         </AlertDialogFooter>

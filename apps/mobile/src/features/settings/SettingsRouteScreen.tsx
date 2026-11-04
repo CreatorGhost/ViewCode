@@ -1,3 +1,4 @@
+import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { Platform, View } from "react-native";
@@ -114,7 +115,7 @@ function SettingsIndexSections() {
           />
         ) : null}
         <SettingsRow
-          icon="arrow.triangle.pull"
+          icon={PullRequestGlyph.pullRequest}
           label="Pull requests"
           // popTo returns to an open list instead of stacking a second one.
           onPress={() => navigation.dispatch(StackActions.popTo("PullRequests"))}
@@ -122,6 +123,11 @@ function SettingsIndexSections() {
         <SettingsRow icon="folder" label="Organization" target="SettingsOrganization" />
         <SettingsRow icon="text.bubble" label="Thread behavior" target="SettingsThreads" />
         <SettingsRow icon="archivebox" label="Archived Threads" target="SettingsArchive" />
+        <SettingsRow
+          icon="tray.and.arrow.down"
+          label="Import past sessions"
+          target="SettingsImportSessions"
+        />
       </SettingsSection>
 
       <SettingsSection title="Server settings">

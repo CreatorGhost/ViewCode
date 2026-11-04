@@ -1,15 +1,20 @@
+import {
+  createViewCodeThreadDetailAtoms as createEnvironmentThreadDetailAtoms,
+  createViewCodeThreadShellAtoms as createEnvironmentThreadShellAtoms,
+  viewCodeThreadState,
+  type EnvironmentThreadState,
+} from "@t3tools/client-runtime/viewcodeThreadAtoms";
+import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
+import { appAtomRegistry } from "./atom-registry";
 import { useAtomValue } from "@effect/atom-react";
 import {
-  createEnvironmentThreadDetailAtoms,
-  createEnvironmentThreadShellAtoms,
   createEnvironmentThreadStateAtoms,
   EMPTY_ENVIRONMENT_THREAD_STATE,
-  type EnvironmentThreadState,
   createThreadEnvironmentAtoms,
 } from "@t3tools/client-runtime/state/threads";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 
 import { environmentCatalog } from "../connection/catalog";
 import { connectionAtomRuntime } from "../connection/runtime";
@@ -41,8 +46,14 @@ export function useEnvironmentThread(
       ? environmentThreads.stateAtom(environmentId, threadId)
       : EMPTY_THREAD_STATE_ATOM,
   );
-  return Option.getOrElse(
-    AsyncResult.value(result),
-    () => EMPTY_ENVIRONMENT_THREAD_STATE,
-  ) as EnvironmentThreadState;
+  return viewCodeThreadState(
+    Option.getOrElse(AsyncResult.value(result), () => EMPTY_ENVIRONMENT_THREAD_STATE),
+  );
+}
+
+export function requestOlderThreadTurns(environmentId: EnvironmentId, threadId: ThreadId): void {
+  void runAtomCommand(appAtomRegistry, threadEnvironment.loadEarlierHistory, {
+    environmentId,
+    input: { threadId },
+  });
 }

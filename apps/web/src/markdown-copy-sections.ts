@@ -1,17 +1,4 @@
-/**
- * Agents often set a drafted message apart with horizontal rules rather than a quote:
- *
- *     Here's the message:
- *
- *     ---
- *     Hi Lorenz, …
- *     ---
- *
- * Top-level content between two `---` rules is wrapped in a `data-copy-section` div, which the
- * chat renderer gives the same copy button as a quote. Rules pair in order (first with second,
- * third with fourth), so a trailing rule never swallows the rest of the reply, and an
- * unclosed rule — while a reply is still streaming — wraps nothing.
- */
+/** Agents often enclose a drafted message in horizontal rules; copy that draft separately. */
 
 interface MarkdownAstNode {
   type?: string;

@@ -1,13 +1,12 @@
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { ResolvedKeybindingsConfig } from "@t3tools/contracts";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 
 import { resolveShortcutCommand } from "../../keybindings";
 import { getTerminalFocusOwner } from "../../lib/terminalFocus";
 import { selectSidechatDock, useSidechatDockStore } from "../../sidechatDockStore";
 import { useSplitPaneFocused } from "../../splitView/SplitPaneContext";
-import { isSidechat } from "@t3tools/client-runtime/state/sidechat";
 import { SidechatDock } from "./SidechatDock";
 
 /**
@@ -21,14 +20,11 @@ export function SidechatHost(props: {
   markdownCwd: string | undefined;
 }) {
   const { thread, keybindings } = props;
-  const eligible = thread !== null && !isSidechat(thread);
+  const eligible = thread !== null && thread.source.kind !== "sidechat";
   const environmentId = eligible ? thread.environmentId : null;
   const threadId = eligible ? thread.id : null;
-  const parentRef = useMemo(
-    () =>
-      environmentId !== null && threadId !== null ? scopeThreadRef(environmentId, threadId) : null,
-    [environmentId, threadId],
-  );
+  const parentRef =
+    environmentId !== null && threadId !== null ? scopeThreadRef(environmentId, threadId) : null;
   const open = useSidechatDockStore(
     (state) => selectSidechatDock(state.byParentKey, parentRef).open,
   );

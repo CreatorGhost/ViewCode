@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { ProviderInstanceId, type ModelSelection, type ServerConfig } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ModelSelection,
+  type ServerConfig,
+} from "@t3tools/contracts";
 
 import {
   buildModelOptions,
@@ -194,7 +201,7 @@ describe("mobile model options", () => {
     expect(resolveSelectableModelSelection(config, usable)).toBe(usable);
     expect(resolveSelectableModelSelection(config, disabled)).toBeNull();
     expect(resolveSelectableModelSelection(config, removed)).toBeNull();
-    expect(isModelSelectionUnavailable(config, disabled)).toBe(false);
+    expect(isModelSelectionUnavailable(config, disabled)).toBe(true);
     // An offline environment has no config to validate.
     expect(resolveSelectableModelSelection(null, disabled)).toBe(disabled);
   });
@@ -491,5 +498,84 @@ describe("existing-thread model picker", () => {
     const handoffFromKey = resolveHandoffFromKey(config, "codex");
     expect(modelNeedsHandoff(optionFor("codex:gpt-5.6-sol"), handoffFromKey)).toBe(false);
     expect(modelNeedsHandoff(optionFor("claudeAgent:claude-sonnet-5"), handoffFromKey)).toBe(true);
+  });
+});
+
+describe("mobile provider policy", () => {
+  const instanceId = ProviderInstanceId.make("work");
+  const projectId = ProjectId.make("project");
+  const selection = { instanceId, model: "model" };
+  const configFor = (driver: string, enabled: boolean, disabledByAdmin = false) =>
+    ({
+      providers: [
+        {
+          instanceId,
+          driver,
+          enabled,
+          disabledByAdmin,
+          installed: true,
+          auth: { status: "authenticated" },
+          models: [{ slug: "model", name: "Model", capabilities: null }],
+        },
+      ],
+    }) as unknown as ServerConfig;
+
+  it.each([
+    "codex",
+    "claudeAgent",
+    "cursor",
+    "commandCode",
+    "droid",
+    "devin",
+    "pi",
+    "muse",
+    "opencode",
+    "grok",
+    "antigravity",
+  ])("blocks disabled %s without substituting an available selection", (driver) => {
+    const config = configFor(driver, false);
+    expect(isModelSelectionUnavailable(config, selection, projectId)).toBe(true);
+    expect(buildModelOptions(config, null, undefined, projectId)).toEqual([]);
+    expect(buildModelOptions(config, selection, undefined, projectId)).toMatchObject([
+      { selection, isUnavailable: true },
+    ]);
+  });
+
+  it("honors a project toggle and keeps an administrative restriction authoritative", () => {
+    const config = configFor("codex", true);
+    const settings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: {
+        [instanceId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+      },
+      projectSettingsOverrides: {
+        [projectId]: { providerInstances: { [instanceId]: { enabled: false } } },
+      },
+    } satisfies ServerConfig["settings"];
+    const restricted = { ...config, settings };
+    expect(isModelSelectionUnavailable(restricted, selection, projectId)).toBe(true);
+    expect(resolveSelectableModelSelection(restricted, selection, projectId)).toBeNull();
+    expect(buildModelOptions(restricted, null, undefined, projectId)).toEqual([]);
+    expect(isModelSelectionUnavailable(restricted, selection, null)).toBe(false);
+
+    const projectEnabled = {
+      ...settings,
+      projectSettingsOverrides: {
+        [projectId]: { providerInstances: { [instanceId]: { enabled: true } } },
+      },
+    };
+    const allowed = { ...configFor("codex", false), settings: projectEnabled };
+    expect(isModelSelectionUnavailable(allowed, selection, projectId)).toBe(false);
+    expect(resolveSelectableModelSelection(allowed, selection, projectId)).toEqual(selection);
+    expect(buildModelOptions(allowed, null, undefined, projectId)).toHaveLength(1);
+    const blocked = { ...configFor("codex", false, true), settings: projectEnabled };
+    expect(isModelSelectionUnavailable(blocked, selection, projectId)).toBe(true);
+    expect(resolveSelectableModelSelection(blocked, selection, projectId)).toBeNull();
+    expect(buildModelOptions(blocked, null, undefined, projectId)).toEqual([]);
+  });
+
+  it("does not retain a selectable administratively blocked Antigravity model", () => {
+    const config = configFor("antigravity", false, true);
+    expect(resolveSelectableModelSelection(config, selection, projectId)).toBeNull();
   });
 });

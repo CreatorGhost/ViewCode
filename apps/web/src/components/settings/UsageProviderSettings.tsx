@@ -51,35 +51,22 @@ export function UsageProviderSettings({
   const [updatingClaude, setUpdatingClaude] = useState(false);
   const entries = Object.entries(sources);
 
-  const setCursorUsageEnabled = async (enabled: boolean) => {
-    setUpdatingCursor(true);
-    try {
-      const result = await updateAccountUsageSettings({
-        environmentId,
-        input: { patch: { cursorKeychainUsageEnabled: enabled } },
-      });
-      if (result._tag === "Success") {
-        await refreshProviders({ environmentId, input: {} });
-      }
-    } finally {
-      setUpdatingCursor(false);
+  // Atom commands resolve to a result rather than throwing, so the switch always comes back.
+  const updateAccountUsage = async (
+    patch: { cursorKeychainUsageEnabled: boolean } | { claudeKeychainUsageEnabled: boolean },
+    setUpdating: (updating: boolean) => void,
+  ) => {
+    setUpdating(true);
+    const result = await updateAccountUsageSettings({ environmentId, input: { patch } });
+    if (result._tag === "Success") {
+      await refreshProviders({ environmentId, input: {} });
     }
+    setUpdating(false);
   };
-
-  const setClaudeUsageEnabled = async (enabled: boolean) => {
-    setUpdatingClaude(true);
-    try {
-      const result = await updateAccountUsageSettings({
-        environmentId,
-        input: { patch: { claudeKeychainUsageEnabled: enabled } },
-      });
-      if (result._tag === "Success") {
-        await refreshProviders({ environmentId, input: {} });
-      }
-    } finally {
-      setUpdatingClaude(false);
-    }
-  };
+  const setCursorUsageEnabled = (enabled: boolean) =>
+    updateAccountUsage({ cursorKeychainUsageEnabled: enabled }, setUpdatingCursor);
+  const setClaudeUsageEnabled = (enabled: boolean) =>
+    updateAccountUsage({ claudeKeychainUsageEnabled: enabled }, setUpdatingClaude);
 
   return (
     <>

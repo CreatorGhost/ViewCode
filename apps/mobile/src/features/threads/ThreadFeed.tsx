@@ -30,6 +30,7 @@ import type {
   TurnId,
 } from "@t3tools/contracts";
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
+import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import {
   parseComposerContextHref,
@@ -51,7 +52,7 @@ import {
   classifyMarkdownImageSource,
   markdownImageSourceFragment,
 } from "@t3tools/client-runtime/markdown-images";
-import { resolveViewedImageAsset } from "@t3tools/client-runtime/work-log/presentation";
+import { resolveViewedImageAsset } from "@t3tools/client-runtime/viewcode-work-log/presentation";
 import {
   renderCodexFileCitationsAsMarkdown,
   splitCodexArtifactTemplateMarkdown,
@@ -106,7 +107,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeIn, FadeOut, ReduceMotion, type SharedValue } from "react-native-reanimated";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { IOS_NAV_BAR_HEIGHT } from "../../lib/layoutMetrics";
-import { useFontFamily } from "../../lib/useFontFamily";
+import { FONT_FAMILIES } from "../../lib/fontFamilies";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
@@ -134,6 +135,7 @@ import {
   type MediaVideoPreviewSource,
 } from "../../lib/videoPreviewSource";
 import { CopyTextButton } from "../../components/CopyTextButton";
+import { ReadAloudButton, readAloudKey } from "../speech/ReadAloudButton";
 import { parseReviewCommentMessageSegments } from "../review/reviewCommentSelection";
 import type { ReviewDiffTheme } from "../review/shikiReviewHighlighter";
 import {
@@ -186,10 +188,17 @@ import {
   THREAD_DISCLOSURE_TRANSITION_MS,
   WORK_GROUP_TOGGLE_HEIGHT,
 } from "./thread-work-log";
+import { ThreadSubagentGroup } from "./thread-subagent-group";
 import { appendPendingThreadMessages, type PendingThreadFeedEntry } from "./pending-thread-feed";
+import { insertPullRequestFeedEntries, type PullRequestFeedEntry } from "./pull-request-feed";
+import { ThreadPullRequestFeedCard } from "./ThreadPullRequestFeedCard";
+import { useThreadFeedPullRequests } from "./useThreadPullRequestFlow";
 
-/** What the list renders: the presented feed with agent chatter folded behind headers. */
-type RenderedFeedEntry = PendingThreadFeedEntry | AgentChatterHeaderEntry;
+/**
+ * What the list renders: the presented feed with agent chatter folded behind headers, and the
+ * thread's pull request cards where it got each one.
+ */
+type RenderedFeedEntry = PendingThreadFeedEntry | AgentChatterHeaderEntry | PullRequestFeedEntry;
 import { htmlRenderFrameHeight } from "@t3tools/shared/htmlRender";
 import { htmlRenderRowHeight, ThreadHtmlRender } from "./HtmlRenderWebView";
 import { ReviewFindingsFeedCard } from "../review/findings/ReviewFindingsFeedCard";
@@ -205,6 +214,7 @@ import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { usePreparedConnection } from "../../state/session";
 import { useEnvironmentPresentation } from "../../state/presentation";
 import { useThreadSelection } from "../../state/use-thread-selection";
+import { useLiveThreadLinkLabels } from "../../state/entities";
 import { composerDocumentAttachmentRecord } from "../../lib/composerContext";
 import * as Option from "effect/Option";
 import {
@@ -868,16 +878,15 @@ interface MarkdownLinkHandlers {
 
 const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   readonly markdown: string;
+  readonly environmentId: EnvironmentId;
   readonly markdownStyles: MarkdownStyleSet;
   readonly linkHandlers: MarkdownLinkHandlers;
   readonly onUseArtifactTemplate?: ((template: CodexArtifactTemplate) => void) | undefined;
   readonly renderImage: MarkdownImageRenderer;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill> | undefined;
 }) {
-  const segments = useMemo(
-    () => splitCodexArtifactTemplateMarkdown(props.markdown),
-    [props.markdown],
-  );
+  const markdown = useLiveThreadLinkLabels(props.markdown, props.environmentId);
+  const segments = useMemo(() => splitCodexArtifactTemplateMarkdown(markdown), [markdown]);
 
   return segments.map((segment) => {
     if (segment.kind === "artifact-template") {
@@ -1072,8 +1081,8 @@ function useMarkdownStyles(
   const inlineSkillForeground = theme["--color-inline-skill-foreground"];
   const userBubbleSkillForeground = theme["--color-user-bubble-skill-foreground"];
   const userBubbleForegroundMuted = theme["--color-user-bubble-foreground-muted"];
-  const regularFontFamily = useFontFamily("regular");
-  const boldFontFamily = useFontFamily("bold");
+  const regularFontFamily = FONT_FAMILIES.regular;
+  const boldFontFamily = FONT_FAMILIES.bold;
 
   return useMemo(() => {
     const baseTheme: PartialMarkdownTheme = {
@@ -1211,13 +1220,7 @@ function useMarkdownStyles(
           <MarkdownLinkLabelContext.Provider value="other">
             <NativeText
               className="underline"
-              onPress={
-                linkHref
-                  ? () => {
-                      void tryOpenExternalUrl(linkHref, "markdown-link");
-                    }
-                  : undefined
-              }
+              onPress={linkHref ? () => onLinkPress(linkHref) : undefined}
               style={{ color: markdownLinkColor }}
             >
               {children}
@@ -1474,7 +1477,7 @@ function renderFeedEntry(
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
     readonly onToggleWorkGroup: (groupId: string, anchorKey: string) => void;
     readonly onToggleWorkRow: (rowId: string, anchorKey: string) => void;
-    readonly onToggleTurnFold: (turnId: TurnId) => void;
+    readonly onToggleTurnFold: (turnId: TurnId, open: boolean) => void;
     readonly onToggleAgentChatter: (groupId: string, expanded: boolean) => void;
     readonly onToggleReasoning: (messageId: string) => void;
     readonly onPressPreview: (source: FilePreviewSource) => void;
@@ -1502,7 +1505,7 @@ function renderFeedEntry(
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: entry.expanded }}
-        onPress={() => props.onToggleTurnFold(entry.turnId)}
+        onPress={() => props.onToggleTurnFold(entry.turnId, entry.expanded)}
         hitSlop={4}
         className="mb-1 min-h-11 flex-row items-center gap-2 border-b border-border-subtle px-2"
         style={{
@@ -1551,6 +1554,17 @@ function renderFeedEntry(
     );
   }
 
+  if (entry.type === "pull-request") {
+    return (
+      <ThreadPullRequestFeedCard
+        environmentId={props.environmentId}
+        threadId={props.threadId}
+        pullRequestKey={entry.pullRequestKey}
+        current={entry.current}
+      />
+    );
+  }
+
   if (entry.type === "review-findings") {
     return (
       <ReviewFindingsFeedCard
@@ -1582,6 +1596,19 @@ function renderFeedEntry(
         rowSizing={props.workRowSizing}
         onToggle={() => props.onToggleWorkGroup(entry.id, entry.id)}
         onCopy={() => props.onCopyWorkRow(entry.activity.id, entry.activity.getCopyText())}
+      />
+    );
+  }
+
+  if (entry.type === "spawned-agents") {
+    return (
+      <ThreadSubagentGroup
+        environmentId={props.environmentId}
+        threadId={props.threadId}
+        agents={entry.agents}
+        expanded={entry.expanded}
+        iconSubtleColor={iconSubtleColor}
+        onToggle={() => props.onToggleWorkGroup(entry.id, entry.id)}
       />
     );
   }
@@ -1652,6 +1679,7 @@ function renderFeedEntry(
                 <AssistantMarkdownContent
                   key={reasoningMessage.id}
                   markdown={reasoningMessage.text}
+                  environmentId={props.environmentId}
                   markdownStyles={markdownStyles.reasoning}
                   linkHandlers={props.markdownLinkHandlers}
                   renderImage={props.renderMarkdownImage}
@@ -1865,6 +1893,7 @@ function renderFeedEntry(
           <MarkdownImageAvailableWidthContext value={props.markdownContentWidth}>
             <AssistantMarkdownContent
               markdown={renderedText}
+              environmentId={props.environmentId}
               markdownStyles={styles}
               linkHandlers={props.markdownLinkHandlers}
               onUseArtifactTemplate={props.onUseArtifactTemplate}
@@ -1905,6 +1934,16 @@ function renderFeedEntry(
               buttonSize={28}
               iconSize={13}
             />
+            {renderedText.trim().length > 0 ? (
+              <ReadAloudButton
+                speechKey={readAloudKey(
+                  scopedThreadKey(props.environmentId, props.threadId),
+                  message.id,
+                )}
+                markdown={renderedText}
+                tintColor={iconSubtleColor}
+              />
+            ) : null}
             <Text className="font-t3-medium text-xs tabular-nums text-foreground-secondary">
               {timestampLabel}
             </Text>
@@ -1951,10 +1990,13 @@ function UserMessageContent(props: UserMessageContentProps) {
   const [selected, setSelected] = useState<{ contextId: string; label: string } | null>(null);
   const navigation = useNavigation();
   const { selectedThread } = useThreadSelection();
-  const text = replaceComposerContextReferences(props.text, (ref) => {
-    const available = props.context?.records.some((record) => record.contextId === ref.contextId);
-    return `[${ref.label}${available ? "" : " (unavailable)"}](t3-context://v1/${ref.kind}/${ref.contextId})`;
-  });
+  const text = useLiveThreadLinkLabels(
+    replaceComposerContextReferences(props.text, (ref) => {
+      const available = props.context?.records.some((record) => record.contextId === ref.contextId);
+      return `[${ref.label}${available ? "" : " (unavailable)"}](t3-context://v1/${ref.kind}/${ref.contextId})`;
+    }),
+    props.environmentId,
+  );
   const onLinkPress = (href: string) => {
     const reference = parseComposerContextHref(href);
     if (!reference) return props.linkHandlers.onLinkPress?.(href);
@@ -2177,6 +2219,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     readonly expandedWorkGroups: Record<string, boolean>;
     readonly expandedWorkRows: Record<string, boolean>;
     readonly expandedTurnIds: ReadonlySet<TurnId>;
+    /** The latest turn starts open under its "Worked for" header; closing it lands here. */
+    readonly collapsedTurnIds: ReadonlySet<TurnId>;
     readonly expandedReasoningMessageIds: ReadonlySet<string>;
     /** Agent-chatter groups the user opened or closed, by group id; absent means the default. */
     readonly agentChatterOverrides: Readonly<Record<string, boolean>>;
@@ -2185,6 +2229,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     expandedWorkGroups: {},
     expandedWorkRows: {},
     expandedTurnIds: new Set(),
+    collapsedTurnIds: new Set(),
     expandedReasoningMessageIds: new Set(),
     agentChatterOverrides: {},
   });
@@ -2193,6 +2238,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     expandedWorkGroups,
     expandedWorkRows,
     expandedTurnIds,
+    collapsedTurnIds,
     expandedReasoningMessageIds,
     agentChatterOverrides,
   } = interactionState;
@@ -2246,6 +2292,15 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const userBubbleColor = theme["--color-user-bubble"];
   const onMarkdownLinkPress = useCallback(
     (href: string) => {
+      const linkedThreadId = parseThreadLinkHref(href);
+      if (linkedThreadId) {
+        void Haptics.selectionAsync();
+        navigation.navigate("Thread", {
+          environmentId: String(props.environmentId),
+          threadId: String(linkedThreadId),
+        });
+        return;
+      }
       const presentation = resolveMarkdownLinkPresentation(href);
       if (presentation.kind === "file") {
         const relativePath = resolveWorkspaceRelativeFilePath(
@@ -2629,6 +2684,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           expandedTurnIds,
           expandedWorkGroupIds,
           props.activeWorkStartedAt,
+          { keepLatestTurnOpen: true, collapsedTurnIds },
         ),
         props.feed,
         props.queuedMessages,
@@ -2636,6 +2692,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     [
       props.queuedMessages,
       expandedTurnIds,
+      collapsedTurnIds,
       expandedWorkGroupIds,
       props.activeWorkStartedAt,
       props.feed,
@@ -2643,9 +2700,19 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     ],
   );
   const working = props.activeWorkStartedAt !== null;
-  const { entries: renderedFeed, memberIds: chatterMemberIds } = useMemo(
+  const { entries: chatterFeed, memberIds: chatterMemberIds } = useMemo(
     () => groupAgentChatter(presentedFeed, { overrides: agentChatterOverrides, working }),
     [presentedFeed, agentChatterOverrides, working],
+  );
+  const feedPullRequests = useThreadFeedPullRequests(
+    useMemo(
+      () => ({ environmentId: props.environmentId, threadId: props.threadId }),
+      [props.environmentId, props.threadId],
+    ),
+  );
+  const renderedFeed = useMemo(
+    () => insertPullRequestFeedEntries(chatterFeed, feedPullRequests),
+    [chatterFeed, feedPullRequests],
   );
   // "Your last message" chip: shown while the user's last message has scrolled
   // out of view above. LegendList reports viewable rows only when membership
@@ -2787,6 +2854,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     }
   }, [
     expandedTurnIds,
+    collapsedTurnIds,
     expandedWorkGroups,
     expandedWorkRows,
     expandedReasoningMessageIds,
@@ -2859,16 +2927,19 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   );
 
   const onToggleTurnFold = useCallback(
-    (turnId: TurnId) => {
+    (turnId: TurnId, open: boolean) => {
       suspendEndScrollMaintenanceForDisclosure(`turn-fold:${turnId}`);
       setInteractionState((current) => {
-        const next = new Set(current.expandedTurnIds);
-        if (next.has(turnId)) {
-          next.delete(turnId);
+        const expanded = new Set(current.expandedTurnIds);
+        const collapsed = new Set(current.collapsedTurnIds);
+        if (open) {
+          expanded.delete(turnId);
+          collapsed.add(turnId);
         } else {
-          next.add(turnId);
+          expanded.add(turnId);
+          collapsed.delete(turnId);
         }
-        return { ...current, expandedTurnIds: next };
+        return { ...current, expandedTurnIds: expanded, collapsedTurnIds: collapsed };
       });
     },
     [suspendEndScrollMaintenanceForDisclosure],
@@ -2942,7 +3013,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const getFixedItemSize = useCallback(
     (entry: RenderedFeedEntry) => {
       if (entry.type === "html-render") {
-        return htmlRenderRowHeight(htmlRenderFrameHeight(entry.render));
+        return htmlRenderRowHeight(htmlRenderFrameHeight(entry.render, windowWidth));
       }
       if (workRowSizing.fixedRowHeight === undefined) {
         return undefined;

@@ -4,25 +4,17 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ServerConfig from "../config.ts";
-import * as GitHubCli from "../sourceControl/GitHubCli.ts";
-import * as GitHubGraphQlBudget from "../sourceControl/githubGraphQlBudget.ts";
-import * as SourceControlRateLimit from "../sourceControl/SourceControlRateLimit.ts";
-import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as GitHubRest from "@t3tools/source-control-github/server/GitHubRest";
+import * as TestSourceControlHost from "@t3tools/source-control-testing/TestSourceControlHost";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import { HttpClient, HttpClientResponse } from "effect/http";
 import * as LearnedReviewStyles from "./LearnedReviewStyles.ts";
 
 const TOKEN = "gho_freelance_secret";
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
-
-const output = (stdout: string): VcsProcess.VcsProcessOutput => ({
-  exitCode: ChildProcessSpawner.ExitCode(0),
-  stdout,
-  stderr: "",
-  stdoutTruncated: false,
-  stderrTruncated: false,
-});
 
 const reviewsOf = (login: string, comment: string) =>
   JSON.stringify({
@@ -47,39 +39,48 @@ const reviewsOf = (login: string, comment: string) =>
     },
   });
 
-/**
- * gh signed in to github.com as `main` (active) and `freelance`. A command answers as the
- * account its environment's token belongs to, or as `ambient` when the server has a token of
- * its own that gh prefers to the active account.
- */
 const makeHarness = (options: { readonly ambientToken?: boolean } = {}) =>
   Effect.gen(function* () {
-    const calls: Array<VcsProcess.VcsProcessInput> = [];
-    const run: VcsProcess.VcsProcess["Service"]["run"] = (input) => {
-      calls.push(input);
-      const [command, action] = input.args;
-      if (command === "auth" && action === "status") {
+    const calls: Array<{ args: ReadonlyArray<string> }> = [];
+    const reads: Array<{ account: string; token: string }> = [];
+    const sourceHost = TestSourceControlHost.layer({
+      process: {
+        run: (input) =>
+          Effect.sync(() => {
+            calls.push(input);
+            const account = input.args.includes("--user")
+              ? input.args[input.args.indexOf("--user") + 1]?.toLowerCase()
+              : "main";
+            if (account !== "main" && account !== "freelance")
+              return TestSourceControlHost.processOutput("", {
+                exitCode: ChildProcessSpawner.ExitCode(1),
+              });
+            return TestSourceControlHost.processOutput(
+              account === "freelance" ? TOKEN : "credential-main",
+            );
+          }),
+      },
+    });
+    const http = Layer.succeed(
+      HttpClient.HttpClient,
+      HttpClient.make((request) => {
+        const token = request.headers.authorization?.replace("Bearer ", "") ?? "";
+        const account = options.ambientToken ? "ambient" : token === TOKEN ? "freelance" : "main";
+        reads.push({ account, token });
         return Effect.succeed(
-          output(
-            JSON.stringify({
-              hosts: {
-                "github.com": [
-                  { state: "success", host: "github.com", login: "main", active: true },
-                  { state: "success", host: "github.com", login: "freelance", active: false },
-                ],
-              },
+          HttpClientResponse.fromWeb(
+            request,
+            new Response(reviewsOf(account, `How ${account} writes: why not a Set here?`), {
+              headers: { "content-type": "application/json" },
             }),
           ),
         );
-      }
-      if (command === "auth" && action === "token") return Effect.succeed(output(`${TOKEN}\n`));
-      const as =
-        input.env?.GH_TOKEN === TOKEN ? "freelance" : options.ambientToken ? "ambient" : "main";
-      return Effect.succeed(output(reviewsOf(as, `How ${as} writes: why not a Set here?`)));
-    };
-    const github = yield* GitHubCli.make.pipe(
-      Effect.provideService(VcsProcess.VcsProcess, { run }),
-      Effect.provide(Layer.merge(GitHubGraphQlBudget.layer, SourceControlRateLimit.layer)),
+      }),
+    );
+    const dependencies = GitHubRest.layerWithDependencies.pipe(
+      Layer.provideMerge(sourceHost),
+      Layer.provideMerge(http),
+      Layer.provide(NodeCrypto.layer),
     );
     const { styles, config } = yield* Effect.all({
       styles: LearnedReviewStyles.LearnedReviewStyles,
@@ -87,7 +88,7 @@ const makeHarness = (options: { readonly ambientToken?: boolean } = {}) =>
     }).pipe(
       Effect.provide(
         LearnedReviewStyles.layer.pipe(
-          Layer.provide(Layer.succeed(GitHubCli.GitHubCli, github)),
+          Layer.provide(dependencies),
           Layer.provideMerge(
             ServerConfig.layerTest(process.cwd(), { prefix: "t3-learned-review-style-" }).pipe(
               Layer.provideMerge(NodeServices.layer),
@@ -96,11 +97,8 @@ const makeHarness = (options: { readonly ambientToken?: boolean } = {}) =>
         ),
       ),
     );
-    return { styles, stateDir: config.stateDir, calls };
+    return { styles, stateDir: config.stateDir, calls, reads };
   });
-
-const graphQlCalls = (calls: ReadonlyArray<VcsProcess.VcsProcessInput>) =>
-  calls.filter((call) => call.args[0] === "api" && call.args[1] === "graphql");
 
 describe("LearnedReviewStyles", () => {
   it.effect("reads another signed-in account's reviews as that account and keeps them apart", () =>
@@ -114,14 +112,13 @@ describe("LearnedReviewStyles", () => {
       expect(learned.sampleCount).toBe(1);
       expect(learned.preview[0]?.text).toBe("How freelance writes: why not a Set here?");
 
-      // The token went only into that one command's environment, never into any argv.
-      const [read] = graphQlCalls(harness.calls);
-      expect(read?.env?.GH_TOKEN).toBe(TOKEN);
+      // The selected token reaches only the API request, never a command argument.
+      expect(harness.reads[0]?.token).toBe(TOKEN);
       for (const call of harness.calls) expect(call.args.join(" ")).not.toContain(TOKEN);
 
-      // The active account answers as itself, with no token of ours.
+      // An explicit account remains scoped to its own request.
       yield* harness.styles.learn({ host: "github.com", login: "main" });
-      expect(graphQlCalls(harness.calls)[1]?.env?.GH_TOKEN).toBeUndefined();
+      expect(harness.reads[1]?.account).toBe("main");
 
       const file = yield* decodeJson(
         yield* fs.readFileString(`${harness.stateDir}/review-style/github.com/freelance.json`),
@@ -160,7 +157,7 @@ describe("LearnedReviewStyles", () => {
         .learn({ host: "github.com", login: "octocat" })
         .pipe(Effect.flip);
       expect(missing).toMatchObject({ _tag: "LearnedReviewStyleError", stage: "account" });
-      expect(graphQlCalls(harness.calls)).toEqual([]);
+      expect(harness.reads).toEqual([]);
 
       const ambient = yield* makeHarness({ ambientToken: true });
       const mismatch = yield* ambient.styles

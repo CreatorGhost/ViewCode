@@ -7,10 +7,10 @@
  * without Node.
  */
 import {
-  HostProcessExecutablePath,
-  HostProcessIsExecutable,
-  HostProcessPlatform,
-} from "@t3tools/shared/hostProcess";
+  ExecutablePath as HostProcessExecutablePath,
+  IsExecutable as HostProcessIsExecutable,
+  Platform as HostProcessPlatform,
+} from "@t3tools/shared/HostProcess";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";

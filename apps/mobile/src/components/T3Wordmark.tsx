@@ -1,7 +1,7 @@
 import { VIEWCODE_MARK as mark } from "@t3tools/shared/viewcodeBrand";
 import Svg, { Circle, G, Path } from "react-native-svg";
 
-import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
+import { useAppearancePreferences } from "../lib/appearancePreferencesContext";
 
 /** Flat code-bracket/git-branch emblem for small native UI, keeping the upstream name. */
 export function T3Wordmark(props: { readonly height: number }) {

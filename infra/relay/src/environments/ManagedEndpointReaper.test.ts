@@ -55,6 +55,7 @@ function allocation(input: {
     origin: { localHttpHost: "127.0.0.1", localHttpPort: 3773 },
     updatedAt: "2026-08-25T11:00:00.000Z",
     generation: 1,
+    tunnelReleasedAt: null,
     recoveryEnabled: input.recoveryEnabled,
   };
 }
@@ -73,6 +74,10 @@ function harness(input?: {
   readonly refreshedTunnels?: ReadonlyMap<string, ManagedEndpointProvider.ManagedEndpointTunnel>;
   readonly skipTunnelId?: string;
   readonly cleanupMode?: RelayConfiguration.ManagedEndpointCleanupMode;
+  readonly legacyCleanupMode?: RelayConfiguration.ManagedEndpointCleanupMode;
+  readonly legacyTunnelGraceMinutes?: number;
+  readonly releaseDelayMs?: number;
+  readonly listDelayMs?: number;
 }) {
   const listRequests: ManagedEndpointProvider.ManagedEndpointTunnelListRequest[] = [];
   const deleted: string[] = [];
@@ -117,7 +122,10 @@ function harness(input?: {
         return Effect.succeed(found);
       }),
     list: (request) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
+        if (input?.listDelayMs !== undefined) {
+          yield* TestClock.adjust(input.listDelayMs);
+        }
         listRequests.push(request);
         const matching = remaining.filter((entry) => entry.status === request.status);
         const start = ((request.page ?? 1) - 1) * (request.perPage ?? 100);
@@ -166,6 +174,7 @@ function harness(input?: {
           }),
   });
   const allocationService = ManagedEndpointAllocations.ManagedEndpointAllocations.of({
+    getByTunnelName: () => Effect.die("unused"),
     get: () => Effect.die("unused"),
     reserve: () => Effect.die("unused"),
     recordTunnel: () => Effect.die("unused"),
@@ -188,11 +197,13 @@ function harness(input?: {
     release: (request) =>
       Effect.gen(function* () {
         releases.push(request);
+        if (input?.releaseDelayMs !== undefined) {
+          yield* TestClock.adjust(input.releaseDelayMs);
+        }
         if (request.expectedTunnelId === input?.skipTunnelId) {
           return false;
         }
         if (request.expectedTunnelId !== undefined) {
-          // Surface Cloudflare failures the same way the real release does.
           yield* tunnelClient.delete(request.expectedTunnelId).pipe(
             Effect.mapError(
               (cause) =>
@@ -227,6 +238,10 @@ function harness(input?: {
     managedEndpointBaseDomain: "example.test",
     managedEndpointNamespace: input?.namespace ?? "prod",
     managedEndpointCleanupMode: input?.cleanupMode ?? "enabled",
+    legacyManagedEndpointCleanupMode: input?.legacyCleanupMode ?? "off",
+    ...(input?.legacyTunnelGraceMinutes === undefined
+      ? {}
+      : { legacyTunnelGraceMinutes: input.legacyTunnelGraceMinutes }),
   });
 
   return {
@@ -279,6 +294,7 @@ describe("ManagedEndpointReaper", () => {
         failed: 0,
       });
       expect(state.deleted).toEqual(["down-1", "inactive-1"]);
+      expect(state.releases.some((release) => release.markReleased === true)).toBe(false);
       expect(state.releases.map((request) => request.expectedTunnelId)).toEqual([
         "down-1",
         "inactive-1",
@@ -547,6 +563,92 @@ describe("ManagedEndpointReaper", () => {
     }).pipe(Effect.provide(state.layer));
   });
 
+  it.effect("starts no new deletion after a rate limit, even with deletions in flight", () => {
+    const entries = Array.from({ length: 12 }, (_, index) =>
+      tunnel({
+        id: index === 0 ? "limited" : `ok-${index}`,
+        suffix: index.toString(16).padStart(16, "0"),
+        status: "down",
+        timestamp: "2026-08-25T11:00:00.000Z",
+      }),
+    );
+    const state = harness({
+      tunnels: entries,
+      allocations: recoverableOwners(entries),
+      rateLimitedTunnelId: "limited",
+    });
+
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(NOW_MILLIS);
+      const reaper = yield* ManagedEndpointReaper.ManagedEndpointReaper;
+      const result = yield* reaper.sweep;
+      expect(result.truncated).toBe(true);
+      expect(result.failed).toBe(1);
+      expect(result.attempted).toBeLessThanOrEqual(
+        ManagedEndpointReaper.MANAGED_ENDPOINT_SWEEP_DELETE_CONCURRENCY,
+      );
+      expect(state.releases.length).toBe(result.attempted);
+    }).pipe(Effect.provide(state.layer));
+  });
+
+  it.effect("stops starting deletions when the sweep's time budget runs out", () => {
+    const entries = Array.from({ length: 40 }, (_, index) =>
+      tunnel({
+        id: `slow-${index}`,
+        suffix: index.toString(16).padStart(16, "0"),
+        status: "down",
+        timestamp: "2026-08-25T11:00:00.000Z",
+      }),
+    );
+    const state = harness({
+      tunnels: entries,
+      allocations: recoverableOwners(entries),
+      releaseDelayMs: 10_000,
+    });
+
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(NOW_MILLIS);
+      const reaper = yield* ManagedEndpointReaper.ManagedEndpointReaper;
+      const result = yield* reaper.sweep;
+      expect(result.truncated).toBe(true);
+      expect(result.attempted).toBeGreaterThan(0);
+      expect(result.attempted).toBeLessThan(entries.length);
+      expect(result.deleted).toBe(result.attempted);
+    }).pipe(Effect.provide(state.layer));
+  });
+
+  it.effect("counts listing time against the deletion budget", () => {
+    const entries = Array.from({ length: 40 }, (_, index) =>
+      tunnel({
+        id: `slow-${index}`,
+        suffix: index.toString(16).padStart(16, "0"),
+        status: "down",
+        timestamp: "2026-08-25T11:00:00.000Z",
+      }),
+    );
+    const sweepWith = (listDelayMs: number) =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(NOW_MILLIS);
+        const reaper = yield* ManagedEndpointReaper.ManagedEndpointReaper;
+        return (yield* reaper.sweep).attempted;
+      }).pipe(
+        Effect.provide(
+          harness({
+            tunnels: entries,
+            allocations: recoverableOwners(entries),
+            releaseDelayMs: 10_000,
+            listDelayMs,
+          }).layer,
+        ),
+      );
+
+    return Effect.gen(function* () {
+      const fastListing = yield* sweepWith(0);
+      const slowListing = yield* sweepWith(20_000);
+      expect(slowListing).toBeLessThan(fastListing);
+    });
+  });
+
   it.effect("continues past a page of older hosts to find recoverable tunnels", () => {
     const entries = Array.from({ length: 101 }, (_, index) =>
       tunnel({
@@ -696,11 +798,14 @@ describe("ManagedEndpointReaper", () => {
       const reaper = yield* ManagedEndpointReaper.ManagedEndpointReaper;
       expect(yield* reaper.sweep).toEqual({
         mode: "off",
+        legacyMode: "off",
         listRequests: 0,
         scanned: 0,
         attempted: 0,
         deleted: 0,
         wouldDelete: 0,
+        wouldDeleteLegacy: 0,
+        deletedLegacy: 0,
         skippedLegacy: 0,
         legacyOver7Days: 0,
         legacyOver30Days: 0,
@@ -786,7 +891,6 @@ describe("ManagedEndpointReaper", () => {
         timestamp: "2026-08-25T11:00:00.000Z",
       }),
     );
-    // The first 100 candidates always fail to delete.
     const state = harness({
       tunnels: entries,
       allocations: recoverableOwners(entries),

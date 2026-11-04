@@ -19,12 +19,12 @@ import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
-import { Command, Flag } from "effect/unstable/cli";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { Command, Flag } from "effect/cli";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
-import { selectCliRuntimeExternalDependencies } from "./lib/cli-external-packages.ts";
+import { resolveViewcodeNpmDependencies } from "./lib/viewcode-npm-dependencies.ts";
 
 // Trust the OS certificate store as well as Node's bundled roots, as the
 // desktop backend does, so HTTPS works behind a TLS-inspecting proxy.
@@ -41,7 +41,7 @@ class ViewcodeNpmPackError extends Schema.TaggedError<ViewcodeNpmPackError>()(
   }
 }
 
-function viewcodeNpmManifest(name: string) {
+function viewcodeNpmManifest(name: string, dependencies: Readonly<Record<string, string>>) {
   return {
     name,
     version: serverPackageJson.version,
@@ -52,8 +52,9 @@ function viewcodeNpmManifest(name: string) {
     bin: { viewcode: "dist/bin.mjs" },
     files: ["dist"],
     // Everything else is inside the bundle; these load native code at runtime.
-    dependencies: selectCliRuntimeExternalDependencies(serverPackageJson.dependencies),
-    engines: serverPackageJson.engines,
+    dependencies,
+    // The external Undici 8 runtime requires Node 22.19 or newer.
+    engines: { node: "^22.19 || ^23.11 || >=24.10" },
   };
 }
 
@@ -85,6 +86,11 @@ const packViewcodeNpm = Effect.fn("packViewcodeNpm")(function* (input: { readonl
     });
   }
 
+  const dependencies = yield* resolveViewcodeNpmDependencies({
+    serverDir,
+    dependencies: serverPackageJson.dependencies,
+  });
+
   yield* fs.remove(outputDir, { recursive: true, force: true });
   yield* fs.makeDirectory(stageDir, { recursive: true });
   yield* fs.copy(distDir, path.join(stageDir, "dist"));
@@ -97,7 +103,7 @@ const packViewcodeNpm = Effect.fn("packViewcodeNpm")(function* (input: { readonl
   yield* fs.writeFileString(bin, source.replace(/^#!.*\n/, `${BIN_SHEBANG}\n`));
   yield* fs.writeFileString(
     path.join(stageDir, "package.json"),
-    `${yield* encodePackageJson(viewcodeNpmManifest(input.name))}\n`,
+    `${yield* encodePackageJson(viewcodeNpmManifest(input.name, dependencies))}\n`,
   );
   yield* fs.writeFileString(path.join(stageDir, "README.md"), README);
   // MIT requires the notice to travel with every copy.
@@ -132,7 +138,7 @@ const command = Command.make(
   packViewcodeNpm,
 ).pipe(Command.withDescription("Pack the built server and web client as a viewcode npm package."));
 
-Command.run(command, { version: "0.0.0" }).pipe(
+Command.run(command, { version: serverPackageJson.version }).pipe(
   Effect.provide(Layer.mergeAll(Logger.layer([Logger.consolePretty()]), NodeServices.layer)),
   NodeRuntime.runMain,
 );

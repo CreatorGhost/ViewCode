@@ -64,6 +64,15 @@ export interface MarkdownImageRequest {
  */
 export type MarkdownImageRenderer = (image: MarkdownImageRequest) => import("react").ReactNode;
 
+/**
+ * Replaces a finished fenced code block, e.g. a diagram for `mermaid`. Return `fallback`
+ * (the normal code block) to keep it. Never called for a block that is still streaming.
+ */
+export type MarkdownCodeBlockRenderer = (
+  block: { readonly language: string; readonly code: string },
+  fallback: import("react").ReactNode,
+) => import("react").ReactNode;
+
 export interface MarkdownFileContextMenuAction {
   readonly id: string;
   readonly title: string;
@@ -87,6 +96,7 @@ export interface SelectableMarkdownTextProps {
   readonly fileContextMenu?: (href: string) => MarkdownFileContextMenu | undefined;
   readonly onFileContextMenuAction?: (href: string, actionId: string) => void;
   readonly renderImage?: MarkdownImageRenderer;
+  readonly renderCodeBlock?: MarkdownCodeBlockRenderer;
   readonly marginTop?: number;
   readonly marginBottom?: number;
 }

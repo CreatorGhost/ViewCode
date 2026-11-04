@@ -4,7 +4,6 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   EventId,
   RuntimeRequestId,
-  ProjectId,
   ProviderInstanceId,
   ProviderDriverKind,
   ThreadId,
@@ -13,7 +12,6 @@ import {
   type ComputerUseMode,
   type ComputerUseRect,
   type ComputerUseResponse,
-  type OrchestrationThreadShell,
   type ProviderApprovalDecision,
   type ProviderRuntimeEvent,
   type RuntimeMode,
@@ -25,11 +23,10 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
-import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 
 import * as ServerConfig from "../config.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ComputerUseThreadState } from "./ComputerUseThreadState.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
   ComputerDriver,
@@ -270,44 +267,23 @@ const makeHarness = (
       focus: (handle) => action("focus")(handle),
     };
 
-    const shell = (): OrchestrationThreadShell => ({
-      id: threadId,
-      projectId: ProjectId.make("project"),
-      title: "Thread",
-      modelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
-      runtimeMode: thread.runtimeMode,
-      interactionMode: "default",
-      pullRequests: [],
-      branch: null,
-      worktreePath: null,
-      latestTurn: null,
-      createdAt: NOW,
-      updatedAt: NOW,
-      archivedAt: null,
-      settledOverride: null,
-      settledAt: null,
-      session: {
-        threadId,
-        status: thread.running ? "running" : "ready",
-        providerName: "codex",
-        providerInstanceId,
-        runtimeMode: thread.runtimeMode,
-        activeTurnId: thread.running ? thread.turnId : null,
-        lastError: null,
-        updatedAt: NOW,
-      },
-      latestUserMessageAt: NOW,
-      hasPendingApprovals: false,
-      hasPendingUserInput: false,
-      hasActionableProposedPlan: false,
-    });
-
     const layer = ComputerUseService.layer.pipe(
       Layer.provideMerge(ServerSettings.layerTest({ computerUse: initialMode })),
       Layer.provide(Layer.succeed(ComputerDriver, override ? override(driver) : driver)),
       Layer.provide(
-        Layer.mock(ProjectionSnapshotQuery)({
-          getThreadShellById: () => Effect.sync(() => Option.some(shell())),
+        Layer.mock(ComputerUseThreadState)({
+          running: () =>
+            Effect.sync(() =>
+              thread.running
+                ? {
+                    title: "Thread",
+                    turnId: thread.turnId,
+                    provider: ProviderDriverKind.make("codex"),
+                    fullAccess: thread.runtimeMode === "full-access",
+                  }
+                : undefined,
+            ),
+          activeTurn: () => Effect.sync(() => (thread.running ? thread.turnId : undefined)),
         }),
       ),
       Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-computer-use-test-" })),
@@ -1129,30 +1105,33 @@ describe("Computer use audit regressions", () => {
   );
 });
 
-for (const changed of ["mode", "pending", "turn"] as const) {
-  it.effect(`real driver IPC queue rechecks ${changed} before dispatch`, () =>
-    Effect.gen(function* () {
-      const blocked = Promise.withResolvers<void>();
-      const enteredKey = yield* Deferred.make<void>();
-      let delivered = false;
-      let releaseRead: (() => void) | undefined;
-      const server = NodeHttp.createServer((req, res) => {
-        if (req.url === "/read") {
-          releaseRead = () => res.end("release");
-          blocked.resolve();
-        } else {
-          delivered = true;
-          res.end("delivered");
-        }
-      });
-      yield* Effect.promise(() => new Promise<void>((r) => server.listen(0, "127.0.0.1", r)));
-      const address = server.address();
-      if (!address || typeof address === "string") throw new Error("server");
-      const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "viewcode-audit-worker-"));
-      const script = NodePath.join(dir, "worker.cjs");
-      NodeFS.writeFileSync(
-        script,
-        `const http=require('node:http');
+it.effect.each(
+  (["mode", "pending", "turn"] as const).map((changed) => {
+    return { changed };
+  }),
+)("real driver IPC queue rechecks $changed before dispatch", ({ changed }) =>
+  Effect.gen(function* () {
+    const blocked = Promise.withResolvers<void>();
+    const enteredKey = yield* Deferred.make<void>();
+    let delivered = false;
+    let releaseRead: (() => void) | undefined;
+    const server = NodeHttp.createServer((req, res) => {
+      if (req.url === "/read") {
+        releaseRead = () => res.end("release");
+        blocked.resolve();
+      } else {
+        delivered = true;
+        res.end("delivered");
+      }
+    });
+    yield* Effect.promise(() => new Promise<void>((r) => server.listen(0, "127.0.0.1", r)));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("server");
+    const dir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "viewcode-audit-worker-"));
+    const script = NodePath.join(dir, "worker.cjs");
+    NodeFS.writeFileSync(
+      script,
+      `const http=require('node:http');
 const get = path => new Promise(resolve => http.get('http://127.0.0.1:${address.port}'+path, res => {res.resume(); res.on('end',resolve);}));
 process.on('message', async message => {
  const {id,request,decision}=message;
@@ -1162,95 +1141,98 @@ process.on('message', async message => {
  } else if(request.op==='listWindows') {await get('/read'); process.send({id,ok:true,result:[]});}
  else if(request.op==='key') process.send({id,authorize:{window:{handle:'w-notes',app:'Notes',pid:10,title:'Shopping list',focused:true}}});
 }); process.once('disconnect',()=>process.exit(0));`,
-      );
-      yield* Effect.addFinalizer(() =>
-        Effect.promise(
-          () =>
-            new Promise<void>((r) => {
-              releaseRead?.();
-              server.close(() => r());
-              NodeFS.rmSync(dir, { recursive: true, force: true });
-            }),
-        ),
-      );
-      const real = yield* makeXa11yComputerDriver({
-        platform: "darwin",
-        launch: () => ({ command: process.execPath, args: [script], env: { ...process.env } }),
-      });
-      const h = yield* makeHarness("control", (driver) => ({
-        ...driver,
-        key: (window, keys) =>
-          Effect.gen(function* () {
-            yield* Deferred.succeed(enteredKey, undefined);
-            return yield* real.key(window, keys);
+    );
+    yield* Effect.addFinalizer(() =>
+      Effect.promise(
+        () =>
+          new Promise<void>((r) => {
+            releaseRead?.();
+            server.close(() => r());
+            NodeFS.rmSync(dir, { recursive: true, force: true });
           }),
-      }));
-      h.thread.runtimeMode = "full-access";
-      const refs = yield* observeNotes(h);
-      const reading = yield* Effect.forkChild(real.listWindows());
-      yield* Effect.promise(() => blocked.promise);
-      const action = yield* Effect.forkChild(
-        send(h, { command: "key", window: refs.window, keys: "enter" }),
-      );
-      yield* Deferred.await(enteredKey);
-      yield* Effect.yieldNow;
-      if (changed === "mode") yield* h.setMode("off");
-      if (changed === "pending") h.providerApprovalPending = true;
-      if (changed === "turn") yield* h.service.endTurn(threadId);
-      releaseRead!();
+      ),
+    );
+    const real = yield* makeXa11yComputerDriver({
+      platform: "darwin",
+      launch: () => ({ command: process.execPath, args: [script], env: { ...process.env } }),
+    });
+    const h = yield* makeHarness("control", (driver) => ({
+      ...driver,
+      key: (window, keys) =>
+        Effect.gen(function* () {
+          yield* Deferred.succeed(enteredKey, undefined);
+          return yield* real.key(window, keys);
+        }),
+    }));
+    h.thread.runtimeMode = "full-access";
+    const refs = yield* observeNotes(h);
+    const reading = yield* Effect.forkChild(real.listWindows());
+    yield* Effect.promise(() => blocked.promise);
+    const action = yield* Effect.forkChild(
+      send(h, { command: "key", window: refs.window, keys: "enter" }),
+    );
+    yield* Deferred.await(enteredKey);
+    yield* Effect.yieldNow;
+    if (changed === "mode") yield* h.setMode("off");
+    if (changed === "pending") h.providerApprovalPending = true;
+    if (changed === "turn") yield* h.service.endTurn(threadId);
+    releaseRead!();
 
-      yield* Fiber.join(reading);
-      expectError(
-        yield* Fiber.join(action),
-        changed === "mode" ? "CU-CON-002" : changed === "pending" ? "CU-CON-008" : "CU-CON-006",
-        "not-dispatched",
-      );
-      expect(delivered).toBe(false);
-    }).pipe(Effect.scoped),
-  );
-}
+    yield* Fiber.join(reading);
+    expectError(
+      yield* Fiber.join(action),
+      changed === "mode" ? "CU-CON-002" : changed === "pending" ? "CU-CON-008" : "CU-CON-006",
+      "not-dispatched",
+    );
+    expect(delivered).toBe(false);
+  }).pipe(Effect.scoped),
+);
 
-for (const requestType of [
-  "command_execution_approval",
-  "file_read_approval",
-  "file_change_approval",
-  "apply_patch_approval",
-  "exec_command_approval",
-  "mcp_elicitation_approval",
-  "permission_approval",
-] as const) {
-  it.effect(`${requestType} pauses input before its projection catches up`, () =>
-    Effect.gen(function* () {
-      const h = yield* makeHarness();
-      h.thread.runtimeMode = "full-access";
-      const refs = yield* observeNotes(h);
-      const opened: ProviderRuntimeEvent = {
-        eventId: EventId.make("provider-open"),
-        type: "request.opened",
-        provider: ProviderDriverKind.make("codex"),
-        providerInstanceId,
-        threadId,
-        turnId: h.thread.turnId,
-        requestId: RuntimeRequestId.make("provider-approval"),
-        createdAt: NOW,
-        payload: { requestType },
-      };
-      yield* h.service.trackProviderApproval(opened);
-      expectError(
-        yield* send(h, { command: "press", ref: refs.save }),
-        "CU-CON-008",
-        "not-dispatched",
-      );
-      yield* h.service.trackProviderApproval({
-        ...opened,
-        eventId: EventId.make("provider-resolved"),
-        type: "request.resolved",
-        payload: { requestType, decision: "decline" },
-      });
-      expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
-    }).pipe(Effect.scoped),
-  );
-}
+it.effect.each(
+  (
+    [
+      "command_execution_approval",
+      "file_read_approval",
+      "file_change_approval",
+      "apply_patch_approval",
+      "exec_command_approval",
+      "mcp_elicitation_approval",
+      "permission_approval",
+    ] as const
+  ).map((requestType) => {
+    return { requestType };
+  }),
+)("$requestType pauses input before its projection catches up", ({ requestType }) =>
+  Effect.gen(function* () {
+    const h = yield* makeHarness();
+    h.thread.runtimeMode = "full-access";
+    const refs = yield* observeNotes(h);
+    const opened: ProviderRuntimeEvent = {
+      eventId: EventId.make("provider-open"),
+      type: "request.opened",
+      provider: ProviderDriverKind.make("codex"),
+      providerInstanceId,
+      threadId,
+      turnId: h.thread.turnId,
+      requestId: RuntimeRequestId.make("provider-approval"),
+      createdAt: NOW,
+      payload: { requestType },
+    };
+    yield* h.service.trackProviderApproval(opened);
+    expectError(
+      yield* send(h, { command: "press", ref: refs.save }),
+      "CU-CON-008",
+      "not-dispatched",
+    );
+    yield* h.service.trackProviderApproval({
+      ...opened,
+      eventId: EventId.make("provider-resolved"),
+      type: "request.resolved",
+      payload: { requestType, decision: "decline" },
+    });
+    expectDispatched(yield* send(h, { command: "press", ref: refs.save }));
+  }).pipe(Effect.scoped),
+);
 
 it.effect("a failed approval publication does not leave input permanently paused", () =>
   Effect.gen(function* () {
@@ -1528,28 +1510,32 @@ process.on('message', async message => {
 });
 
 describe("ComputerUseService approvals setting", () => {
-  for (const approvals of ["thread", "risky"] as const) {
-    it.effect(`${approvals}: a formatting canvas does not create a destructive approval`, () =>
-      Effect.gen(function* () {
-        const h = yield* makeHarness();
-        h.thread.runtimeMode = "full-access";
-        yield* h.setApprovals(approvals);
-        h.autoDecision = "decline";
-        h.hit = { role: "group", label: "Format, move, and resize items within the Canvas" };
-        const { shot } = yield* shootNotes(h);
-        expectDispatched(yield* send(h, { command: "click", shot, x: 10, y: 10 }));
-        expect(h.events).toEqual([]);
+  it.effect.each(
+    (["thread", "risky"] as const).map((approvals) => {
+      return {
+        approvals,
+      };
+    }),
+  )("$approvals: a formatting canvas does not create a destructive approval", ({ approvals }) =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness();
+      h.thread.runtimeMode = "full-access";
+      yield* h.setApprovals(approvals);
+      h.autoDecision = "decline";
+      h.hit = { role: "group", label: "Format, move, and resize items within the Canvas" };
+      const { shot } = yield* shootNotes(h);
+      expectDispatched(yield* send(h, { command: "click", shot, x: 10, y: 10 }));
+      expect(h.events).toEqual([]);
 
-        h.hit = { role: "group", label: "Format disk" };
-        const next = yield* shootNotes(h);
-        expectError(
-          yield* send(h, { command: "click", shot: next.shot, x: 10, y: 10 }),
-          "CU-CON-004",
-        );
-        expect(h.events.filter((event) => event.type === "request.opened")).toHaveLength(1);
-      }).pipe(Effect.scoped),
-    );
-  }
+      h.hit = { role: "group", label: "Format disk" };
+      const next = yield* shootNotes(h);
+      expectError(
+        yield* send(h, { command: "click", shot: next.shot, x: 10, y: 10 }),
+        "CU-CON-004",
+      );
+      expect(h.events.filter((event) => event.type === "request.opened")).toHaveLength(1);
+    }).pipe(Effect.scoped),
+  );
 
   it.effect(
     "risky: routine input runs unasked in a supervised thread, destructive still asks",
@@ -1772,51 +1758,53 @@ describe("ComputerUseService results and logs", () => {
 });
 
 describe("ComputerUseService show on screen", () => {
-  for (const paused of [false, true])
-    it.effect(
-      `waits for the cursor before input${paused ? " and rechecks approvals after arrival" : ""}`,
-      () =>
-        Effect.gen(function* () {
-          const entered = yield* Deferred.make<void>();
-          const arrived = yield* Deferred.make<boolean>();
-          const h = yield* makeHarness("control", (driver) => ({
-            ...driver,
-            background: true,
-          })).pipe(
-            Effect.provideService(ComputerUseCursor, (message) => {
-              if (message.action === "error") return Effect.succeed(true);
-              expect(message).toMatchObject({
-                threadId,
-                threadName: "Thread",
-                windowHandle: "w-notes",
-                action: "key",
-                x: 400,
-                y: 300,
-              });
-              return Deferred.succeed(entered, undefined).pipe(
-                Effect.andThen(Deferred.await(arrived)),
-              );
-            }),
-          );
-          h.thread.runtimeMode = "full-access";
-          const refs = yield* observeNotes(h);
-          const action = yield* send(h, { command: "key", window: refs.window, keys: "tab" }).pipe(
-            Effect.forkChild,
-          );
-          yield* Deferred.await(entered);
-          expect(inputCalls(h)).toEqual([]);
-          h.providerApprovalPending = paused;
-          yield* Deferred.succeed(arrived, true);
-          const result = yield* Fiber.join(action);
-          if (paused) {
-            expectError(result, "CU-CON-008", "not-dispatched");
-            expect(inputCalls(h)).toEqual([]);
-          } else {
-            expectDispatched(result);
-            expect(inputCalls(h)).toEqual(["key:w-notes"]);
-          }
-        }).pipe(Effect.scoped),
-    );
+  it.effect.each(
+    [false, true].map((paused) => {
+      return {
+        suffix: paused ? " and rechecks approvals after arrival" : "",
+        paused,
+      };
+    }),
+  )("waits for the cursor before input$suffix", ({ paused }) =>
+    Effect.gen(function* () {
+      const entered = yield* Deferred.make<void>();
+      const arrived = yield* Deferred.make<boolean>();
+      const h = yield* makeHarness("control", (driver) => ({
+        ...driver,
+        background: true,
+      })).pipe(
+        Effect.provideService(ComputerUseCursor, (message) => {
+          if (message.action === "error") return Effect.succeed(true);
+          expect(message).toMatchObject({
+            threadId,
+            threadName: "Thread",
+            windowHandle: "w-notes",
+            action: "key",
+            x: 400,
+            y: 300,
+          });
+          return Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(arrived)));
+        }),
+      );
+      h.thread.runtimeMode = "full-access";
+      const refs = yield* observeNotes(h);
+      const action = yield* send(h, { command: "key", window: refs.window, keys: "tab" }).pipe(
+        Effect.forkChild,
+      );
+      yield* Deferred.await(entered);
+      expect(inputCalls(h)).toEqual([]);
+      h.providerApprovalPending = paused;
+      yield* Deferred.succeed(arrived, true);
+      const result = yield* Fiber.join(action);
+      if (paused) {
+        expectError(result, "CU-CON-008", "not-dispatched");
+        expect(inputCalls(h)).toEqual([]);
+      } else {
+        expectDispatched(result);
+        expect(inputCalls(h)).toEqual(["key:w-notes"]);
+      }
+    }).pipe(Effect.scoped),
+  );
   it.effect("refuses input when the desktop cannot show the cursor", () =>
     Effect.gen(function* () {
       const h = yield* makeHarness("control", (driver) => ({ ...driver, background: true })).pipe(

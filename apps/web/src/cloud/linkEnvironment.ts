@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import {
   EnvironmentCloudEndpointUnavailableError,
   type EnvironmentCloudLinkStateResult,
@@ -22,9 +22,9 @@ import {
 import { EnvironmentRegistry } from "@t3tools/client-runtime/connection";
 import { request, runStream } from "@t3tools/client-runtime/rpc";
 import { makeEnvironmentHttpApiClient } from "@t3tools/client-runtime/rpc";
-import { ManagedRelay, relayProtectedErrorMessage } from "@t3tools/client-runtime/relay";
+import { ManagedRelay, relayRequestFailureDetail } from "@t3tools/client-runtime/relay";
 
-import { primaryEnvironmentHttpLayer } from "../environments/primary/httpLayer";
+import * as PrimaryEnvironmentHttpLayer from "../environments/primary/httpLayer";
 import { resolveCloudPublicConfig } from "./publicConfig";
 import {
   finishRelayClientInstall,
@@ -50,16 +50,16 @@ const relayClientRpcError = (message: string) => (cause: unknown) =>
 
 function ensureRelayClientAvailable(
   environmentId: EnvironmentId,
-): Effect.Effect<void, CloudEnvironmentLinkError, EnvironmentRegistry> {
+): Effect.Effect<void, CloudEnvironmentLinkError, EnvironmentRegistry.EnvironmentRegistry> {
   return Effect.gen(function* () {
-    const registry = yield* EnvironmentRegistry;
+    const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
     const status = yield* registry
       .run(environmentId, request(WS_METHODS.cloudGetRelayClientStatus, {}))
       .pipe(Effect.mapError(relayClientRpcError("Could not check relay client availability.")));
     if (status.status === "available") return;
     if (status.status === "unsupported") {
       return yield* new CloudEnvironmentLinkError({
-        message: `ViewCode cannot install the relay client automatically on ${status.platform}-${status.arch}.`,
+        message: `T3 Code cannot install the relay client automatically on ${status.platform}-${status.arch}.`,
       });
     }
 
@@ -95,7 +95,7 @@ function ensureRelayClientAvailable(
       return yield* new CloudEnvironmentLinkError({
         message:
           installedStatus.status === "unsupported"
-            ? `ViewCode cannot install the relay client automatically on ${installedStatus.platform}-${installedStatus.arch}.`
+            ? `T3 Code cannot install the relay client automatically on ${installedStatus.platform}-${installedStatus.arch}.`
             : "The relay client is still unavailable after installation.",
       });
     }
@@ -115,20 +115,16 @@ const isEnvironmentCloudApiError = Schema.is(
 
 function decodedRelayClientError(message: string) {
   return (cause: ManagedRelay.ManagedRelayClientError) => {
-    const relayError =
-      cause._tag === "ManagedRelayRequestFailedError" ? cause.relayError : undefined;
+    const failed = cause._tag === "ManagedRelayRequestFailedError" ? cause : undefined;
     const traceId =
-      cause._tag === "ManagedRelayRequestFailedError" ||
-      cause._tag === "ManagedRelayRequestTimeoutError"
-        ? cause.traceId
-        : undefined;
-    // A browser can hide a relay error response behind CORS. Keep recovery
-    // guidance even when there is no typed response to decode.
-    const detail = relayError
-      ? relayProtectedErrorMessage(relayError)
-      : cause._tag === "ManagedRelayRequestFailedError" && cause.transportFailed
-        ? "The relay response could not be read. Try again. If it keeps failing, check your internet connection or try another network."
-        : cause.message;
+      failed?.traceId ??
+      (cause._tag === "ManagedRelayRequestTimeoutError" ? cause.traceId : undefined);
+    const detail = failed
+      ? (relayRequestFailureDetail(failed) ??
+        (failed.transportFailed
+          ? "The relay response could not be read. Try again. If it keeps failing, check your internet connection or try another network."
+          : failed.message))
+      : cause.message;
     return new CloudEnvironmentLinkError({
       message: `${message} ${detail}`,
       cause,
@@ -203,36 +199,26 @@ export function readPrimaryCloudLinkState(input: {
     return yield* client.connect
       .linkState({ headers: {} })
       .pipe(Effect.mapError(environmentApiError("Could not read environment cloud link state.")));
-  }).pipe(Effect.provide(primaryEnvironmentHttpLayer));
+  }).pipe(Effect.provide(PrimaryEnvironmentHttpLayer.layer));
 }
 
 export function updatePrimaryCloudPreferences(input: {
   readonly target: CloudLinkTarget;
   readonly publishAgentActivity: boolean;
+  readonly holdWebhooksWhileOffline?: boolean;
 }): Effect.Effect<CloudLinkState, CloudEnvironmentLinkError, HttpClient.HttpClient> {
   return Effect.gen(function* () {
     const client = yield* makeEnvironmentHttpApiClient(input.target.httpBaseUrl);
+    const { target: _target, ...payload } = input;
     return yield* client.connect
       .preferences({
         headers: {},
-        payload: input,
+        payload,
       })
       .pipe(
         Effect.mapError(environmentApiError("Could not update environment cloud preferences.")),
       );
-  }).pipe(Effect.provide(primaryEnvironmentHttpLayer));
-}
-
-/** Starts a managed tunnel that paused because the network blocks it. */
-export function retryPrimaryManagedTunnel(input: {
-  readonly target: CloudLinkTarget;
-}): Effect.Effect<void, CloudEnvironmentLinkError, HttpClient.HttpClient> {
-  return Effect.gen(function* () {
-    const client = yield* makeEnvironmentHttpApiClient(input.target.httpBaseUrl);
-    yield* client.connect
-      .retryTunnel({ headers: {} })
-      .pipe(Effect.mapError(environmentApiError("Could not restart the T3 Connect tunnel.")));
-  }).pipe(Effect.provide(primaryEnvironmentHttpLayer));
+  }).pipe(Effect.provide(PrimaryEnvironmentHttpLayer.layer));
 }
 
 export function unlinkPrimaryEnvironmentFromCloud(input: {
@@ -265,12 +251,9 @@ export function unlinkPrimaryEnvironmentFromCloud(input: {
           ),
         );
     }
-  }).pipe(Effect.provide(primaryEnvironmentHttpLayer));
+  }).pipe(Effect.provide(PrimaryEnvironmentHttpLayer.layer));
 }
 
-// "publish_only" links the environment to the relay for agent-activity
-// publishing alone: no managed tunnel is provisioned, so it can be toggled
-// independently of T3 Connect while clients reach the environment out of band.
 export type CloudLinkMode = "managed" | "publish_only";
 
 const PUBLISH_ONLY_PROVIDER_KIND = "manual" satisfies RelayManagedEndpointProviderKind;
@@ -282,7 +265,7 @@ export function linkPrimaryEnvironmentToCloud(input: {
 }): Effect.Effect<
   void,
   CloudEnvironmentLinkError,
-  EnvironmentRegistry | HttpClient.HttpClient | ManagedRelay.ManagedRelayClient
+  EnvironmentRegistry.EnvironmentRegistry | HttpClient.HttpClient | ManagedRelay.ManagedRelayClient
 > {
   return Effect.gen(function* () {
     const configuredRelayUrl = relayUrl();
@@ -301,9 +284,7 @@ export function linkPrimaryEnvironmentToCloud(input: {
       yield* ensureRelayClientAvailable(EnvironmentId.make(input.target.environmentId));
     }
 
-    // Provisioning can race tunnel cleanup. Repeat the handshake once; a proof
-    // consumed by the relay cannot be reused, and local config is applied only
-    // after a successful link.
+    // Provisioning retries need a new challenge and proof: each proof can be consumed only once.
     const link = yield* Effect.gen(function* () {
       const challenge = yield* relayClient
         .createEnvironmentLinkChallenge({
@@ -363,9 +344,15 @@ export function linkPrimaryEnvironmentToCloud(input: {
           environmentCredential: link.environmentCredential,
           cloudMintPublicKey: link.cloudMintPublicKey,
           endpointRuntime: link.endpointRuntime,
-          endpointHttpBaseUrl: link.endpoint.httpBaseUrl,
         },
       })
       .pipe(Effect.mapError(environmentApiError("Could not configure environment relay access.")));
-  }).pipe(Effect.provide(primaryEnvironmentHttpLayer));
+  }).pipe(Effect.provide(PrimaryEnvironmentHttpLayer.layer));
+}
+
+export function retryPrimaryManagedTunnel(input: { readonly target: CloudLinkTarget }) {
+  return Effect.gen(function* () {
+    const client = yield* makeEnvironmentHttpApiClient(input.target.httpBaseUrl);
+    yield* client.connect.retryTunnel({ headers: {} });
+  }).pipe(Effect.provide(PrimaryEnvironmentHttpLayer.layer));
 }

@@ -9,7 +9,9 @@ import android.content.Context
 import android.content.Intent
 
 /**
- * Re-renders an expo-widgets widget when a snapshot deadline passes while the app is closed.
+ * Re-renders an expo-widgets widget when a deadline passes while the app is closed; the
+ * usage widget passes its refill times so a reset window shows full. This module also
+ * carries the widget's logo drawables (`res/drawable/usage_widget_*`).
  * The generated `<package>.<name>Provider` receiver re-runs the JS layout with the stored
  * snapshot on ACTION_APPWIDGET_UPDATE, so a deadline only needs to deliver that broadcast.
  */

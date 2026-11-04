@@ -133,7 +133,7 @@ function clip(text: string, max: number): string {
 }
 
 /** The event in a few words; never message text, errors or anything else from the thread. */
-export function describePushEvent(
+function describePushEvent(
   kind: PushEventKind,
   payload: UsageResumePayload | null,
   nowMs: number,

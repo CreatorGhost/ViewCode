@@ -25,6 +25,9 @@ function renderPendingActions(isRunning: boolean) {
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {
       compact: true,
+      canOperateThread: true,
+      canInterrupt: isRunning,
+      followUpBehavior: "queue",
       pendingAction: {
         questionIndex: 0,
         isLastQuestion: true,
@@ -52,6 +55,9 @@ function renderRunningActions(hasSendableContent: boolean) {
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {
       compact: true,
+      canOperateThread: true,
+      canInterrupt: true,
+      followUpBehavior: "queue",
       pendingAction: null,
       isRunning: true,
       showPlanFollowUpPrompt: false,
@@ -73,6 +79,9 @@ function renderSendButton(sendDisabledReason: string | null = null) {
   return renderToStaticMarkup(
     createElement(ComposerPrimaryActions, {
       compact: true,
+      canOperateThread: true,
+      canInterrupt: true,
+      followUpBehavior: "queue",
       pendingAction: null,
       isRunning: false,
       showPlanFollowUpPrompt: false,

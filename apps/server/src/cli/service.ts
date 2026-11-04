@@ -1,28 +1,26 @@
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import { viewcodeProductPolicy } from "@t3tools/shared/viewcodeProductPolicy";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Terminal from "effect/Terminal";
-import { Command, Flag, GlobalFlag, Prompt } from "effect/unstable/cli";
-import { FetchHttpClient } from "effect/unstable/http";
+import { Command, Flag, GlobalFlag, Prompt } from "effect/cli";
+import { FetchHttpClient } from "effect/http";
 
 import packageJson from "../../package.json" with { type: "json" };
+import { NativeCliManagedRuntimeAllowed } from "../cloud/ViewCodeManagedRuntimePolicy.ts";
 import * as BootService from "../cloud/bootService.ts";
 import { compareExactServiceVersions } from "../cloud/serviceProtocol.ts";
 import type * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { projectLocationFlags, resolveCliAuthConfig } from "./config.ts";
 
-export const bootServiceLayer = (config: ServerConfig.ServerConfig["Service"]) =>
+export const layer = (config: ServerConfig.ServerConfig["Service"]) =>
   BootService.layer({
     baseDir: config.baseDir,
     logsDir: config.logsDir,
     cliVersion: packageJson.version,
-  }).pipe(
-    Layer.provide(ProcessRunner.layer),
-    // Archive-distributed versions download the release archive here.
-    Layer.provide(FetchHttpClient.layer),
-  );
+  }).pipe(Layer.provide(ProcessRunner.layer), Layer.provide(FetchHttpClient.layer));
 
 export type ServiceReconcileResult =
   | {
@@ -35,7 +33,6 @@ export type ServiceReconcileResult =
       readonly plan: BootService.BootServicePlan;
     };
 
-/** Install, update, or repair the service using the CLI version running this command. */
 export const reconcileService = Effect.fn("cli.service.reconcile")(function* (options?: {
   readonly allowDowngrade?: boolean;
   readonly start?: boolean;
@@ -66,9 +63,21 @@ export const reconcileService = Effect.fn("cli.service.reconcile")(function* (op
 export function formatServiceStatus(
   status: BootService.BootServiceStatus,
   cliVersion: string,
+  nativeCliManagedRuntimeAllowed: boolean = viewcodeProductPolicy.nativeCliManagedRuntime,
 ): string {
   if (!status.supported) {
     return "ViewCode service\n  Status: unavailable on this machine\n  Supported on: Linux with systemd, macOS with launchd";
+  }
+  if (!nativeCliManagedRuntimeAllowed) {
+    return [
+      "ViewCode service",
+      `  Status: ${status.installed ? (status.current ? "installed" : "needs an update or repair") : "not installed"}`,
+      ...(status.installed ? [`  Unit: ${status.unitPath}`, `  Logs: ${status.logPath}`] : []),
+      ...(status.problems ?? []).map(
+        (problem) => `  [${problem}] ${BootService.formatBootServiceProblem(problem)}`,
+      ),
+      "  Managed CLI installation and updates are unavailable for ViewCode. Use your original install method to update it.",
+    ].join("\n");
   }
   if (!status.installed) {
     return "ViewCode service\n  Status: not installed\n  Next: Run `t3 service install`.";
@@ -107,7 +116,7 @@ const runServiceCommand = Effect.fn("cli.service.run")(function* <A, E>(
 ) {
   const logLevel = yield* GlobalFlag.LogLevel;
   const config = yield* resolveCliAuthConfig(flags, logLevel);
-  return yield* run.pipe(Effect.provide(bootServiceLayer(config)));
+  return yield* run.pipe(Effect.provide(layer(config)));
 });
 
 const serviceReconcileFlags = {
@@ -139,8 +148,6 @@ const serviceInstallCommand = Command.make("install", serviceReconcileFlags).pip
   ),
 );
 
-// Kept one release for muscle memory and old docs. It did what `t3 service
-// install` does; the way to move to a newer release is `t3 update`.
 const serviceUpdateCommand = Command.make("update", serviceReconcileFlags).pipe(
   Command.withDescription("Deprecated. Run `t3 update` to move to a newer release."),
   Command.unlisted,
@@ -165,9 +172,7 @@ const serviceUpdateCommand = Command.make("update", serviceReconcileFlags).pipe(
 );
 
 const serviceRestartCommand = Command.make("restart", projectLocationFlags).pipe(
-  Command.withDescription(
-    "Restart the background service. Picks up a version installed by `t3 update` that was not restarted at the time.",
-  ),
+  Command.withDescription("Restart the installed background service."),
   Command.withHandler((flags) =>
     runServiceCommand(
       flags,
@@ -215,6 +220,7 @@ const serviceStatusCommand = Command.make("status", projectLocationFlags).pipe(
 );
 
 export const offerServiceDuringOnboarding = Effect.gen(function* () {
+  if (!(yield* NativeCliManagedRuntimeAllowed)) return false;
   const service = yield* BootService.BootService;
   const status = yield* service.status;
   const { supported, installed, current } = status;
@@ -236,21 +242,22 @@ export const offerServiceDuringOnboarding = Effect.gen(function* () {
     yield* Console.log(
       `A newer t3@${status.installedVersion} background service is installed. Leaving it unchanged.`,
     );
-    // This CLI cannot verify the newer service. Keep the manual fallback available.
     return false;
   }
-  // A LaunchAgent starts at login and dies at logout; there is no
-  // enable-linger equivalent on macOS. Do not promise more than that.
-  const platform = yield* HostProcessPlatform;
+  const platform = yield* HostProcess.Platform;
   const wanted = yield* Prompt.run(
     Prompt.Confirm({
       message: installed
         ? "The installed ViewCode service needs an update or repair. Update it now?"
         : platform === "darwin"
-          ? "Run ViewCode in the background whenever you log in to this Mac? " +
-            "It stays reachable through T3 Connect while you are logged in."
-          : "Run ViewCode in the background whenever this machine boots? " +
-            "It stays reachable through T3 Connect even after you log out.",
+          ? "Run ViewCode in the background whenever you log in to this Mac?" +
+            (viewcodeProductPolicy.upstreamPromotions
+              ? " It stays reachable through T3 Connect while you are logged in."
+              : "")
+          : "Run ViewCode in the background whenever this machine boots?" +
+            (viewcodeProductPolicy.upstreamPromotions
+              ? " It stays reachable through T3 Connect even after you log out."
+              : ""),
       initial: true,
     }),
   );
@@ -287,13 +294,17 @@ export const recoverServiceOnboardingOffer = <R>(
     }),
   );
 
-export const serviceCommand = Command.make("service").pipe(
-  Command.withDescription("Manage the ViewCode background service."),
-  Command.withSubcommands([
-    serviceInstallCommand,
-    serviceRestartCommand,
-    serviceUninstallCommand,
-    serviceStatusCommand,
-    serviceUpdateCommand,
-  ]),
-);
+export const makeServiceCommand = (
+  nativeCliManagedRuntimeAllowed: boolean = viewcodeProductPolicy.nativeCliManagedRuntime,
+) =>
+  Command.make("service").pipe(
+    Command.withDescription("Manage the ViewCode background service."),
+    Command.withSubcommands([
+      ...(nativeCliManagedRuntimeAllowed ? [serviceInstallCommand, serviceUpdateCommand] : []),
+      serviceRestartCommand,
+      serviceUninstallCommand,
+      serviceStatusCommand,
+    ]),
+  );
+
+export const serviceCommand = makeServiceCommand();

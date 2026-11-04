@@ -3,7 +3,7 @@ import {
   createPullRequestStackAtomFamily,
 } from "@t3tools/client-runtime/state/pull-requests";
 import { AuthOrchestrationOperateScope, type EnvironmentId } from "@t3tools/contracts";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { environmentScopeAtom } from "./session";

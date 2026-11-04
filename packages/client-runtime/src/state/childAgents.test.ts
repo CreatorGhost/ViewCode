@@ -8,7 +8,9 @@ import {
   isChildAgentRunning,
   resolveAgentControlAvailability,
   formatAgentElapsed,
+  childAgentRecordsFromShells,
   resolveChildAgentStatus,
+  resolveEffectiveAgentStatus,
   resolveSpawnedAgentRowStatus,
   spawnedAgentElapsedRange,
   spawnedAgentTaskTitle,
@@ -329,5 +331,85 @@ describe("spawned agent rows", () => {
     expect(spawnedAgentTaskTitle({ body: "\n## Review the diff panel\nMore detail" })).toBe(
       "Review the diff panel",
     );
+  });
+});
+
+describe("agents their lead runs", () => {
+  // A provider-native subagent's own thread never gets a run: idle on its own shell.
+  const child = (id: string, itemCount: number) => ({
+    ...shell(id, "lead"),
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    itemCount,
+  });
+  const lead = (running: ReadonlyArray<string>, environmentId = env) => ({
+    ...shell("lead", null, { environmentId }),
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    itemCount: 0,
+    runningSubagentThreadIds: running.map((id) => ThreadId.make(id)),
+  });
+
+  it("reads which agents a lead runs from its shell, per environment", () => {
+    const recordOf = childAgentRecordsFromShells([
+      lead(["a"]),
+      {
+        ...shell("other-lead", null),
+        pendingBackgroundTasks: [
+          { taskId: "t", kind: "subagent" as const, childThreadId: ThreadId.make("b") },
+        ],
+      },
+    ]);
+    expect(recordOf({ environmentId: env, id: ThreadId.make("a") })).toEqual({
+      status: "running",
+    });
+    expect(recordOf({ environmentId: env, id: ThreadId.make("b") })).toEqual({
+      status: "running",
+    });
+    expect(recordOf({ environmentId: otherEnv, id: ThreadId.make("a") })).toBeUndefined();
+    expect(recordOf({ environmentId: env, id: ThreadId.make("c") })).toBeUndefined();
+  });
+
+  it("prefers the lead's record, then the agent's own run, then idle", () => {
+    const working = child("a", 3);
+    expect(resolveEffectiveAgentStatus(working, { record: { status: "running" } })).toBe("running");
+    expect(resolveEffectiveAgentStatus(working, { record: { status: "completed" } })).toBe("done");
+    expect(resolveEffectiveAgentStatus(working, { record: { status: "failed" } })).toBe("failed");
+    expect(resolveEffectiveAgentStatus(working, { record: { status: "pending" } })).toBe("queued");
+    // Without a record: a thread that holds work it never ran itself has finished.
+    expect(resolveEffectiveAgentStatus(working)).toBe("done");
+    expect(resolveEffectiveAgentStatus(child("fresh", 0))).toBe("idle");
+    expect(
+      resolveEffectiveAgentStatus({
+        ...shell("own", "lead", { sessionStatus: "running" }),
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+      }),
+    ).toBe("running");
+    expect(
+      resolveEffectiveAgentStatus(
+        { ...working, hasPendingApprovals: true },
+        { record: { status: "running" } },
+      ),
+    ).toBe("approval");
+  });
+
+  it("counts them as working in the Active agents bar's list and status", () => {
+    const threads = [lead(["a", "b"]), child("a", 2), child("b", 2), child("c", 2)];
+    const agents = collectChildAgents(threads, {
+      environmentId: env,
+      threadId: ThreadId.make("lead"),
+    });
+    expect(agents.map((agent) => [agent.thread.id, agent.running])).toEqual([
+      ["a", true],
+      ["b", true],
+      ["c", false],
+    ]);
+    expect(countRunningChildAgents(agents)).toBe(2);
+    expect(agents.map((agent) => resolveChildAgentStatus(agent.thread, agent.record))).toEqual([
+      "working",
+      "working",
+      "idle",
+    ]);
   });
 });

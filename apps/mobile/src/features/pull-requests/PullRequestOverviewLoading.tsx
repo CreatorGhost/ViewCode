@@ -6,6 +6,7 @@ import { PullRequestStackCard } from "./PullRequestStackCard";
 import type { PullRequestParams } from "./usePullRequestDiff";
 import type { PullRequestStackState } from "./usePullRequestStack";
 import { pullRequestListReviewStatus } from "./pullRequestList";
+import { PullRequestGlyph } from "./pullRequestGlyphs";
 
 export function PullRequestOverviewLoading({
   summary,
@@ -73,7 +74,7 @@ export function PullRequestOverviewLoading({
                 : "Branch"
           }
           icon={
-            conflicting ? "exclamationmark.triangle" : clean ? "checkmark.circle" : "arrow.branch"
+            conflicting ? PullRequestGlyph.conflicting : clean ? "checkmark.circle" : "arrow.branch"
           }
           tint={
             conflicting

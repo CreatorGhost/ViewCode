@@ -1,15 +1,15 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   EventId,
+  SourceControlProviderKind,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
   PullRequestUnavailableError,
-  type OrchestrationCommand,
+  type OrchestrationV2ServerCommand,
   type OrchestrationProjectShell,
-  type OrchestrationThread,
   type OrchestrationThreadActivity,
-  type OrchestrationThreadShell,
+  type OrchestrationV2ThreadShell,
   type PullRequestDetail,
   type PullRequestSummary,
 } from "@t3tools/contracts";
@@ -20,17 +20,24 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
-import * as Stream from "effect/Stream";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import * as ServerConfig from "../config.ts";
-import { OrchestrationCommandInvariantError } from "../orchestration/Errors.ts";
-import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { OrchestratorDispatchError } from "../orchestration-v2/Orchestrator.ts";
+import { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
+import { ProjectionStoreV2 } from "../orchestration-v2/ProjectionStore.ts";
+import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
+import { ReviewActivityStoreV2 } from "../review/ReviewActivityStoreV2.ts";
 import * as ReviewFindingRatings from "../review/ReviewFindingRatings.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as PullRequestAgentReview from "./PullRequestAgentReview.ts";
 import * as PullRequestService from "./PullRequestService.ts";
+
+type ReviewRecord =
+  | OrchestrationV2ServerCommand
+  | ({ readonly type: "review.activity.record" } & Parameters<
+      ReviewActivityStoreV2["Service"]["append"]
+    >[0]);
 
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const PROJECT_ID = ProjectId.make("project-1");
@@ -42,6 +49,10 @@ const project: OrchestrationProjectShell = {
   title: "Project",
   workspaceRoot: "/workspace/project",
   defaultModelSelection: null,
+  defaultThreadEnvMode: null,
+  autoPull: false,
+  faviconPath: null,
+  projectIcon: null,
   scripts: [],
   repositoryIdentity: {
     canonicalKey: "github.com/t3tools/t3code",
@@ -50,7 +61,7 @@ const project: OrchestrationProjectShell = {
       remoteName: "origin",
       remoteUrl: "git@github.com:t3tools/t3code.git",
     },
-    provider: "github",
+    provider: SourceControlProviderKind.make("github"),
     displayName: "t3tools/t3code",
     owner: "t3tools",
     name: "t3code",
@@ -60,7 +71,7 @@ const project: OrchestrationProjectShell = {
 };
 
 const summary: PullRequestSummary = {
-  provider: "github",
+  provider: SourceControlProviderKind.make("github"),
   projectId: PROJECT_ID,
   repository: "t3tools/t3code",
   number: 42,
@@ -72,19 +83,19 @@ const summary: PullRequestSummary = {
   updatedAt: "2026-08-20T00:00:00.000Z",
 };
 
-const SOURCE_THREADS: Record<string, OrchestrationThreadShell> = {
+const SOURCE_THREADS: Record<string, OrchestrationV2ThreadShell> = {
   "source-thread": {
     id: ThreadId.make("source-thread"),
     projectId: PROJECT_ID,
     branch: "feature/cache",
     worktreePath: "/worktrees/project/cache",
-  } as OrchestrationThreadShell,
+  } as OrchestrationV2ThreadShell,
   "elsewhere-thread": {
     id: ThreadId.make("elsewhere-thread"),
     projectId: ProjectId.make("project-2"),
     branch: "main",
     worktreePath: null,
-  } as OrchestrationThreadShell,
+  } as OrchestrationV2ThreadShell,
 };
 
 const EARLIER_REVIEW_THREAD = ThreadId.make("earlier-review");
@@ -139,7 +150,7 @@ const makeHarness = (options: {
   readonly ratedFindingsPath?: string;
 }) =>
   Effect.gen(function* () {
-    const commands = yield* Ref.make<ReadonlyArray<OrchestrationCommand>>([]);
+    const commands = yield* Ref.make<ReadonlyArray<ReviewRecord>>([]);
     const detailReads = yield* Ref.make(0);
     const dependencies = Layer.mergeAll(
       Layer.mock(PullRequestService.PullRequestService)({
@@ -152,35 +163,46 @@ const makeHarness = (options: {
             ),
           ),
       }),
-      Layer.mock(ProjectionSnapshotQuery)({
-        getProjectShellById: (projectId) =>
+      Layer.mock(ProjectStoreV2)({
+        getShell: (projectId) =>
           Effect.succeed(projectId === PROJECT_ID ? Option.some(project) : Option.none()),
-        getThreadShellById: (threadId) =>
-          Effect.succeed(Option.fromNullishOr(SOURCE_THREADS[threadId])),
-        getThreadDetailById: (threadId) =>
+      }),
+      Layer.mock(ProjectionStoreV2)({
+        getThreadShell: (threadId) =>
           Effect.succeed(
             threadId === EARLIER_REVIEW_THREAD
-              ? Option.some({
-                  id: threadId,
-                  projectId: PROJECT_ID,
-                  activities: options.earlierFindings ?? [],
-                } as unknown as OrchestrationThread)
-              : Option.none(),
+              ? ({ id: threadId, projectId: PROJECT_ID } as OrchestrationV2ThreadShell)
+              : (SOURCE_THREADS[threadId] ?? null),
           ),
       }),
-      Layer.mock(OrchestrationEngineService)({
-        readEvents: () => Stream.empty,
-        streamDomainEvents: Stream.empty,
-        latestSequence: Effect.succeed(0),
+      Layer.mock(ReviewActivityStoreV2)({
+        list: () => Effect.succeed(options.earlierFindings ?? []),
+        append: (command) =>
+          Ref.update(commands, (all) => [
+            ...all,
+            { type: "review.activity.record" as const, ...command },
+          ]),
+      }),
+      Layer.mock(ThreadManagementService)({
         dispatch: (command) =>
           options.rejectLink === true && command.type === "thread.pull-request.link"
             ? Effect.fail(
-                new OrchestrationCommandInvariantError({
+                new OrchestratorDispatchError({
+                  commandId: command.commandId,
                   commandType: command.type,
-                  detail: "the thread is settled",
+                  cause: "the thread is settled",
                 }),
               )
-            : Ref.update(commands, (all) => [...all, command]).pipe(Effect.as({ sequence: 1 })),
+            : Ref.update(commands, (all) => [...all, command]).pipe(Effect.as({} as never)),
+        sendToThread: (input) =>
+          Ref.update(commands, (all) => [
+            ...all,
+            {
+              ...input,
+              type: "message.dispatch" as const,
+              dispatchMode: { type: "queue_after_active" as const },
+            },
+          ]).pipe(Effect.as({} as never)),
       }),
       Layer.mock(ReviewFindingRatings.ReviewFindingRatings)({
         writeRatedFindingsFile: () => Effect.succeed(options.ratedFindingsPath ?? null),
@@ -244,7 +266,7 @@ describe("PullRequestAgentReview", () => {
       });
       // The commit under review is recorded outside any turn, for the findings to be pinned to.
       expect(started).toMatchObject({
-        type: "thread.activity.append",
+        type: "review.activity.record",
         threadId: result.threadId,
         activity: {
           kind: "viewcode.review.started",
@@ -258,8 +280,8 @@ describe("PullRequestAgentReview", () => {
           turnId: null,
         },
       });
-      expect(turn?.type).toBe("thread.turn.start");
-      const text = turn?.type === "thread.turn.start" ? turn.message.text : "";
+      expect(turn?.type).toBe("message.dispatch");
+      const text = turn?.type === "message.dispatch" ? turn.text : "";
       const playbookPath = `${harness.stateDir}/review-playbooks/security-audit.md`;
       expect(text).toContain("Security audit of pull request #42: Cache the probe");
       expect(text).toContain(summary.url);
@@ -290,9 +312,9 @@ describe("PullRequestAgentReview", () => {
       expect(commands.map((command) => command.type)).toEqual([
         "thread.create",
         "thread.pull-request.link",
-        "thread.activity.append",
-        "thread.turn.start",
-        "thread.activity.append",
+        "review.activity.record",
+        "message.dispatch",
+        "review.activity.record",
       ]);
       expect(commands[0]).toMatchObject({ threadId: result.threadId, parentThreadId: source });
       const turn = commands[3];
@@ -303,7 +325,7 @@ describe("PullRequestAgentReview", () => {
           kind: "viewcode.agent-message.sent",
           turnId: null,
           payload: {
-            messageId: turn?.type === "thread.turn.start" ? turn.message.messageId : "",
+            messageId: turn?.type === "message.dispatch" ? turn.messageId : "",
             toThreadId: result.threadId,
             toName: "Deep review: #42 Cache the probe",
             kind: "spawn",
@@ -337,7 +359,7 @@ describe("PullRequestAgentReview", () => {
       expect(result.title).toBe("Review: #42 Cache the probe");
       const [create, , , turn] = yield* Ref.get(harness.commands);
       expect(create).toMatchObject({ modelSelection: fallback });
-      expect(turn?.type === "thread.turn.start" ? turn.message.text : "").toContain(
+      expect(turn?.type === "message.dispatch" ? turn.text : "").toContain(
         `${harness.stateDir}/review-playbooks/quick-review.md`,
       );
     }).pipe(Effect.provide(NodeServices.layer)),
@@ -352,7 +374,7 @@ describe("PullRequestAgentReview", () => {
         linkSource: "manual",
       });
       const turn = (yield* Ref.get(harness.commands)).at(-1);
-      expect(turn?.type === "thread.turn.start" ? turn.message.text : "").toContain(
+      expect(turn?.type === "message.dispatch" ? turn.text : "").toContain(
         'When you call submit_review_findings, pass mode "comment".',
       );
     }).pipe(Effect.provide(NodeServices.layer)),
@@ -366,9 +388,9 @@ describe("PullRequestAgentReview", () => {
           viewer: "Bilal",
         } as PullRequestDetail);
       const reviewStyles = { "github.com/bilal": "Lowercase, no pleasantries, ask questions." };
-      const lastMessage = (commands: ReadonlyArray<OrchestrationCommand>) => {
+      const lastMessage = (commands: ReadonlyArray<ReviewRecord>) => {
         const turn = commands.at(-1);
-        return turn?.type === "thread.turn.start" ? turn.message.text : "";
+        return turn?.type === "message.dispatch" ? turn.text : "";
       };
 
       const theirs = yield* makeHarness({
@@ -461,7 +483,10 @@ describe("PullRequestAgentReview", () => {
       const harness = yield* makeHarness({
         defaultModel: PROJECT_MODEL,
         summary: Effect.fail(
-          new PullRequestUnavailableError({ reason: "cli-unauthenticated", provider: "github" }),
+          new PullRequestUnavailableError({
+            reason: "cli-unauthenticated",
+            provider: SourceControlProviderKind.make("github"),
+          }),
         ),
       });
       const error = yield* harness.reviews
@@ -497,7 +522,7 @@ describe("rated findings", () => {
       yield* harness.reviews.start({ reference: REFERENCE, linkSource: "manual" });
       yield* harness.reviews.startLocal({ projectId: PROJECT_ID });
       const texts = (yield* Ref.get(harness.commands)).flatMap((command) =>
-        command.type === "thread.turn.start" ? [command.message.text] : [],
+        command.type === "message.dispatch" ? [command.text] : [],
       );
       expect(texts).toHaveLength(2);
       for (const text of texts) {
@@ -513,15 +538,15 @@ describe("rated findings", () => {
       const unrated = yield* makeHarness({ defaultModel: PROJECT_MODEL });
       yield* unrated.reviews.start({ reference: REFERENCE, linkSource: "manual" });
       const turn = (yield* Ref.get(unrated.commands)).at(-1);
-      expect(turn?.type === "thread.turn.start" ? turn.message.text : "").not.toContain("rated");
+      expect(turn?.type === "message.dispatch" ? turn.text : "").not.toContain("rated");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
 
 describe("re-reviews", () => {
-  const turnText = (commands: ReadonlyArray<OrchestrationCommand>) => {
-    const turn = commands.find((command) => command.type === "thread.turn.start");
-    return turn?.type === "thread.turn.start" ? turn.message.text : "";
+  const turnText = (commands: ReadonlyArray<ReviewRecord>) => {
+    const turn = commands.find((command) => command.type === "message.dispatch");
+    return turn?.type === "message.dispatch" ? turn.text : "";
   };
 
   it.effect("includes removed changes and excludes unchanged content after a force-push", () =>
@@ -598,7 +623,7 @@ describe("re-reviews", () => {
         linkSource: "manual",
       });
       const commands = yield* Ref.get(harness.commands);
-      expect(commands.find((command) => command.type === "thread.activity.append")).toMatchObject({
+      expect(commands.find((command) => command.type === "review.activity.record")).toMatchObject({
         activity: {
           payload: {
             headSha: "bbbbbbb",
@@ -687,9 +712,9 @@ describe("re-reviews", () => {
 });
 
 describe("PullRequestAgentReview.startLocal", () => {
-  const turnText = (commands: ReadonlyArray<OrchestrationCommand>) => {
-    const turn = commands.find((command) => command.type === "thread.turn.start");
-    return turn?.type === "thread.turn.start" ? turn.message.text : "";
+  const turnText = (commands: ReadonlyArray<ReviewRecord>) => {
+    const turn = commands.find((command) => command.type === "message.dispatch");
+    return turn?.type === "message.dispatch" ? turn.text : "";
   };
 
   it.effect("reviews a thread's checkout in a new thread on the same branch and worktree", () =>
@@ -705,9 +730,9 @@ describe("PullRequestAgentReview.startLocal", () => {
       const commands = yield* Ref.get(harness.commands);
       expect(commands.map((command) => command.type)).toEqual([
         "thread.create",
-        "thread.activity.append",
-        "thread.turn.start",
-        "thread.activity.append",
+        "review.activity.record",
+        "message.dispatch",
+        "review.activity.record",
       ]);
       expect(commands[0]).toMatchObject({
         threadId: result.threadId,

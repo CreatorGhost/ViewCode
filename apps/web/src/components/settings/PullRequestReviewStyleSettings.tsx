@@ -1,3 +1,4 @@
+import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, LearnedReviewStyleSample } from "@t3tools/contracts";
 import { reviewStyleKey } from "@t3tools/shared/reviewFindings";
 import { ChevronDownIcon } from "lucide-react";
@@ -95,16 +96,18 @@ function PullRequestReviewStyleSettings({
 
   const save = async () => {
     setSaving(true);
-    try {
+    const operation = await settlePromise(async () => {
       // The server merges per account, and an empty style clears this one's.
       const result = await updateSettings({
         environmentId,
         input: { patch: { pullRequestReviewStyles: { [key]: value.trim() } } },
       });
       if (result._tag === "Success") setDraft(null);
-    } finally {
-      setSaving(false);
-    }
+    });
+
+    setSaving(false);
+
+    if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
   };
 
   return (
@@ -191,13 +194,15 @@ function LearnedReviewStyleSettings({
 
   const run = async (action: "learn" | "forget") => {
     setBusy(action);
-    try {
+    const operation = await settlePromise(async () => {
       const input = { environmentId, input: { host, login } };
       await (action === "learn" ? learnStyle(input) : forgetLearnedStyle(input));
       status.refresh();
-    } finally {
-      setBusy(null);
-    }
+    });
+
+    setBusy(null);
+
+    if (operation._tag === "Failure") throw squashAtomCommandFailure(operation);
   };
 
   const summary =

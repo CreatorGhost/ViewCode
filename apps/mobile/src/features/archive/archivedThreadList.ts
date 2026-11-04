@@ -1,10 +1,7 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+import { scopeThreadShell } from "@t3tools/client-runtime/viewcodeThread";
 import type { ArchivedSnapshotEntry } from "@t3tools/client-runtime/state/threads";
-import {
-  scopeProject,
-  scopeThreadShell,
-  type EnvironmentProject,
-  type EnvironmentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
+import { scopeProject, type EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";

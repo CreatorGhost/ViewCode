@@ -1,3 +1,5 @@
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/viewcodeThread";
+
 import { useAtomValue } from "@effect/atom-react";
 import {
   type AgentReviewChoices,
@@ -21,7 +23,7 @@ import {
   type ChildAgentEntry,
   collectChildAgents,
 } from "@t3tools/client-runtime/state/child-agents";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,

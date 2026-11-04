@@ -113,17 +113,22 @@ describe("ViewCode default contrast", () => {
   };
   const textSurfaces = ["canvas", "surface", "surfaceRaised", "surfaceOverlay"] as const;
 
-  for (const [appearance, colors] of Object.entries(appearances)) {
-    it(`keeps secondary text at 4.5:1 and placeholders at 3.5:1 (${appearance})`, () => {
-      for (const surface of textSurfaces) {
-        for (const role of ["textMuted", "mutedForeground", "secondaryLabel"] as const) {
-          expect(contrastRatio(colors[role], colors[surface])).toBeGreaterThanOrEqual(4.5);
-        }
-        expect(contrastRatio(colors.placeholder, colors[surface])).toBeGreaterThanOrEqual(3.5);
+  it.each(
+    Object.entries(appearances).map(([appearance, colors]) => {
+      return {
+        appearance,
+        colors,
+      };
+    }),
+  )("keeps secondary text at 4.5:1 and placeholders at 3.5:1 ($appearance)", ({ colors }) => {
+    for (const surface of textSurfaces) {
+      for (const role of ["textMuted", "mutedForeground", "secondaryLabel"] as const) {
+        expect(contrastRatio(colors[role], colors[surface])).toBeGreaterThanOrEqual(4.5);
       }
-      expect(contrastRatio(colors.sidebarMutedForeground, colors.sidebar)).toBeGreaterThanOrEqual(
-        4.5,
-      );
-    });
-  }
+      expect(contrastRatio(colors.placeholder, colors[surface])).toBeGreaterThanOrEqual(3.5);
+    }
+    expect(contrastRatio(colors.sidebarMutedForeground, colors.sidebar)).toBeGreaterThanOrEqual(
+      4.5,
+    );
+  });
 });

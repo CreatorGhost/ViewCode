@@ -3,6 +3,7 @@
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 
 import { cn } from "~/lib/utils";
+import { POPUP_MOTION_CLASS } from "./popup-motion";
 
 const PopoverCreateHandle = PopoverPrimitive.createHandle;
 
@@ -38,7 +39,10 @@ const popoverViewportPaddingClassName = {
 // control panels that hang off a pill (the composer's model and usage popovers).
 const popoverPopupVariantClassName = {
   default: "rounded-lg before:rounded-[calc(var(--radius-lg)-1px)]",
-  floating: "rounded-3xl before:rounded-[calc(var(--radius-3xl)-1px)]",
+  panel: "rounded-xl before:rounded-[calc(var(--radius-xl)-1px)]",
+  // Grows from its caret as it fades in, so the card reads as coming out of the pill.
+  floating:
+    "rounded-3xl before:rounded-[calc(var(--radius-3xl)-1px)] transition-[width,height,translate,scale,opacity] motion-safe:data-starting-style:scale-[0.96] motion-safe:data-ending-style:scale-[0.98]",
 } as const;
 
 function PopoverPopup({
@@ -55,6 +59,7 @@ function PopoverPopup({
   anchor,
   collisionAvoidance,
   variant = "default",
+  touchBackdrop = false,
   ...props
 }: PopoverPrimitive.Popup.Props & {
   variant?: keyof typeof popoverPopupVariantClassName;
@@ -68,12 +73,22 @@ function PopoverPopup({
   anchor?: PopoverPrimitive.Positioner.Props["anchor"];
   width?: keyof typeof popoverPopupWidthClassName;
   collisionAvoidance?: PopoverPrimitive.Positioner.Props["collisionAvoidance"];
+  touchBackdrop?: boolean;
 }) {
   // Viewport rekeys its children when the active trigger clears on close. Persistent
   // single-trigger forms need a stable container to retain drafts and submit guards.
   const Viewport = keepMounted ? "div" : PopoverPrimitive.Viewport;
   return (
     <PopoverPrimitive.Portal keepMounted={keepMounted}>
+      {touchBackdrop ? (
+        // A non-modal popover closes on an outside tap and lets that tap reach the
+        // control under the finger. On touch screens the backdrop takes the tap, so
+        // tapping away only closes the popover, as it does for modal menus and selects.
+        <PopoverPrimitive.Backdrop
+          className="fixed inset-0 z-[130] hidden pointer-coarse:block"
+          data-slot="popover-backdrop"
+        />
+      ) : null}
       <PopoverPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}
@@ -86,7 +101,8 @@ function PopoverPopup({
       >
         <PopoverPrimitive.Popup
           className={cn(
-            "dropdown-glass relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) text-popover-foreground outline-none transition-[width,height,scale,opacity] before:pointer-events-none before:absolute before:inset-0 before:shadow-[0_1px_--theme(--color-black/4%)] has-data-[slot=calendar]:rounded-xl has-data-[slot=calendar]:before:rounded-[calc(var(--radius-xl)-1px)] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
+            "dropdown-glass relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) text-popover-foreground outline-none transition-[width,height,translate,opacity] before:pointer-events-none before:absolute before:inset-0 before:shadow-[0_1px_--theme(--color-black/4%)] has-data-[slot=calendar]:rounded-xl has-data-[slot=calendar]:before:rounded-[calc(var(--radius-xl)-1px)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
+            POPUP_MOTION_CLASS,
             popoverPopupVariantClassName[variant],
             tooltipStyle &&
               "w-fit text-balance rounded-md text-xs shadow-md/5 before:rounded-[calc(var(--radius-md)-1px)]",
@@ -144,6 +160,7 @@ function PopoverTitle({ className, ...props }: PopoverPrimitive.Title.Props) {
 }
 
 export {
+  popoverPopupVariantClassName,
   PopoverCreateHandle,
   Popover,
   PopoverTrigger,

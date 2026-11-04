@@ -22,11 +22,13 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
-import * as HttpClient from "effect/unstable/http/HttpClient";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as Semaphore from "effect/Semaphore";
+import * as HttpClient from "effect/http/HttpClient";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
+import * as DesktopTailscaleGate from "./DesktopTailscaleGate.ts";
 import * as DesktopNetworkInterfaces from "./DesktopNetworkInterfaces.ts";
 import { resolveTailscaleAdvertisedEndpoints } from "./tailscaleEndpointProvider.ts";
 
@@ -83,6 +85,18 @@ const isUsableLanIpv4Address = (address: string): boolean =>
   !address.startsWith("169.254.") &&
   !isTailscaleIpv4Address(address);
 
+/**
+ * Bridges, tunnels and VM adapters whose private address other devices on the
+ * LAN usually cannot reach: macOS's Thunderbolt Bridge (`bridge0`, which can
+ * keep a manual address while nothing is plugged in) and Internet Sharing
+ * bridges, VPN tunnels, and container or VM networks. Their addresses are only
+ * advertised when no other interface has one. Host bridges such as `br0`,
+ * Proxmox's `vmbr0` and Hyper-V's `vEthernet` external switches often carry
+ * the LAN address, so they are not listed.
+ */
+const HOST_ONLY_INTERFACE =
+  /^(bridge\d|utun|ipsec|ppp|tun|tap|wg|docker|br-|veth|virbr|vmnet|vboxnet|VirtualBox|VMware)/;
+
 const isHttpsEndpointUrl = (value: string): boolean => {
   try {
     return new URL(value).protocol === "https:";
@@ -100,18 +114,17 @@ const resolveLanAdvertisedHost = (
     return normalizedExplicitHost;
   }
 
-  for (const interfaceAddresses of Object.values(networkInterfaces)) {
-    if (!interfaceAddresses) continue;
-
-    for (const address of interfaceAddresses) {
-      if (address.internal) continue;
-      if (address.family !== "IPv4") continue;
-      if (!isUsableLanIpv4Address(address.address)) continue;
-      return address.address;
-    }
-  }
-
-  return null;
+  const lanAddresses = Object.entries(networkInterfaces).flatMap(([name, addresses]) =>
+    (addresses ?? [])
+      .filter(
+        (address) =>
+          !address.internal && address.family === "IPv4" && isUsableLanIpv4Address(address.address),
+      )
+      .map((address) => ({ name, address: address.address })),
+  );
+  const preferred =
+    lanAddresses.find(({ name }) => !HOST_ONLY_INTERFACE.test(name)) ?? lanAddresses[0];
+  return preferred?.address ?? null;
 };
 
 /**
@@ -142,7 +155,7 @@ type SocketBackendSettings = Pick<
  * across the VM boundary, so both keep the backend on TCP, as does the
  * `T3CODE_DESKTOP_BACKEND_TCP` escape hatch.
  */
-export const allowsSocketBackend = (input: {
+const allowsSocketBackend = (input: {
   readonly settings: SocketBackendSettings;
   readonly forceTcp: boolean;
 }): boolean =>
@@ -260,9 +273,7 @@ const resolveDesktopCoreAdvertisedEndpoints = (
             : "User-configured endpoint for this desktop backend.",
         }),
       );
-    } catch {
-      // Ignore malformed user-configured endpoints without dropping valid endpoints.
-    }
+    } catch {}
   }
 
   return endpoints;
@@ -495,14 +506,18 @@ export const make = Effect.gen(function* () {
   const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const httpClient = yield* HttpClient.HttpClient;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
+  const tailscaleGate = yield* DesktopTailscaleGate.DesktopTailscaleGate;
   const stateRef = yield* Ref.make(initialRuntimeState());
+  // Each change reads the runtime state, persists settings, then writes the
+  // state back. Run them one at a time so a change never writes over another
+  // with values it read before that change persisted.
+  const changePermit = yield* Semaphore.make(1);
 
   // Cache the `tailscale status` spawn for the TTL. On macOS, the Mac App
   // Store Tailscale CLI lives inside Tailscale's sandbox container, so each
   // spawn re-triggers the "Other apps" TCC prompt.
-  const cachedReadMagicDnsName = yield* Effect.cachedWithTTL(
+  const cachedReadTailscaleStatus = yield* Effect.cachedWithTTL(
     readTailscaleStatus.pipe(
-      Effect.map((status) => status.magicDnsName),
       Effect.orElseSucceed(() => null),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
     ),
@@ -607,7 +622,7 @@ export const make = Effect.gen(function* () {
       state: toContractState(resolved.state),
       requiresRelaunch: change.changed || requiresBackendRelaunch(previous, resolved.state),
     };
-  });
+  }, changePermit.withPermit);
 
   const setTailscaleServeEnabled = Effect.fn("desktop.serverExposure.setTailscaleServeEnabled")(
     function* (input: {
@@ -652,6 +667,7 @@ export const make = Effect.gen(function* () {
             previous.tailscaleServePort !== nextState.tailscaleServePort),
       };
     },
+    changePermit.withPermit,
   );
 
   const getAdvertisedEndpoints = Effect.gen(function* () {
@@ -668,14 +684,18 @@ export const make = Effect.gen(function* () {
     if (state.mode !== "network-accessible" && !state.tailscaleServeEnabled) {
       return coreEndpoints;
     }
+    if ((yield* tailscaleGate.blockReason) !== null) return coreEndpoints;
     const currentNetworkInterfaces = yield* readNetworkInterfaces;
 
+    // Only Tailscale Serve, which the user turned on, reads `tailscale status`.
+    // Same Wi-Fi alone finds tailnet addresses from the interfaces: endpoint
+    // security on managed Macs kills the app that spawns the CLI.
     const tailscaleEndpoints = yield* resolveTailscaleAdvertisedEndpoints({
       port: state.port,
       serveEnabled: state.tailscaleServeEnabled,
       servePort: state.tailscaleServePort,
       networkInterfaces: currentNetworkInterfaces,
-      readMagicDnsName: cachedReadMagicDnsName,
+      readStatus: state.tailscaleServeEnabled ? cachedReadTailscaleStatus : Effect.succeed(null),
     }).pipe(
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
       Effect.provideService(HttpClient.HttpClient, httpClient),

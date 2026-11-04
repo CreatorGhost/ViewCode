@@ -8,6 +8,44 @@ import {
 } from "./shikiReviewHighlighter";
 
 describe("highlightSourceFile", () => {
+  it("loads review modules with native HTMLElement but no custom element registry", async () => {
+    vi.stubGlobal(
+      "HTMLElement",
+      class {
+        nodeType = 1;
+      },
+    );
+    vi.stubGlobal("customElements", undefined);
+    vi.resetModules();
+
+    try {
+      const [highlighter, model] = await Promise.all([
+        import("./shikiReviewHighlighter"),
+        import("./reviewModel"),
+      ]);
+      const source = "const native = true;";
+      const highlighted = await highlighter.highlightSourceFile({
+        path: "native.ts",
+        contents: source,
+        theme: "dark",
+      });
+      expect(
+        highlighted
+          .flat()
+          .map((token) => token.content)
+          .join(""),
+      ).toBe(source);
+      expect(
+        model.buildReviewParsedDiff(
+          "diff --git a/native.ts b/native.ts\n--- a/native.ts\n+++ b/native.ts\n@@ -1 +1 @@\n-before\n+after",
+          "native-startup",
+        ).kind,
+      ).toBe("files");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("preserves one highlighted token row per source line without trailing newlines", async () => {
     const lines = [
       'const items = ["a"];',

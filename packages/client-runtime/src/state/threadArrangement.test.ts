@@ -290,3 +290,17 @@ describe("selectThreadTreeSearchMatches without descendants", () => {
     expect([...selection.expandKeys]).toEqual(["lead"]);
   });
 });
+
+describe("agents their lead runs, in the sidebar", () => {
+  it("reads as working from the lead's record, and done once it holds finished work", () => {
+    const nativeChild = {
+      session: null,
+      latestTurn: null,
+      hasPendingApprovals: false,
+      hasPendingUserInput: false,
+      itemCount: 4,
+    };
+    expect(resolveAgentStatusGroup(nativeChild, { status: "running" })).toBe("working");
+    expect(resolveAgentStatusGroup(nativeChild)).toBe("done");
+  });
+});
