@@ -271,7 +271,8 @@ describe("resolveAutoSettlementAt", () => {
     expect(
       ThreadSettlementService.resolveAutoSettlementAt({
         ...input,
-        pullRequest: { state: "merged", mergedAt: DateTime.formatIso(at(-1)) },
+        // Older than ViewCode's merge wake window, so it settles directly.
+        pullRequest: { state: "merged", mergedAt: DateTime.formatIso(at(-7 * 60 * 60 * 1_000)) },
       }),
     ).toEqual(at(-4 * DAY_MS));
   });
@@ -329,9 +330,10 @@ describe("resolveAutoSettlementAt", () => {
     });
     const input = {
       thread,
+      // ViewCode: the last run ended after the merge; one before it wakes the agent instead.
       pullRequest: {
         state: "merged" as const,
-        mergedAt: DateTime.formatIso(at(-60 * 60 * 1_000)),
+        mergedAt: DateTime.formatIso(at(-100 * 60 * 1_000)),
       },
       nowMs: NOW_MS,
       autoSettleAfterDays: null,
@@ -421,7 +423,8 @@ describe("resolveAutoSettlementAt", () => {
         ...input,
         thread: {
           ...input.thread,
-          pullRequests: [recorded, link(2, at(-90 * 60 * 1_000), at(-40 * 60 * 1_000))],
+          // ViewCode: merged before the last run ended, so the merge settles directly.
+          pullRequests: [recorded, link(2, at(-90 * 60 * 1_000), at(-48 * 60 * 1_000))],
         },
       }),
     ).toEqual(at(-45 * 60 * 1_000));
@@ -765,6 +768,8 @@ describe("ThreadSettlementServiceV2 worker", () => {
       Effect.gen(function* () {
         yield* TestClock.setTime(Date.parse(NOW));
         const thread = makeThread("merged-link", {
+          // ViewCode: a run ended after the merge, so the merge settles directly.
+          latestRunCompletedAt: DateTime.makeUnsafe(NOW),
           pullRequests: [
             {
               host: "example.test",
@@ -969,6 +974,8 @@ describe("ThreadSettlementServiceV2 worker", () => {
           snapshot: makeSnapshot([
             makeThread("merged-in-app", {
               latestUserMessageAt: DateTime.makeUnsafe("2026-08-27T00:00:00.000Z"),
+              // ViewCode: a run ended after the merge, so the merge settles directly.
+              latestRunCompletedAt: DateTime.makeUnsafe(NOW),
               linkedPullRequest: {
                 projectId: PROJECT_ID,
                 repository: "Owner/Repository",
@@ -1028,6 +1035,8 @@ describe("ThreadSettlementServiceV2 worker", () => {
               makeThread("branch-thread", {
                 branch: "saved-feature",
                 latestUserMessageAt: DateTime.makeUnsafe("2026-08-27T00:00:00.000Z"),
+                // ViewCode: a run ended after the merge, so the merge settles directly.
+                latestRunCompletedAt: DateTime.makeUnsafe(NOW),
               }),
             ]),
             branchPullRequest: () => Ref.get(state).pipe(Effect.map(makeBranchPullRequest)),
@@ -1067,6 +1076,8 @@ describe("ThreadSettlementServiceV2 worker", () => {
           snapshot: makeSnapshot([
             makeThread("merged-in-app", {
               latestUserMessageAt: DateTime.makeUnsafe("2026-08-27T00:00:00.000Z"),
+              // ViewCode: a run ended after the merge, so the merge settles directly.
+              latestRunCompletedAt: DateTime.makeUnsafe(NOW),
               linkedPullRequest: {
                 projectId: PROJECT_ID,
                 repository: "owner/repository",

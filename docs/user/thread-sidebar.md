@@ -182,7 +182,9 @@ The **Un-settle** and **Wake** buttons work the same way in their sections.
 Press `Escape` while dragging to cancel.
 
 By default, environments settle inactive threads after three days and settle
-threads whose pull request merged. A closed pull request can also settle an idle
+threads whose pull request merged. When the pull request merges, the thread's agent
+first gets a message to finish anything that waited for the merge, and the thread
+settles after that turn ends. A closed pull request can also settle an idle
 thread. Work in progress, pending questions or approvals, and live background work
 prevent automatic settlement. An open pull request does not prevent inactivity
 settlement unless you turn on **Keep threads with a PR** in **Settings → General**,
