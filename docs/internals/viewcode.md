@@ -1378,6 +1378,13 @@ uses the optional installation package identity and preserves `viewcode-app`.
   dead with no error.
 - **tailwind-merge** drops one of two background images in `cn(...)`; keep
   sparkle/gradient classes out of `cn()`.
+- **A page's JS dialog is a native sheet over the main window**, and it pulls the
+  app to the front. Browser tabs set `safeDialogs=true` so a looping `alert` can be
+  stopped from its second dialog; the tick lasts for that tab's WebContents and the
+  page then reloads at full speed until the tab is closed. `disableDialogs=true`
+  would make `confirm()` silently return `false` in any app being tested. CDP cannot
+  replace this: on Electron 44, `Page.enable` does not suppress the sheet, and
+  `Page.handleJavaScriptDialog` left it flashing and still blocking clicks.
 
 ## Running and verifying locally
 
