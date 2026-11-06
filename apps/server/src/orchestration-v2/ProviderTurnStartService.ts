@@ -601,6 +601,7 @@ export const layer: Layer.Layer<
           return undefined;
         });
       let effectiveHandoffs = handoffs;
+      let nativeForkFellBack = false;
       const loadedProviderThread = yield* Effect.gen(function* () {
         if (nativeForkTransfer !== undefined) {
           const sourceProjection = yield* projectionStore.getThreadRecords(
@@ -627,7 +628,7 @@ export const layer: Layer.Layer<
               cause: `Native fork transfer ${nativeForkTransfer.id} has no source provider execution.`,
             });
           }
-          return yield* loadFromProvider(
+          const forked = yield* Effect.result(
             session.forkThread({
               sourceProviderThread,
               sourceProviderTurns: sourceProjection.providerTurns,
@@ -639,6 +640,95 @@ export const layer: Layer.Layer<
                 : { providerTurnId: sourceProviderTurn.id }),
             }),
           );
+          if (forked._tag === "Success") {
+            return forked.success;
+          }
+          // ViewCode: a native fork can fail for good, e.g. the Claude SDK reads
+          // the whole parent transcript at once and Node refuses files over
+          // 2 GiB. Retrying cannot help, so start the fork fresh with the
+          // source conversation as portable context instead of failing the turn.
+          yield* Effect.logWarning("Native fork failed; starting the fork from portable context", {
+            driver: session.driver,
+            sourceThreadId: nativeForkTransfer.sourceThreadId,
+            runId,
+            errorTag: forked.failure._tag,
+          });
+          const replacement = yield* loadFromProvider(
+            session.ensureThread({
+              threadId: projection.thread.id,
+              title: projection.thread.title,
+              modelSelection: run.modelSelection,
+              runtimePolicy: resolvedRuntimePolicy,
+              providerSessionId,
+              existingProviderThread: { ...providerThread, nativeThreadRef: null },
+            }),
+          );
+          if (replacement === undefined) return undefined;
+          const messageFork = projection.thread.viewcodeMessageFork !== undefined;
+          const forkItems = yield* projectionStore
+            .getThreadRecords(
+              messageFork ? projection.thread.id : nativeForkTransfer.sourceThreadId,
+              ["turnItems"],
+              {
+                turnItemRunIds: messageFork
+                  ? [null]
+                  : [
+                      ...sourceProjection.runs
+                        .filter((source) => source.ordinal <= sourceRun.ordinal)
+                        .map((source) => source.id),
+                      null,
+                    ],
+              },
+            )
+            .pipe(Effect.map((records) => records.turnItems));
+          const createdAt = yield* DateTime.now;
+          const handoff = yield* contextHandoffService.prepareProviderHandoff({
+            threadId: projection.thread.id,
+            targetRunId: run.id,
+            transferId: nativeForkTransfer.id,
+            fromProviderThreadIds: [sourceProviderThread.id],
+            toProviderThreadId: providerThread.id,
+            fromProviderInstanceId: sourceProviderThread.providerInstanceId,
+            toProviderInstanceId: run.providerInstanceId,
+            coveredRunOrdinals: { from: 1, to: messageFork ? 1 : sourceRun.ordinal },
+            strategy: "full_thread_summary",
+            runs: messageFork ? [] : sourceProjection.runs,
+            items: forkItems,
+            createdAt,
+          });
+          effectiveHandoffs = [handoff, ...effectiveHandoffs];
+          nativeForkFellBack = true;
+          yield* eventSink.write({
+            events: [
+              {
+                id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+                type: "context-handoff.updated",
+                threadId: projection.thread.id,
+                runId: run.id,
+                providerInstanceId: run.providerInstanceId,
+                occurredAt: createdAt,
+                payload: handoff,
+              },
+              {
+                id: yield* idAllocator.allocate.event({ threadId: projection.thread.id }),
+                type: "context-transfer.updated",
+                threadId: projection.thread.id,
+                runId: run.id,
+                providerInstanceId: run.providerInstanceId,
+                occurredAt: createdAt,
+                payload: {
+                  ...nativeForkTransfer,
+                  targetProviderInstanceId: run.providerInstanceId,
+                  targetRunId: run.id,
+                  status: "resolved_portable",
+                  resolution: { strategy: "portable_context", contextHandoffId: handoff.id },
+                  error: null,
+                  updatedAt: createdAt,
+                },
+              },
+            ],
+          });
+          return replacement;
         }
         if (providerThread.nativeThreadRef === null) {
           // Hand the run's provider thread to the adapter so it adopts this
@@ -869,7 +959,9 @@ export const layer: Layer.Layer<
           occurredAt: now,
           payload: runningProviderThread,
         },
-        ...(nativeForkTransfer === undefined || runningProviderThread.nativeThreadRef === null
+        ...(nativeForkTransfer === undefined ||
+        nativeForkFellBack ||
+        runningProviderThread.nativeThreadRef === null
           ? []
           : [
               {

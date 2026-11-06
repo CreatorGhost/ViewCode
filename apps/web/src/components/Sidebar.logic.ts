@@ -521,6 +521,15 @@ export function isSidebarSubagentThread(thread: Pick<SidebarThreadSummary, "line
   return thread.lineage.relationshipToParent === "subagent";
 }
 
+// ViewCode: a fork is its own conversation, so the sidebar lists it beside its source
+// instead of under it. A sidechat also has a "fork" lineage but stays with its parent.
+export function isSidebarTopLevelFork(thread: {
+  readonly lineage: Pick<SidebarThreadSummary["lineage"], "relationshipToParent">;
+  readonly kind?: string | null;
+}): boolean {
+  return thread.lineage.relationshipToParent === "fork" && thread.kind !== "sidechat";
+}
+
 export function filterSidebarV2VisibleThreads<
   T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & {
     environmentId: string;

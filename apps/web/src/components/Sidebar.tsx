@@ -202,6 +202,7 @@ import {
   useRetainedValue,
   useSidebarRowSubscriptionLease,
   useThreadJumpHintVisibility,
+  isSidebarTopLevelFork,
 } from "./Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
@@ -335,9 +336,9 @@ function physicalProjectKeyOf(thread: Pick<EnvironmentThreadShell, "environmentI
 }
 
 function parentThreadKeyOf(
-  thread: Pick<EnvironmentThreadShell, "environmentId" | "parentThreadId">,
+  thread: Pick<EnvironmentThreadShell, "environmentId" | "parentThreadId" | "lineage" | "kind">,
 ): string | null {
-  return thread.parentThreadId
+  return thread.parentThreadId && !isSidebarTopLevelFork(thread)
     ? scopedThreadKey(scopeThreadRef(thread.environmentId, thread.parentThreadId))
     : null;
 }

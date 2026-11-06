@@ -1378,6 +1378,12 @@ uses the optional installation package identity and preserves `viewcode-app`.
   dead with no error.
 - **tailwind-merge** drops one of two background images in `cn(...)`; keep
   sparkle/gradient classes out of `cn()`.
+- **A native Claude fork reads the whole parent transcript at once.** Node
+  refuses files over 2 GiB, and the SDK reports that as `Session … not found in
+project directory`. Screenshot-heavy threads get there (one measured 5.6 GB,
+  mostly images). `ProviderTurnStartService` therefore falls back to a fresh
+  session with the source as portable, text-only context whenever a native fork
+  fails, instead of failing every turn of the fork.
 
 ## Running and verifying locally
 
