@@ -38,6 +38,11 @@ receives them on the environment's machine. Provider and model limits still
 apply, including images already in the conversation. A video attachment gives
 the agent a file path; it does not enable native video input.
 
+In the desktop app on its own machine, files other than images aren't uploaded:
+each one goes into the message as its path, so there's no size limit and the
+agent reads it straight from disk. A whole movie works. Images still upload so
+the model can see them, and remote environments upload as described above.
+
 Uploads begin when you add an attachment. All uploads must finish before the
 message can send. Retry or remove a failed upload. On web and desktop, reloading
 before an upload finishes requires you to attach that file again.
