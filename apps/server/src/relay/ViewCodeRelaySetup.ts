@@ -44,7 +44,7 @@ import {
   stripAnsi,
   wranglerNeedsLogin,
 } from "@t3tools/shared/viewcodeRelaySetup";
-import * as Undici from "undici";
+import { Undici } from "./undici.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";

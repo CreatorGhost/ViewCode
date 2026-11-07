@@ -1112,6 +1112,14 @@ export const MAC_SERVER_RUNTIME_EXTRA_RESOURCE = {
   to: "t3-server",
 } as const;
 
+// electron-builder always drops a resource's top-level node_modules, whatever its
+// filter says, so the tree has to be a resource of its own.
+export const MAC_SERVER_RUNTIME_NODE_MODULES_EXTRA_RESOURCE = {
+  from: `${MAC_SERVER_RUNTIME_EXTRA_RESOURCE.from}/node_modules`,
+  to: `${MAC_SERVER_RUNTIME_EXTRA_RESOURCE.to}/node_modules`,
+  filter: ["**/*", "**/node_modules/**/*"],
+} as const;
+
 export const bundlesMacServerRuntime = (input: {
   readonly platform: typeof BuildPlatform.Type;
   readonly runtimeArchivePath: string | undefined;
@@ -2779,7 +2787,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       ...(platform === "linux" ? LINUX_BROWSER_SECRET_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
       ...(platform === "win" && wslRuntimeBundled ? WSL_RUNTIME_EXTRA_RESOURCES : []),
-      ...(platform === "mac" && macServerRuntimeBundled ? [MAC_SERVER_RUNTIME_EXTRA_RESOURCE] : []),
+      ...(platform === "mac" && macServerRuntimeBundled
+        ? [MAC_SERVER_RUNTIME_EXTRA_RESOURCE, MAC_SERVER_RUNTIME_NODE_MODULES_EXTRA_RESOURCE]
+        : []),
     ],
   };
   const updateChannel = resolveDesktopUpdateChannel(version);

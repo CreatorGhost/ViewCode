@@ -28,6 +28,7 @@ import {
   DESKTOP_FILE_EXCLUSIONS,
   DESKTOP_EXTRA_RESOURCES,
   MAC_SERVER_RUNTIME_EXTRA_RESOURCE,
+  MAC_SERVER_RUNTIME_NODE_MODULES_EXTRA_RESOURCE,
   LINUX_CAPTURE_EXTRA_RESOURCES,
   LINUX_BROWSER_SECRET_EXTRA_RESOURCES,
   LINUX_FILE_EXCLUSIONS,
@@ -737,6 +738,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(macWithServerRuntime.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,
         MAC_SERVER_RUNTIME_EXTRA_RESOURCE,
+        MAC_SERVER_RUNTIME_NODE_MODULES_EXTRA_RESOURCE,
       ]);
       assert.deepStrictEqual(linux.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,

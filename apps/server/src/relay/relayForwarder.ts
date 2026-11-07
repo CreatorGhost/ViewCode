@@ -12,7 +12,7 @@
  */
 import * as NodeHttp from "node:http";
 
-import * as Undici from "undici";
+import { Undici } from "./undici.ts";
 import { ORCHESTRATION_V2_WS_METHODS, WS_METHODS } from "@t3tools/contracts";
 import {
   chunkBody,

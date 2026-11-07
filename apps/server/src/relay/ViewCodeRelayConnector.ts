@@ -21,7 +21,7 @@ import {
   RELAY_HOST_PATH,
   RELAY_HOST_SECRET_NAME,
 } from "@t3tools/shared/viewcodeRelayProtocol";
-import * as Undici from "undici";
+import { Undici } from "./undici.ts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
