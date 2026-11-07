@@ -77,6 +77,10 @@ export default defineConfig({
   fmt: {
     ignorePatterns: [
       ".repos/**",
+      // Vendored skill files are embedded byte for byte; formatting them would leave
+      // stackDiagramSkill.generated.ts stale.
+      "apps/server/src/diagrams/stack-diagram/**",
+      "apps/server/src/diagrams/stackDiagramSkill.generated.ts",
       // Macroscope's glob-per-line ignore grammar, not Markdown: formatting
       // it rewrites `*` as `_` and joins lines.
       ".macroscope/ignore.md",
@@ -107,6 +111,8 @@ export default defineConfig({
   lint: {
     ignorePatterns: [
       ".repos",
+      "apps/server/src/diagrams/stack-diagram/**",
+      "apps/server/src/diagrams/stackDiagramSkill.generated.ts",
       ".repos/**",
       "dist",
       "dist-electron",

@@ -1128,6 +1128,13 @@ contents` wrapper around the shell, since `components/ui` takes no dynamic
 
 ## Mermaid diagrams
 
+- Architecture and stack diagrams with real logos come from a vendored copy of
+  caru-ini/stack-diagram (MIT) in `apps/server/src/diagrams/stack-diagram/`, its public gallery
+  step removed. The files are embedded (`stackDiagramSkill.generated.ts`, regenerate with
+  `node scripts/generate-stack-diagram-skill.ts`) and written to `~/.viewcode-tools/skills/` before
+  the first turn, because the agent's shell has to read them in dev, the desktop app and the single
+  executable alike. `VIEWCODE_DIAGRAMS_GUIDANCE` points there. It shows a screenshot, not
+  `html_render`: passing a 100 KB page through a tool call costs the model as much as writing it.
 - Originally ported from upstream `5e35272fd` with our own look. On an upstream merge,
   preserve the theme/ink behavior in `apps/web/src/components/chat/MermaidDiagram.tsx` and for the
   mermaid branch of `pre` in `ChatMarkdown.tsx`; `chat/MermaidCodeBlock.tsx` owns the ViewCode frame and controls rather than

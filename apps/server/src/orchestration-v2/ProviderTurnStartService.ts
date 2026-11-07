@@ -44,6 +44,7 @@ import {
   latestNativeContextUsage,
 } from "@t3tools/provider-core/server/handoffBudget";
 import { ensureDebugPlaybook } from "../review/DebugPlaybook.ts";
+import { ensureStackDiagramSkill } from "../diagrams/StackDiagramSkill.ts";
 import { makeViewCodeGuidedSession, withViewCodeTurnGuidance } from "./ViewCodeTurnGuidance.ts";
 import { deliverContextHandoffs } from "./ContextHandoffDelivery.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -66,6 +67,9 @@ export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStart
     cause: Schema.optional(Schema.Defect()),
   },
 ) {}
+
+/** ViewCode: the stack-diagram skill is written to disk once per server process. */
+let stackDiagramSkillWritten = false;
 
 const isProviderTurnStartError = Schema.is(ProviderTurnStartError);
 const encodeAppContext = Schema.encodeSync(
@@ -1171,6 +1175,18 @@ export const layer: Layer.Layer<
                 !coveredItemIds.has(item.id) &&
                 historicalMessage(item) !== null,
             );
+      // ViewCode: the diagrams guidance points every session at this skill. Once per process.
+      if (!stackDiagramSkillWritten) {
+        stackDiagramSkillWritten = yield* ensureStackDiagramSkill().pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path),
+          Effect.as(true),
+          // Never worth failing a turn over: the agent falls back to Mermaid. Interruption
+          // still propagates.
+          Effect.orElseSucceed(() => false),
+          Effect.catchDefect(() => Effect.succeed(false)),
+        );
+      }
       const debugPlaybookPath =
         projection.thread.debugMode === true
           ? yield* ensureDebugPlaybook({ stateDir: serverConfig.stateDir }).pipe(

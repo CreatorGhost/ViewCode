@@ -1,12 +1,28 @@
+// @effect-diagnostics nodeBuiltinImport:off - a constant path computed at load, no Effect runtime.
 const PULL_REQUEST_LINKING_INSTRUCTIONS = `<pull_request_linking>
 When the t3-code MCP server exposes link_pull_request, you must use it to register every pull request you create or work on for this thread. Call link_pull_request with the full PR URL immediately after creating a PR or starting work on an existing PR. For a stack, call it for every layer, not just the current branch or the top PR. This applies when creating or updating PRs through gh, gh stack, another CLI, or the host API: those operations do not register the PRs with this thread. Linking an already-linked PR is safe. Before finishing PR work, call list_thread_pull_requests and link any PR from your work that is missing. Do not link unrelated PRs mentioned only as background. If a linking call fails, report that failure instead of claiming the PR is linked. When asked to monitor, watch, or babysit a PR and watch_pull_request is available, call it and end your turn: ViewCode wakes you when checks finish, someone else comments, or the branch conflicts, so do not poll or run your own watcher. When you hand the work back to the user, call unwatch_pull_request first so the thread returns to their inbox.
 </pull_request_linking>`;
+
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
+
+/**
+ * ViewCode: the stack-diagram skill (caru-ini/stack-diagram, MIT), written here by the server
+ * before a turn. Outside the T3 home on purpose: it is a tool, not user data, and the agent's
+ * shell runs on the server's machine.
+ */
+export const STACK_DIAGRAM_SKILL_DIR = NodePath.join(
+  NodeOS.homedir(),
+  ".viewcode-tools",
+  "skills",
+  "stack-diagram",
+);
 
 /**
  * Mermaid renders in the client and needs no MCP, so every session gets this. Codex sends it as
  * its own `additionalContext` entry to keep each entry under Codex's per-entry cap.
  */
-export const VIEWCODE_DIAGRAMS_GUIDANCE = `A \`\`\`mermaid block in your reply renders inline as a diagram the reader can expand, zoom and pan. Use one unasked when a flowchart, architecture, sequence, state, class, ER, gantt, pie, git graph, mindmap or timeline diagram explains better than prose. The reader already sees it, so don't point to mermaid.live or another viewer, say where to view it, or restate it in prose, and don't build HTML pages, servers or screenshots to show one. Don't set colours (style, classDef, init themes); ViewCode themes diagrams.`;
+export const VIEWCODE_DIAGRAMS_GUIDANCE = `A \`\`\`mermaid block in your reply renders inline as a diagram the reader can expand, zoom and pan. Use one unasked when a flowchart, sequence, state, class, ER, gantt, pie, git graph, mindmap or timeline diagram explains better than prose. The reader already sees it, so don't point to mermaid.live or another viewer, say where to view it, or restate it in prose, and don't build HTML pages, servers or screenshots to show a Mermaid diagram. Don't set colours (style, classDef, init themes); ViewCode themes diagrams. For an architecture, system or tech-stack diagram of real products (clouds, frameworks, databases, services), read ${NodePath.join(STACK_DIAGRAM_SKILL_DIR, "SKILL.md")} and follow it instead: it draws one with the products' official logos, and you embed its picture in your reply. Use Mermaid for those only when the user asks for Mermaid or the skill can't run (no Python 3 or no network).`;
 
 /**
  * The client gives a quoted draft a copy button that converts it for Slack, WhatsApp, email and
