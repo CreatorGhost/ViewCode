@@ -15,11 +15,8 @@ Default behavior:
 Setup if Playwright is missing:
   pip install playwright
   python3 -m playwright install --with-deps chromium
-Sandboxed hosts without root, if launch fails on a missing shared library (e.g. libXdamage.so.1):
-  apt-get download libxdamage1 && dpkg -x libxdamage1_*.deb /tmp/libs
-  (this script auto-adds /tmp/libs/usr/lib/*/ to LD_LIBRARY_PATH when that folder exists)
 """
-import glob, os, pathlib, sys
+import os, pathlib, sys
 
 SQUARE_CORNERS = (".scroller{border-radius:0!important;border:none!important}"
                   ".canvas{border-radius:0!important}")
@@ -39,11 +36,6 @@ def main():
         print(__doc__); sys.exit(1)
     src, out = pathlib.Path(args[0]).resolve(), pathlib.Path(args[1])
 
-    lib_dirs = glob.glob("/tmp/libs/usr/lib/*")
-    if lib_dirs:
-        os.environ["LD_LIBRARY_PATH"] = ":".join(
-            lib_dirs + [os.environ.get("LD_LIBRARY_PATH", "")]).rstrip(":")
-
     # Japanese text renders with Chinese-variant glyphs when no JP font is installed
     import subprocess
     try:
@@ -52,8 +44,8 @@ def main():
             print("WARNING: no Japanese sans font found — JP text will render with Chinese glyph "
                   "variants. Install a Japanese font, e.g. on Debian/Ubuntu: sudo apt-get install fonts-noto-cjk\n"
                   "  or without root:\n"
-                  "  apt-get download fonts-noto-cjk && dpkg -x fonts-noto-cjk_*.deb /tmp/fontx\n"
-                  "  mkdir -p ~/.fonts && cp /tmp/fontx/usr/share/fonts/opentype/noto/NotoSansCJK-*.ttc ~/.fonts/ && fc-cache -f")
+                  "  d=$(mktemp -d) && apt-get download fonts-noto-cjk && dpkg -x fonts-noto-cjk_*.deb \"$d\"\n"
+                  "  mkdir -p ~/.fonts && cp \"$d\"/usr/share/fonts/opentype/noto/NotoSansCJK-*.ttc ~/.fonts/ && fc-cache -f")
     except FileNotFoundError:
         pass
 
@@ -74,7 +66,7 @@ def main():
 
     with sync_playwright() as p:
         # headless Chromium hints glyph advances to whole pixels by default: uneven letter spacing
-        b = p.chromium.launch(args=["--no-sandbox", "--font-render-hinting=none"])
+        b = p.chromium.launch(args=["--font-render-hinting=none"])
         page = b.new_page(viewport={"width": 1200, "height": 1000}, device_scale_factor=scale)
         page.goto(src.as_uri())
         # .scroller clips a canvas wider than the viewport

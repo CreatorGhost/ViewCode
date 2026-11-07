@@ -65,3 +65,11 @@ it.effect("writes the skill once and replaces a stale copy", () =>
     );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
+
+it("never loads libraries from a shared folder or turns off Chromium's sandbox", () => {
+  const renderer = Buffer.from(
+    STACK_DIAGRAM_SKILL_FILES.find((file) => file.path === "scripts/render_png.py")!.base64,
+    "base64",
+  ).toString("utf8");
+  assert.notMatch(renderer, /\/tmp\/|LD_LIBRARY_PATH|--no-sandbox/);
+});
