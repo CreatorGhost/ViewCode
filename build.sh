@@ -23,8 +23,8 @@
 #                         Nothing is deleted; the script prints how to restore.
 #                         Refuses to run while ViewCode is open.
 #
-# Set VIEWCODE_COMPUTER_DRIVER=agent-desktop to also build and use the
-# agent-desktop computer-use helper (macOS, needs Rust; observe only for now).
+# Computer use (macOS) needs Rust installed: the script builds its helper when
+# `cargo` is available and carries on without it otherwise.
 #
 # Run from anywhere; it works in the folder this script lives in.
 set -euo pipefail
@@ -269,20 +269,14 @@ if [ "$relay" = 1 ]; then
     echo "Quick connect setup did not finish; continuing without it. Re-run: node scripts/viewcode-relay.ts deploy" >&2
 fi
 
-# Opt-in while it is being brought up: computer use through the agent-desktop
-# helper (docs/internals/viewcode.md, "Computer use"). The helper is Rust, so it
-# is built only when asked for, and a build that fails falls back to the default.
-if [ "${VIEWCODE_COMPUTER_DRIVER:-}" = agent-desktop ]; then
-  step "Building the agent-desktop computer-use helper"
-  if [ "$(uname -s)" != Darwin ]; then
-    echo "The agent-desktop driver supports macOS only so far; computer use keeps its default driver." >&2
-    unset VIEWCODE_COMPUTER_DRIVER
-  elif command -v cargo >/dev/null &&
-    cargo build --locked --release --manifest-path native/computer-driver/Cargo.toml; then
-    echo "Computer use will use the agent-desktop driver. It can list windows and read them; input is not available with it yet."
-  else
-    echo "Could not build the helper (it needs Rust 1.89 or newer and Xcode's command-line tools); computer use keeps its default driver." >&2
-    unset VIEWCODE_COMPUTER_DRIVER
+# Computer use runs through a small helper written in Rust (native/computer-driver).
+# Without it ViewCode still works; computer use then shows as unavailable.
+if [ "$(uname -s)" = Darwin ]; then
+  step "Building the computer-use helper"
+  if ! command -v cargo >/dev/null; then
+    echo "Rust is not installed, so computer use will be unavailable. To enable it, install Rust (https://rustup.rs) and run this script again." >&2
+  elif ! cargo build --locked --release --manifest-path native/computer-driver/Cargo.toml; then
+    echo "The computer-use helper did not build (it needs Rust 1.89 or newer and Xcode's command-line tools), so computer use will be unavailable. Everything else works." >&2
   fi
 fi
 

@@ -1,12 +1,12 @@
 /**
- * Stages `native/computer-driver` (ViewCode's agent-desktop computer-use
- * helper) into the macOS desktop app. Kept apart from
+ * Stages `native/computer-driver` (ViewCode's computer-use helper, built on
+ * agent-desktop) into the macOS desktop app. Kept apart from
  * `build-desktop-artifact.ts`, which is upstream's, so a merge only has to
  * keep the three places that call into this file.
  *
- * The helper is opt-in at runtime and has no fallback inside the app, so a
- * helper that does not build must not fail the app build: the folder ships
- * empty and the server reports the driver as unavailable when it is selected.
+ * The helper has not yet been built on a Mac, so a helper that does not
+ * build must not fail the app build: the folder ships empty and computer use
+ * reports itself unavailable. Make it fatal once a macOS build is confirmed.
  */
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -96,7 +96,7 @@ export const stageComputerDriver = Effect.fn("stageComputerDriver")(function* (i
     // A half-written universal binary must not ship.
     yield* fs.remove(destinationPath, { force: true }).pipe(Effect.ignore);
     yield* Effect.logWarning(
-      "[desktop-artifact] The agent-desktop computer-use helper did not build, so this app ships without it. Computer use keeps its default driver; VIEWCODE_COMPUTER_DRIVER=agent-desktop will report the driver as unavailable.",
+      "[desktop-artifact] The computer-use helper did not build, so this app ships without it and computer use will be unavailable in it.",
     );
   }
   return staged;

@@ -82,7 +82,6 @@ describe("selectCliRuntimeExternalDependencies", () => {
     assert.deepStrictEqual(
       Object.keys(selectCliRuntimeExternalDependencies(serverPackageJson.dependencies)).sort(),
       [
-        "@crowecawcaw/xa11y",
         "@cursor/sdk",
         "@ff-labs/fff-node",
         "@napi-rs/keyring",

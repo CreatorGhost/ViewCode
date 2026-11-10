@@ -1,43 +1,38 @@
-// @effect-diagnostics nodeBuiltinImport:off globalTimers:off - owns a child process and its IPC timeouts at callback boundaries.
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off - owns a child process and its timeouts at callback boundaries.
 /**
- * `ComputerDriver` backed by xa11y running in a separate driver process.
+ * The server's side of the computer-use driver: a client for the native
+ * helper (`native/computer-driver`, built on agent-desktop), which runs as a
+ * child process and speaks JSON lines on stdin and stdout.
  *
- * Why a child process: the native module can crash or hang inside the OS
- * accessibility API (a misbehaving app is enough), and that must not take
- * the server down. Why `process.execPath` + `ELECTRON_RUN_AS_NODE=1`: on
- * macOS the child then runs as the app itself and shares its Accessibility
- * and Screen Recording grants, the same trick desktop's
- * `SnapShotAccessibilityProcess` uses.
+ * Why a child process: the OS accessibility API can crash or hang inside a
+ * misbehaving app, and that must not take the server down. The server spawns
+ * the helper itself, so macOS attributes it to the app and it uses the app's
+ * Accessibility and Screen Recording grants.
  *
- * Calls are serialized. A worker that dies or times out is killed and
+ * Calls are serialized. A helper that dies or times out is killed and
  * restarted on the next call; its handles die with it, which the service
  * sees as `stale`. Every reply is decoded; anything else is `malformed`,
- * never a partial success. The worker asks the server's dispatch check
+ * never a partial success. The helper asks the server's dispatch check
  * before it prepares a target and again before native input (see
  * `ComputerDriverDispatchCheck`). A crash, timeout or malformed reply after
  * an allowed `dispatch` reports `dispatched: "unknown"`; before one,
  * nothing was sent.
  *
  * A call interrupted while still queued is never sent. Once sent, the
- * interruption waits for the worker's reply: a pending dispatch check is
+ * interruption waits for the helper's reply: a pending dispatch check is
  * refused, but input already allowed may be landing, and the dispatch lock
  * stays held until it returns.
  *
- * The worker is recycled after `recycleAfter` requests (xa11y's macOS
- * element cache never shrinks); old handles then read as stale, with a
- * message saying the driver restarted (each worker gets a fresh epoch). If a
- * worker died during a click or drag, its replacement first releases the
- * left mouse button, which may still be held.
+ * The helper is recycled after `recycleAfter` requests so one long-lived
+ * process cannot grow without bound; old handles then read as stale, with a
+ * message saying the driver restarted (each helper gets a fresh epoch).
  *
- * Worker starts, stops (with the reason) and per-op timeouts are logged at
- * INFO with pids, epochs, op names and timeouts only, never request contents.
+ * Starts, stops (with the reason) and per-op timeouts are logged at INFO
+ * with pids, epochs, op names and timeouts only, never request contents.
  */
 import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
-import * as NodeFS from "node:fs";
-import * as NodePath from "node:path";
 import * as NodeReadline from "node:readline";
-import * as NodeURL from "node:url";
 
 import {
   ComputerUseErrorCode,
@@ -45,50 +40,113 @@ import {
   ComputerUseWindowKind,
   type ComputerUseError,
 } from "@t3tools/contracts";
-import {
-  HostProcessIsExecutable,
-  HostProcessPlatform,
-  HostProcessOnShutdown,
-} from "@t3tools/shared/hostProcess";
+import { HostProcessOnShutdown } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
-import * as Config from "effect/Config";
-import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import {
-  ComputerDriver,
   ComputerDriverError,
   ComputerDriverDispatchCheck,
   type DriverDispatchDecision,
   type DriverDispatchPhase,
   type DriverDispatchTarget,
   type ComputerDriverShape,
+  type DriverElementIdentity,
+  type DriverPoint,
   type DriverStatus,
 } from "./ComputerDriver.ts";
-import {
-  ACTIVATION_TIMEOUT_MS,
-  DRIVER_EPOCH_ENV,
-  DRIVER_NONCE_ENV,
-  type DriverOp,
-  type DriverRequest,
-} from "./Xa11yDriverCore.ts";
+
+/** Env var carrying the per-spawn nonce the helper requires on every request. */
+const DRIVER_NONCE_ENV = "VIEWCODE_COMPUTER_DRIVER_NONCE";
+/** Env var carrying the epoch the server chose for this helper; part of every handle. */
+const DRIVER_EPOCH_ENV = "VIEWCODE_COMPUTER_DRIVER_EPOCH";
+/** How long the helper may take to bring a window forward before it refuses the input. */
+const ACTIVATION_TIMEOUT_MS = 3_000;
+
+type Rect = ComputerUseRect;
+
+export type DriverRequest =
+  | { readonly op: "status" }
+  | { readonly op: "listWindows" }
+  /** Sent first to a replacement worker when the previous one died mid-drag. */
+  | { readonly op: "releaseMouse" }
+  | {
+      readonly op: "observe";
+      readonly window: string;
+      readonly maxElements: number;
+      /** Kept only controls whose label or value contains this (case-insensitive). */
+      readonly query?: string;
+    }
+  | {
+      readonly op: "screenshot";
+      readonly window: string;
+      readonly outputPath: string;
+      readonly maxSize: number;
+    }
+  | { readonly op: "elementAt"; readonly window: string; readonly point: DriverPoint }
+  | {
+      readonly op: "click";
+      readonly window: string;
+      readonly expectBounds: Rect;
+      readonly point: DriverPoint;
+      readonly button: "left" | "right" | "middle";
+      readonly count: number;
+    }
+  | {
+      readonly op: "drag";
+      readonly window: string;
+      readonly expectBounds: Rect;
+      readonly from: DriverPoint;
+      readonly to: DriverPoint;
+    }
+  | {
+      readonly op: "move";
+      readonly window: string;
+      readonly expectBounds: Rect;
+      readonly point: DriverPoint;
+    }
+  | {
+      readonly op: "scrollAt";
+      readonly window: string;
+      readonly expectBounds: Rect;
+      readonly point: DriverPoint;
+      readonly dx: number;
+      readonly dy: number;
+    }
+  | { readonly op: "typeFocused"; readonly window: string; readonly text: string }
+  | { readonly op: "focus"; readonly window: string }
+  | { readonly op: "press"; readonly element: string; readonly expect: DriverElementIdentity }
+  | {
+      readonly op: "setValue";
+      readonly element: string;
+      readonly expect: DriverElementIdentity;
+      readonly value: string;
+    }
+  | {
+      readonly op: "typeText";
+      readonly element: string;
+      readonly expect: DriverElementIdentity;
+      readonly text: string;
+    }
+  | { readonly op: "key"; readonly window: string; readonly keys: string }
+  | {
+      readonly op: "scroll";
+      readonly element: string;
+      readonly expect: DriverElementIdentity;
+      readonly dx: number;
+      readonly dy: number;
+    };
+
+export type DriverOp = DriverRequest["op"];
 
 export interface DriverWorkerLaunch {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
   readonly env: NodeJS.ProcessEnv;
-  /** Which executable hosts the driver, for logs: the app itself or its Helper. */
-  readonly host?: "main" | "helper" | "native";
-  /**
-   * How requests travel. A Node worker uses its IPC channel; a native helper
-   * has none, so it gets the same messages as JSON lines on stdin and stdout.
-   */
-  readonly transport?: "ipc" | "stdio";
 }
 
-export interface Xa11yComputerDriverOptions {
+export interface ComputerDriverClientOptions {
   readonly platform: NodeJS.Platform;
-  readonly background?: boolean;
   /** Resolved on first use, so an unused driver costs nothing. */
   readonly launch: () => DriverWorkerLaunch;
   readonly timeouts?: Partial<Record<DriverOp, number>>;
@@ -144,12 +202,15 @@ const INPUT_OPS: ReadonlySet<DriverOp> = new Set([
   "typeFocused",
   "focus",
 ]);
-const SUPPORTED_PLATFORMS: ReadonlySet<NodeJS.Platform> = new Set(["darwin", "linux"]);
+/** The helper drives macOS only so far; elsewhere no process is started. */
+const SUPPORTED_PLATFORMS: ReadonlySet<NodeJS.Platform> = new Set(["darwin"]);
 
 const unsupportedReason = (platform: NodeJS.Platform) =>
   platform === "win32"
     ? "Computer use is not supported on Windows yet."
-    : "Computer use is not supported on this platform.";
+    : platform === "linux"
+      ? "Computer use is not supported on Linux yet."
+      : "Computer use is not supported on this platform.";
 
 const DriverFailure = Schema.Struct({
   kind: Schema.Literals([
@@ -285,7 +346,7 @@ type StopReason = "timeout" | "crash" | "recycle" | "malformed" | "shutdown";
 type WorkerLog = (message: string, fields: Record<string, unknown>) => void;
 
 /** Plain child-process client; the Effect surface wraps it below. */
-const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) => {
+const makeWorkerClient = (options: ComputerDriverClientOptions, log: WorkerLog) => {
   let child: NodeChildProcess.ChildProcess | undefined;
   let nonce = "";
   let served = 0;
@@ -296,18 +357,15 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
   let closed = false;
 
   const workerEpochs = new WeakMap<NodeChildProcess.ChildProcess, string>();
-  const stdioWorkers = new WeakSet<NodeChildProcess.ChildProcess>();
-
   const canSend = (worker: NodeChildProcess.ChildProcess): boolean =>
-    stdioWorkers.has(worker) ? worker.stdin?.writable === true : worker.connected;
+    worker.stdin?.writable === true;
 
   const sendTo = (
     worker: NodeChildProcess.ChildProcess,
     message: object,
     done: (error: Error | null | undefined) => void,
   ) => {
-    if (stdioWorkers.has(worker)) worker.stdin?.write(`${JSON.stringify(message)}\n`, done);
-    else worker.send(message, done);
+    worker.stdin?.write(`${JSON.stringify(message)}\n`, done);
   };
 
   /**
@@ -342,10 +400,7 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
     try {
       worker = NodeChildProcess.spawn(launch.command, [...launch.args], {
         env: { ...launch.env, [DRIVER_NONCE_ENV]: nonce, [DRIVER_EPOCH_ENV]: epoch },
-        stdio:
-          launch.transport === "stdio"
-            ? ["pipe", "pipe", "inherit"]
-            : ["ignore", "ignore", "inherit", "ipc"],
+        stdio: ["pipe", "pipe", "inherit"],
         windowsHide: true,
       });
     } catch {
@@ -355,26 +410,20 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
     workerEpochs.set(worker, epoch);
     // `pid` is unset only when the spawn itself failed.
     if (worker.pid === undefined) log("computer-use driver could not start", {});
-    else
-      log("computer-use driver started", { pid: worker.pid, epoch, host: launch.host ?? "main" });
-    if (launch.transport === "stdio") {
-      stdioWorkers.add(worker);
-      // A write to a helper that already exited must not throw; its exit is reported below.
-      worker.stdin?.on("error", () => undefined);
-      if (worker.stdout) {
-        NodeReadline.createInterface({ input: worker.stdout }).on("line", (line) => {
-          let message: unknown;
-          try {
-            message = JSON.parse(line);
-          } catch {
-            // Not a reply: answered as malformed, never as a partial success.
-          }
-          // A discarded helper's buffered lines must not answer the next worker's request.
-          if (child === worker) settlePending?.({ type: "reply", message });
-        });
-      }
-    } else {
-      worker.on("message", (message) => settlePending?.({ type: "reply", message }));
+    else log("computer-use driver started", { pid: worker.pid, epoch });
+    // A write to a helper that already exited must not throw; its exit is reported below.
+    worker.stdin?.on("error", () => undefined);
+    if (worker.stdout) {
+      NodeReadline.createInterface({ input: worker.stdout }).on("line", (line) => {
+        let message: unknown;
+        try {
+          message = JSON.parse(line);
+        } catch {
+          // Not a reply: answered as malformed, never as a partial success.
+        }
+        // A discarded helper's buffered lines must not answer the next helper's request.
+        if (child === worker) settlePending?.({ type: "reply", message });
+      });
     }
     worker.once("error", () => {
       const spawned = worker.pid !== undefined;
@@ -528,8 +577,8 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
   };
 };
 
-export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
-  options: Xa11yComputerDriverOptions,
+export const makeComputerDriverClient = Effect.fnUntraced(function* (
+  options: ComputerDriverClientOptions,
 ) {
   const logContext = yield* Effect.context();
   // Lifecycle lines fire from timers and child-exit callbacks, outside any
@@ -646,7 +695,6 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
   });
 
   return {
-    background: options.background === true,
     status: () =>
       SUPPORTED_PLATFORMS.has(options.platform)
         ? call({ op: "status" }, StatusReply).pipe(
@@ -682,95 +730,3 @@ export const makeXa11yComputerDriver = Effect.fnUntraced(function* (
       call({ op: "scroll", element, expect, dx, dy }, InputReply),
   } satisfies ComputerDriverShape;
 });
-
-/** Set to main to override the default macOS Helper host. */
-const DRIVER_HOST_ENV = "VIEWCODE_COMPUTER_DRIVER_HOST";
-
-/**
- * The `<Name> Helper.app` executable Electron ships beside a macOS app's main
- * executable, or undefined when `execPath` is not inside an app bundle or the
- * Helper is missing. The Helper is marked `LSUIElement`, so a driver it hosts
- * should get no Dock icon when it connects to the window server; the main
- * executable gets one (the server never connects, so it shows none).
- * Real desktop acceptance confirmed AX reads, screenshot capture and no Dock
- * presence in the Helper. An explicit main override remains available.
- */
-export const macHelperExecutable = (
-  execPath: string,
-  exists: (path: string) => boolean,
-): string | undefined => {
-  const match = /^(.*\.app)\/Contents\/MacOS\/([^/]+)$/.exec(execPath);
-  if (!match) return undefined;
-  const [, bundle, name] = match;
-  const helper = NodePath.join(
-    bundle!,
-    "Contents",
-    "Frameworks",
-    `${name} Helper.app`,
-    "Contents",
-    "MacOS",
-    `${name} Helper`,
-  );
-  return exists(helper) ? helper : undefined;
-};
-
-export const computerDriverHost = (
-  platform: NodeJS.Platform,
-  execPath: string,
-  override: string | undefined,
-  exists: (path: string) => boolean,
-): { readonly command: string; readonly host: "main" | "helper" } => {
-  if (platform === "darwin" && override !== "main") {
-    const helper = macHelperExecutable(execPath, exists);
-    if (helper) return { command: helper, host: "helper" };
-  }
-  return { command: execPath, host: "main" };
-};
-
-const driverHostCommand = (platform: NodeJS.Platform) =>
-  computerDriverHost(platform, process.execPath, process.env[DRIVER_HOST_ENV], NodeFS.existsSync);
-
-/**
- * The driver script beside this module: the TS source in development, the
- * built `computer-use-driver.mjs` in `dist`, or a hidden subcommand of the
- * single executable, which has no sibling scripts.
- */
-const resolveDriverLaunch = (
-  isExecutable: boolean,
-  platform: NodeJS.Platform,
-): DriverWorkerLaunch =>
-  isExecutable
-    ? { command: process.execPath, args: ["__computer-use-driver"], env: { ...process.env } }
-    : {
-        ...driverHostCommand(platform),
-        args: [
-          NodeURL.fileURLToPath(
-            new URL(
-              import.meta.url.endsWith(".ts")
-                ? "../computer-use-driver.ts"
-                : "./computer-use-driver.mjs",
-              import.meta.url,
-            ),
-          ),
-        ],
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-      };
-
-export const layer: Layer.Layer<ComputerDriver> = Layer.effect(
-  ComputerDriver,
-  Effect.gen(function* () {
-    const isExecutable = yield* HostProcessIsExecutable;
-    const platform = yield* HostProcessPlatform;
-    const background =
-      platform === "darwin" &&
-      (yield* Config.String("VIEWCODE_COMPUTER_BACKGROUND").pipe(
-        Config.withDefault(""),
-        Effect.orDie,
-      )) === "1";
-    return yield* makeXa11yComputerDriver({
-      platform,
-      background,
-      launch: () => resolveDriverLaunch(isExecutable, platform),
-    });
-  }),
-);

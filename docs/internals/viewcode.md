@@ -389,80 +389,51 @@ closes any left from a restart.
   shots are per-thread integers starting at a random per-run base; a newer observe retires a
   window's refs, only a window's newest shot accepts coordinates, and the driver re-reads the
   element or window bounds at dispatch and refuses on change. Every input returns a fresh shot.
-- Ref actions run in the background: press (AXPress), set-value (AXValue) and type --ref
-  (accessible text insertion) act on the element itself, which never needs focus, so they never
-  activate, raise or focus anything; activating first took the user's focus for no reason. Only
-  their synthetic fallbacks (when press is not advertised or after `ActionNotSupported`), key, type --window, scroll and
-  coordinate input bring the exact window to the front. Input results carry `tookFocus` from the
-  driver, so the agent and the logs can tell the two apart.
-  Check the advertised actions before AXPress: Chrome can accept it without doing anything
-  on a web button that only advertises ShowMenu and ScrollToVisible.
-- `VIEWCODE_COMPUTER_BACKGROUND=1` opts macOS into process-directed clicks, scrolling and
-  single-window shortcuts for inactive targets, through one background-only JXA helper per worker.
-  The same flag enables a separate cursor on desktop-managed hosts. Its request and arrival reply
-  use the existing typed desktop-host FD channel; headless servers skip it. Cursor arrival precedes
-  the dispatch lock and policy is checked again afterwards. The panel cannot focus or receive input,
-  uses one-shot motion and is hidden after idle. Single-window captures exclude it; content
-  protection alone is not a guarantee for every third-party screen recorder.
-  The routing fields are undocumented and the JXA bridge may lack `CGEventSetWindowLocation`.
-  AX state must change across complete bounded reads; a post returning success is not evidence.
-  A refusal after posting reports an uncertain effect, never a foreground retry. Explicit focus
-  still goes through Show on screen. No private SkyLight activation or background drag is shipped.
-- xa11y elements and window lists are snapshots (`tree(0)` reads no live state), so the driver
-  records each element's child-index path at observe and re-walks it from a fresh window read at
-  dispatch, refusing on any role, label, native identifier or bounds change. The retained window
-  and observed element must still have a native parent before a fresh snapshot can be matched:
-  titles and `AXIdentifier` values can be reused after close, even without an intervening empty
-  listing. xa11y exposes no native identity (no AXUIElement handle or `CFEqual`), so a twin
-  identical in every compared field, at the same path while the observed control is still alive
-  elsewhere, cannot be told apart and receives the action.
-  Handles carry a per-worker random epoch,
-  so a restarted worker (crash, timeout, recycle) can never resolve an old handle to another app.
-  It refuses one as `stale` with `reason: "restarted"`, which the service maps to the usual codes
-  (window → CU-NOT-001, ref → CU-CON-003) with "the driver restarted; list windows again" rather
-  than "window closed". On macOS, AXRaise does not activate an app; the driver runs
-  public `NSRunningApplication` activation by PID. A bundle-name launch can activate another
-  running instance (such as a second Chrome profile), so it is never an activation fallback.
-  Listed windows are still raised by AX, and the driver then requires
-  the exact target window to be active within 3 s (500 ms was
-  too short on a slow managed Mac), failing closed. Windows is refused until there is a real win32
-  window model (xa11y treats each top-level window as an app there).
-- The driver is xa11y in a child process spawned from the app's own executable with
-  `ELECTRON_RUN_AS_NODE=1` (or `viewcode __computer-use-driver` when the backend is standalone
-  ViewCode, as on Apple Silicon desktops): macOS keys the Accessibility grant to the responsible app. The sibling
-  Helper is the macOS bundle default after real desktop AX/capture and Dock verification.
-  `VIEWCODE_COMPUTER_DRIVER_HOST=main` restores the main host; missing Helpers and standalone
-  Node keep the main executable. Chromium and
-  Electron build their tree only on request: before a pid's first observe the driver sets
-  `AXManualAccessibility` (xa11y cannot) and waits 500 ms. `AXEnhancedUserInterface` is never
-  used; it changes window animation and resizing in other apps.
-- xa11y's macOS mouse down and up are posted at (0,0), not at the pointer (still true in 0.15), so
-  its drag presses the top-left screen corner. On macOS the driver posts drags and the
-  dead-worker button release itself as positioned Quartz events from a constant JXA script run
-  by `/usr/bin/osascript` (`MacQuartz.ts`), which needs no compiler on the user's Mac. They come
-  from a HID-state source after warping the real cursor, since WebKit and Chromium filter drags
-  that do not look like hardware input (Synara's driver notes); xa11y's
-  `click` is positioned and stays on xa11y. macOS captures are planned from Quartz's on-screen
-  window list, never from AX focus, which can survive a Space switch (`planWindowCapture`). With
-  no other app's window over it, the window is captured as its screen region (`-R`), so its open
-  menus show at exact geometry, and the list is read again afterwards in case another app's window
-  arrived. When another app covers it, only its own pixels (`-l -a`): attached windows would stretch
-  a `-l` image past the window bounds, and `-a` drops the menus. With no single on-screen window at
-  the AX bounds the capture is refused. A failed AXParent read is reported as "no parent" even when
-  the app is only busy (long typing), so window and element liveness retry for 1.5 s before a
-  window counts as gone. xa11y's macOS `typeText`
-  sends 20 characters per key event and some apps keep only the first, so text goes one code
-  point per event. AXValue and AXSelectedText writes can succeed without changing a web field
-  (Safari), so the driver re-reads the value and types by keyboard when it did not change.
-- On macOS an open context menu is an AX child of the app, not of any window, and menu bar menus
-  hang off the app's `AXMenuBar`, so neither shows up in a window's observe. Both are listed as
-  their own targets (`kind` "menu" / "menu-bar"; the menu bar only for apps with a window, never
-  `AXExtrasMenuBar`), with the same identity and re-walk rules as windows. They take refs only:
-  `activate` refuses on them before touching anything, because a menu is never the active window
-  and activating its app closes an open one. An open menu is captured by its own pop-up-level
-  Quartz window (`-l`); the menu bar is never captured. When xa11y omits `AXMenuBar`, a
-  prohibited-activation public AX helper supplies it. Its retained references include a helper
-  generation: restarting that helper must not bind old refs to recycled native IDs.
+- The driver is `native/computer-driver`, a ViewCode helper that links agent-desktop's core and
+  macOS crates (Apache-2.0, pinned to one revision in its `Cargo.toml`). It replaced an xa11y
+  worker, which exposed no native element identity: a twin control at the same path could receive
+  the action. We build our own helper instead of shipping agent-desktop's CLI, MCP server or C FFI:
+  those resolve and dispatch a ref in one call, which leaves no place for the two dispatch checks
+  and the lock, and its `command_policy` is an argument preflight, not a gate. The rules (handles,
+  the order of checks, refusals) are in `src/driver.rs` behind a `Desktop` trait and are tested
+  without a desktop; `src/platform.rs` is the only code that calls agent-desktop.
+- The server talks to the helper through `ComputerDriverClient.ts`: one child process, JSON lines
+  on stdio, calls serialized. A child process because the accessibility API can hang or crash
+  inside a misbehaving app. The server spawns it, so macOS attributes it to the app and it uses the
+  app's grants. For a dispatch check the helper writes `{id, authorize, phase}` and reads
+  `{id, nonce, decision}`; an allowed `dispatch` holds the lock until the helper's next line, so
+  the helper writes nothing between that decision and the input returning. A lost or mismatched
+  answer is never permission.
+- Ref actions run in the background: press (agent-desktop's headless click chain, AXPress first),
+  set-value (AXValue) and type --ref (accessible text insertion) act on the element itself, so
+  they never activate, raise or focus anything. Only their synthetic fallbacks (no accessibility
+  press, an ignored value), key, type --window, scroll and coordinate input bring the exact window
+  to the front, after a fresh `prepare` check with `foreground` and a second `dispatch` check.
+  Input results carry `tookFocus`, so the agent and the logs can tell the two apart.
+- An observed control is acted on through agent-desktop's retained element token, which resolves
+  the same native element or refuses; the helper still re-reads role and label live and refuses a
+  control whose label changed, because an approval named the old one. agent-desktop finds the
+  token calls with `dlsym` (three private AX symbols). Where they are missing, controls carry no
+  identity and by-ref input is refused with a message pointing at screenshots and coordinates;
+  private window activation stays out.
+- Window handles survive a listing for as long as the window does (same pid and window id): the
+  service lists around every screenshot and matches windows by handle. Windows not listed again
+  drop their controls. Window bounds are re-read before every check and compared within half a
+  point; coordinate input also requires the bounds the screenshot reported.
+- Screenshots are agent-desktop's window-only capture (`screencapture -l`, no shadow), shrunk with
+  `sips`. The image must have the window's aspect ratio, because the service maps pixels to
+  points through the window bounds.
+- Not carried over from the xa11y driver: Linux, menu and menu-bar targets, and the background
+  synthetic-input experiment (`VIEWCODE_COMPUTER_BACKGROUND` and the agent cursor are inert).
+  Typing without a ref needs an element that holds accessibility focus.
+- The macOS desktop app ships the helper under `Resources/computer-driver`
+  (`scripts/lib/viewcode-computer-driver.ts`), and the server finds it beside the resource monitor
+  whose path the app already passes, so no bootstrap field was added; `build.sh` builds it when
+  `cargo` is installed. A helper that fails to build does not fail the app build: computer use
+  then reports itself unavailable. Make that fatal once a macOS build has been confirmed.
+- The helper has not yet been built or run on a Mac: only its rules are tested, with a fake
+  desktop, and the macOS code is type-checked. Treat every native behaviour above as unconfirmed
+  until a real pass, including TCC attribution and whether endpoint security tolerates it.
 - Input that takes the screen refuses with CU-CON-009 while the hardware event system reports
   input in the last 1.5 s (`CGEventSourceSecondsSinceLastEventType`, no Input Monitoring needed).
   The driver's own posted events can count as that input, so only input newer than the driver's
@@ -476,28 +447,8 @@ closes any left from a restart.
   Ad-hoc signed builds lose the TCC grant on every rebuild while System Settings still shows it on;
   the settings status line is a fresh check for that reason. macOS reads a process's grant once,
   so a status that is not granted discards the worker and the next check asks a fresh one; without
-  that, granting while the app ran needed a restart. xa11y can report the denial as a
-  `PlatformError` saying "Permission denied", which the driver treats as `PermissionDeniedError`.
-  A real macOS `list-windows` observation was verified; synthetic input and Windows remain
-  separate acceptance work, including whether managed security software tolerates them.
-  The first run on such a machine should still be one `list-windows`.
-- A second driver is being brought up behind `VIEWCODE_COMPUTER_DRIVER=agent-desktop`:
-  `native/computer-driver`, a ViewCode helper that links agent-desktop's core and macOS crates
-  (Apache-2.0, pinned to one revision in its `Cargo.toml`), because xa11y exposes no native element
-  identity. We build our own helper instead of shipping agent-desktop's CLI, MCP server or C FFI:
-  those resolve and dispatch a ref in one call, which leaves no place for the two dispatch checks
-  and the lock, and its `command_policy` is an argument preflight, not a gate. The helper speaks
-  the xa11y worker's protocol as JSON lines on stdio, so `Xa11yComputerDriver.ts`'s client is the
-  only one. It observes only: every input op answers `unavailable` before any native call. The
-  macOS desktop app ships it under `Resources/computer-driver`
-  (`scripts/lib/viewcode-computer-driver.ts`), and the server finds it beside the resource monitor
-  whose path the app already passes, so no bootstrap field was added. While the driver is opt-in a
-  helper that fails to build does not fail the app build: the folder ships empty and selecting the
-  driver reports it unavailable. Make that fatal when it becomes the default. `build.sh` builds it
-  only when the flag is set. It has not yet passed TCC and endpoint-security acceptance on a
-  managed Mac. agent-desktop reads element and window identity through three private AX symbols it finds
-  with `dlsym` and does without when they are missing; that is accepted for identity only, and
-  private window activation stays out.
+  that, granting while the app ran needed a restart.
+  The first run on a managed machine should still be one `list-windows`.
 
 ## Command Code
 

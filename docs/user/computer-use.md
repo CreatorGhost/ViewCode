@@ -94,57 +94,28 @@ permissions off in System Settings when you are not using computer use.
 - In a sandboxed permission mode, Codex's sandbox blocks `viewcode-computer` from reaching
   ViewCode, so the agent reruns it outside the sandbox and ViewCode approves that for you. If it
   still cannot connect, use **Full access** for that thread.
-- On macOS, menu bars and open context menus can appear as their own entries. Choose items by
-  reference when they are listed. Some apps do not expose them, so use another control or show
-  the app on screen when the task allows it. Clicks and keys on a listed menu are refused,
-  because bringing the app forward could close it.
-- Screenshots work for windows that sit entirely on the main display.
+- Menu bars and open context menus are not listed as their own entries. An agent opens a menu
+  and chooses from it using a screenshot.
 - A window on another desktop (Space) or in full screen can be read by reference where it is,
   but an agent has to switch to it before taking a screenshot or clicking. Switching takes the
   screen like any other action in front, and asks first when your settings ask for input. Some
   apps only list windows on the current desktop; bring those onto the desktop you are using.
-- Computer use runs on macOS and Linux. Windows is not supported yet.
+- Computer use runs on macOS. Linux and Windows are not supported yet.
+- When ViewCode is built from source, computer use needs its helper, which is written in Rust.
+  `./build.sh` builds it when Rust is installed; without it computer use shows as unavailable.
 - Command Code does not support computer use.
 
 ## Beta status
 
-Computer use is in beta. Confirmed on a real Mac: listing windows, reading controls, screenshots,
-typing by reference in TextEdit and Notes, setting a Chrome text field by reference, approvals,
-and stopping foreground typing after a scripted app switch. A reported action alone does not
-prove that an app accepted it; check the returned image for the intended result.
-
-An experimental macOS background mode is available when the environment starts with
-`VIEWCODE_COMPUTER_BACKGROUND=1`. For inactive windows it tries clicks, scrolling and supported
-shortcuts without activating the app or moving your pointer. It refuses a post when a fresh
-control read shows no change. Check the intended result before retrying: an uncertain refusal
-may have sent input. Shortcuts require one document window. Drags, pointer moves and typing
-without a ref still need an explicit focus action, allowed by **Show on screen**. This mode is
-opt-in and uses undocumented window-routing fields that may change with macOS updates.
-Background synthetic input is not yet confirmed across apps; today's default stays the same.
-On desktop hosts this experiment also shows a separate agent pointer with the thread's name.
-It is designed to pass clicks through and avoid keyboard focus. A real desktop check confirmed
-that its panel appears during actions, hides after about ten seconds idle, and is excluded from
-the agent's screenshots. Its click effects, refusal animation, overlapping names and click
-pass-through still need visual confirmation.
+Computer use is in beta. Its engine was replaced with one built on
+[agent-desktop](https://github.com/vercel-labs/agent-desktop), and that engine has not yet been
+confirmed on a real Mac. A reported action alone does not prove that an app accepted it; check
+the returned image for the intended result.
 
 Known gaps:
 
-- An open menu may be missing from a window's screenshot. A separately listed menu can be read
-  by reference, but opening and capturing it has not been confirmed in the latest desktop pass.
-- Switching to a window on another desktop or in full screen: still unconfirmed on a real Mac.
-- Menu bars now list and read on a real Mac through public accessibility APIs. The menu bar
-  itself cannot be captured. A large or incomplete menu tree can still refuse a background
-  press; opening and capturing separate menus remains unconfirmed.
-- Opening screenshots without a prompt worked in a real Grok session. Cursor could not run
-  because its plan required an upgrade; OpenCode could not run because its sign-in had expired.
-  Those providers remain unconfirmed.
-- A scripted app switch interrupted foreground typing on a real Mac. The command reported an
-  uncertain partial result and did not retry or refocus; the alternate editor contained no test
-  text. Typing by reference can continue in its target without taking the screen.
-- Waiting while you use the mouse or keyboard: covered by tests, still unconfirmed on a real Mac.
-- **Show on screen**: both modes were exercised in the real desktop. **Whenever needed** allowed
-  explicit focus; **Ask once per task** showed the prompt. Choosing to show allowed focus, while
-  keeping the task in the background refused focus and still allowed typing by reference.
-- The macOS driver now uses the app's Helper by default. A real desktop check confirmed
-  accessibility reads and screenshots with no driver Dock tile. Environment maintainers can
-  set `VIEWCODE_COMPUTER_DRIVER_HOST=main` if their build needs the main host.
+- Listing windows, reading controls, screenshots, clicking, typing and keyboard shortcuts with the
+  new engine: all unconfirmed on a real Mac.
+- Switching to a window on another desktop or in full screen: unconfirmed.
+- Scrolling direction and distance may differ between apps.
+- Typing without choosing a field first only works when the app reports which field has focus.
