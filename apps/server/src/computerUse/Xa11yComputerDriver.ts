@@ -36,6 +36,7 @@ import * as NodeChildProcess from "node:child_process";
 import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
+import * as NodeReadline from "node:readline";
 import * as NodeURL from "node:url";
 
 import {
@@ -77,7 +78,12 @@ export interface DriverWorkerLaunch {
   readonly args: ReadonlyArray<string>;
   readonly env: NodeJS.ProcessEnv;
   /** Which executable hosts the driver, for logs: the app itself or its Helper. */
-  readonly host?: "main" | "helper";
+  readonly host?: "main" | "helper" | "native";
+  /**
+   * How requests travel. A Node worker uses its IPC channel; a native helper
+   * has none, so it gets the same messages as JSON lines on stdin and stdout.
+   */
+  readonly transport?: "ipc" | "stdio";
 }
 
 export interface Xa11yComputerDriverOptions {
@@ -290,6 +296,19 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
   let closed = false;
 
   const workerEpochs = new WeakMap<NodeChildProcess.ChildProcess, string>();
+  const stdioWorkers = new WeakSet<NodeChildProcess.ChildProcess>();
+
+  const canSend = (worker: NodeChildProcess.ChildProcess): boolean =>
+    stdioWorkers.has(worker) ? worker.stdin?.writable === true : worker.connected;
+
+  const sendTo = (
+    worker: NodeChildProcess.ChildProcess,
+    message: object,
+    done: (error: Error | null | undefined) => void,
+  ) => {
+    if (stdioWorkers.has(worker)) worker.stdin?.write(`${JSON.stringify(message)}\n`, done);
+    else worker.send(message, done);
+  };
 
   /**
    * Kills a worker and stops listening to it, so it is reported once. A
@@ -323,7 +342,10 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
     try {
       worker = NodeChildProcess.spawn(launch.command, [...launch.args], {
         env: { ...launch.env, [DRIVER_NONCE_ENV]: nonce, [DRIVER_EPOCH_ENV]: epoch },
-        stdio: ["ignore", "ignore", "inherit", "ipc"],
+        stdio:
+          launch.transport === "stdio"
+            ? ["pipe", "pipe", "inherit"]
+            : ["ignore", "ignore", "inherit", "ipc"],
         windowsHide: true,
       });
     } catch {
@@ -335,7 +357,25 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
     if (worker.pid === undefined) log("computer-use driver could not start", {});
     else
       log("computer-use driver started", { pid: worker.pid, epoch, host: launch.host ?? "main" });
-    worker.on("message", (message) => settlePending?.({ type: "reply", message }));
+    if (launch.transport === "stdio") {
+      stdioWorkers.add(worker);
+      // A write to a helper that already exited must not throw; its exit is reported below.
+      worker.stdin?.on("error", () => undefined);
+      if (worker.stdout) {
+        NodeReadline.createInterface({ input: worker.stdout }).on("line", (line) => {
+          let message: unknown;
+          try {
+            message = JSON.parse(line);
+          } catch {
+            // Not a reply: answered as malformed, never as a partial success.
+          }
+          // A discarded helper's buffered lines must not answer the next worker's request.
+          if (child === worker) settlePending?.({ type: "reply", message });
+        });
+      }
+    } else {
+      worker.on("message", (message) => settlePending?.({ type: "reply", message }));
+    }
     worker.once("error", () => {
       const spawned = worker.pid !== undefined;
       discard(worker, spawned ? "crash" : undefined);
@@ -363,7 +403,7 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
       if (closed) return resolve({ type: "not-sent" });
       child ??= start();
       const worker = child;
-      if (!worker?.connected) {
+      if (!worker || !canSend(worker)) {
         if (worker) discard(worker, worker.pid === undefined ? undefined : "crash");
         return resolve({ type: "not-sent" });
       }
@@ -405,7 +445,8 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
               } else {
                 releaseNow(decision);
               }
-              worker.send(
+              sendTo(
+                worker,
                 { id, nonce, decision: decision.allowed ? null : decision.error },
                 (error) => {
                   if (error) {
@@ -447,7 +488,7 @@ const makeWorkerClient = (options: Xa11yComputerDriverOptions, log: WorkerLog) =
       };
       settlePending = settle;
       try {
-        worker.send({ id, nonce, request }, (error) => {
+        sendTo(worker, { id, nonce, request }, (error) => {
           if (error) {
             discard(worker, "crash");
             settle({ type: "not-sent" });
