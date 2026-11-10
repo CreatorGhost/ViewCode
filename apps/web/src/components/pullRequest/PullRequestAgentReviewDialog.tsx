@@ -107,8 +107,9 @@ export function useStartAgentReview(
 }
 
 /**
- * The choices an agent review starts from: how thorough, with which model (the project's default
- * for new threads until the reader picks another), and what to look at. `start` reports a
+ * The choices an agent review starts from: how thorough, with which model (that of the chat it is
+ * started from, else the project's default for new threads, until the reader picks another), and
+ * what to look at. `start` reports a
  * failure itself and resolves to the new review thread, or null; given `basedOn`, it re-reviews
  * only what changed since those findings.
  */
@@ -122,12 +123,20 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
   const entries = sortProviderInstanceEntries(
     applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings, projectId),
   );
+  // The chat the review was started from: its model is the one the reader is working with, and
+  // for local changes its checkout is the one read.
+  const sourceThread = useThreadShell(
+    request.sourceThreadId === undefined
+      ? null
+      : scopeThreadRef(environmentId, request.sourceThreadId),
+  );
   const [picked, setPicked] = useState<ModelSelection | null>(null);
   const selection =
     picked ??
     resolveDefaultProviderModelSelection(
       providers,
-      resolveProjectSettings(settings, projectId, project).settings.defaultModelSelection,
+      sourceThread?.modelSelection ??
+        resolveProjectSettings(settings, projectId, project).settings.defaultModelSelection,
     );
   const modelOptions = getCustomModelOptionsByInstance(
     settings,
@@ -148,9 +157,6 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
   const { canScope } = starter;
   const scopeReady = !canScope || localReviewScopeReady(scope);
   // The checkout a local review reads, whose commits and base the scope choices offer.
-  const sourceThread = useThreadShell(
-    request.kind === "local" ? scopeThreadRef(environmentId, request.sourceThreadId) : null,
-  );
   const checkoutCwd =
     request.kind === "local"
       ? (sourceThread?.worktreePath ?? project?.workspaceRoot ?? null)
