@@ -23,6 +23,9 @@
 #                         Nothing is deleted; the script prints how to restore.
 #                         Refuses to run while ViewCode is open.
 #
+# Set VIEWCODE_COMPUTER_DRIVER=agent-desktop to also build and use the
+# agent-desktop computer-use helper (macOS, needs Rust; observe only for now).
+#
 # Run from anywhere; it works in the folder this script lives in.
 set -euo pipefail
 
@@ -43,7 +46,7 @@ for arg in "$@"; do
     --fresh) fresh=1 ;;
     --install) install=1 ;;
     -h | --help)
-      sed -n '2,27p' "$0"
+      sed -n '2,30p' "$0"
       exit 0
       ;;
     *)
@@ -264,6 +267,23 @@ if [ "$relay" = 1 ]; then
   # node scripts/viewcode-relay.ts deploy
   "$state_node" scripts/viewcode-relay.ts deploy --mode "$mode" ||
     echo "Quick connect setup did not finish; continuing without it. Re-run: node scripts/viewcode-relay.ts deploy" >&2
+fi
+
+# Opt-in while it is being brought up: computer use through the agent-desktop
+# helper (docs/internals/viewcode.md, "Computer use"). The helper is Rust, so it
+# is built only when asked for, and a build that fails falls back to the default.
+if [ "${VIEWCODE_COMPUTER_DRIVER:-}" = agent-desktop ]; then
+  step "Building the agent-desktop computer-use helper"
+  if [ "$(uname -s)" != Darwin ]; then
+    echo "The agent-desktop driver supports macOS only so far; computer use keeps its default driver." >&2
+    unset VIEWCODE_COMPUTER_DRIVER
+  elif command -v cargo >/dev/null &&
+    cargo build --locked --release --manifest-path native/computer-driver/Cargo.toml; then
+    echo "Computer use will use the agent-desktop driver. It can list windows and read them; input is not available with it yet."
+  else
+    echo "Could not build the helper (it needs Rust 1.89 or newer and Xcode's command-line tools); computer use keeps its default driver." >&2
+    unset VIEWCODE_COMPUTER_DRIVER
+  fi
 fi
 
 if [ "$mode" = web ]; then

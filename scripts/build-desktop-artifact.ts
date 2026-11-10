@@ -38,6 +38,11 @@ import {
 import { loadRepoEnv } from "./lib/public-config.ts";
 import { selectDesktopRuntimeExternalDependencies } from "./lib/desktop-external-packages.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
+import {
+  MAC_COMPUTER_DRIVER_EXTRA_RESOURCE,
+  MAC_COMPUTER_DRIVER_FILE_EXCLUSIONS,
+  stageComputerDriver,
+} from "./lib/viewcode-computer-driver.ts";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -2771,6 +2776,8 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         : platform === "linux"
           ? LINUX_FILE_EXCLUSIONS
           : []),
+      // ViewCode: the agent-desktop computer-use helper ships once, as a resource.
+      ...(platform === "mac" ? MAC_COMPUTER_DRIVER_FILE_EXCLUSIONS : []),
     ],
     directories: {
       buildResources: "apps/desktop/resources",
@@ -2790,6 +2797,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       ...(platform === "mac" && macServerRuntimeBundled
         ? [MAC_SERVER_RUNTIME_EXTRA_RESOURCE, MAC_SERVER_RUNTIME_NODE_MODULES_EXTRA_RESOURCE]
         : []),
+      ...(platform === "mac" ? [MAC_COMPUTER_DRIVER_EXTRA_RESOURCE] : []),
     ],
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
@@ -3778,6 +3786,14 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     arch: options.arch,
     verbose: options.verbose,
   });
+  // ViewCode: macOS only, and never fatal; see scripts/lib/viewcode-computer-driver.ts.
+  if (options.platform === "mac") {
+    yield* stageComputerDriver({
+      repoRoot,
+      stageResourcesDir,
+      rustTargets: resolveResourceMonitorRustTargets("mac", options.arch),
+    });
+  }
   if (options.platform === "linux") {
     for (const backend of ["kde", "hyprland"] as const)
       yield* stageLinuxCaptureHelper({
