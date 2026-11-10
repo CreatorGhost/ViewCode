@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - reads repo manifests to check ViewCode's packaging pins survive a merge.
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import { describe, expect, it } from "vite-plus/test";
