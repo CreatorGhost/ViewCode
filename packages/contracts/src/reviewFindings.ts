@@ -45,6 +45,24 @@ export type ReviewVerdict = typeof ReviewVerdict.Type;
 
 const bounded = (max: number) => TrimmedNonEmptyString.check(Schema.isMaxLength(max));
 
+export const REVIEW_FINDING_MAX_LESSON_EVIDENCE = 6;
+
+/**
+ * A repository lesson a finding came from: something this repository's own history showed going
+ * wrong, with the pull requests or commits that showed it.
+ */
+export const ReviewFindingLesson = Schema.Struct({
+  text: bounded(REVIEW_FINDING_MAX_RULE_CHARS),
+  /** How many times the history showed it. */
+  occurrences: Schema.optional(PositiveInt),
+  evidence: Schema.optional(
+    Schema.Array(Schema.Struct({ label: bounded(40), url: bounded(500) })).check(
+      Schema.isMaxLength(REVIEW_FINDING_MAX_LESSON_EVIDENCE),
+    ),
+  ),
+});
+export type ReviewFindingLesson = typeof ReviewFindingLesson.Type;
+
 export const ReviewFinding = Schema.Struct({
   severity: ReviewFindingSeverity,
   /** 0-100: 100 is proven from the code, 50 plausible but unverified. */
@@ -67,6 +85,8 @@ export const ReviewFinding = Schema.Struct({
   rule: Schema.optional(bounded(REVIEW_FINDING_MAX_RULE_CHARS)),
   /** The problem was there before the change; the change makes it worse or reachable. */
   preExisting: Schema.optional(Schema.Boolean),
+  /** The repository lesson the finding came from, when it came from one. */
+  lesson: Schema.optional(ReviewFindingLesson),
 }).check(
   Schema.makeFilter(
     (finding) =>

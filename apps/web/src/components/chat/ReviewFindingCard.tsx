@@ -11,6 +11,7 @@ import {
   reviewFindingLocation,
 } from "@t3tools/shared/reviewFindings";
 import {
+  BookOpenCheckIcon,
   CheckIcon,
   CircleHelpIcon,
   InfoIcon,
@@ -21,7 +22,7 @@ import {
   MessageSquarePlusIcon,
   WrenchIcon,
 } from "lucide-react";
-import { memo } from "react";
+import { memo, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import ChatMarkdown from "../ChatMarkdown";
@@ -48,6 +49,9 @@ const SEVERITY_ICONS: Record<ReviewFindingSeverity, typeof InfoIcon> = {
 };
 
 const NO_SKILLS: ReadonlyArray<never> = [];
+
+/** Why a finding was not wanted, as the row under a thumbs-down offers it. */
+const RATING_REASONS = ["Not a real problem", "Intended here", "Too minor", "Handled elsewhere"];
 
 /** Long enough that four lines would cut it off, so the card offers to show the rest. */
 function isLongDetail(detail: string): boolean {
@@ -82,6 +86,8 @@ export interface ReviewFindingCardProps {
   readonly onRate:
     | ((key: ReviewFindingKey, rating: ReviewFindingRating | null) => void)
     | undefined;
+  /** Says why a finding was rated down; absent where the server keeps no reasons. */
+  readonly onRatingReason?: ((key: ReviewFindingKey, reason: string | null) => void) | undefined;
   /** The finding's main action: fix it, or in reviewer mode post it. */
   readonly action: ReviewFindingAction;
   /** A post of this finding is under way. */
@@ -114,6 +120,7 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
   onToggleExpanded,
   onDismiss,
   onRate,
+  onRatingReason,
   action,
   busy,
   posted,
@@ -124,6 +131,12 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
 }: ReviewFindingCardProps) {
   const { finding, key } = entry;
   const SeverityIcon = SEVERITY_ICONS[finding.severity];
+  const { lesson } = finding;
+  const [reason, setChosenReason] = useState<string | null>(null);
+  const setReason = (next: string | null) => {
+    setChosenReason(next);
+    onRatingReason?.(key, next);
+  };
   return (
     <div
       className={cn(
@@ -164,6 +177,11 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
                 pre-existing
               </Badge>
             ) : null}
+            {lesson?.occurrences !== undefined ? (
+              <Badge size="sm" variant="warning">
+                broke {lesson.occurrences}× here
+              </Badge>
+            ) : null}
           </div>
           {showLocation ? (
             <span className="truncate font-mono text-muted-foreground text-xs">
@@ -189,6 +207,23 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
           ) : null}
           {finding.rule ? (
             <span className="text-muted-foreground text-xs">Rule: {finding.rule}</span>
+          ) : null}
+          {lesson ? (
+            <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-muted-foreground text-xs">
+              <BookOpenCheckIcon aria-hidden className="size-3.5 shrink-0" />
+              <span className="text-foreground">Lesson: {lesson.text}</span>
+              {lesson.evidence?.map((evidence) => (
+                <a
+                  key={evidence.url}
+                  href={evidence.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="tabular-nums underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  {evidence.label}
+                </a>
+              ))}
+            </span>
           ) : null}
           {finding.suggestedFix ? (
             <ChatMarkdown
@@ -281,6 +316,42 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
               </span>
             ) : null}
           </div>
+          {onRatingReason && rating === "down" ? (
+            reason === null ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-1 border-border/60 border-t pt-2">
+                <span className="mr-1 text-muted-foreground text-xs">Why not?</span>
+                {RATING_REASONS.map((label) => (
+                  <Button
+                    key={label}
+                    type="button"
+                    size="chip"
+                    variant="chip-outline"
+                    onClick={() => setReason(label)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+                {lesson ? (
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setReason("Stop checking this here")}
+                  >
+                    Stop checking this here
+                  </Button>
+                ) : null}
+              </div>
+            ) : (
+              <span className="flex items-center gap-1 border-border/60 border-t pt-2 text-muted-foreground text-xs">
+                <CheckIcon aria-hidden className="size-3.5 shrink-0" />
+                {reason} · noted for this project
+                <Button type="button" size="xs" variant="link" onClick={() => setReason(null)}>
+                  Undo
+                </Button>
+              </span>
+            )
+          ) : null}
         </div>
       </div>
     </div>

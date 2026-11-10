@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "../ui/select";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { RepositoryLessonsLine, type RepositoryLessonsStatus } from "./RepositoryLessons";
 import { ReviewScopeFields } from "./ReviewScopeFields";
 import type { LatestReviewStatus } from "./useReviewFindingsSource";
 
@@ -107,9 +108,18 @@ function ReviewTargetSelect({
 export function ReviewStartForm({
   target,
   rereview: rereviewBasis = null,
+  lessons,
 }: {
   target: ReviewStartTarget;
   rereview?: ReviewRereviewBasis | null;
+  /** What the repository's history taught, when the server learns from it. */
+  lessons?:
+    | {
+        readonly status: RepositoryLessonsStatus;
+        readonly onLearn: () => void;
+        readonly onView: () => void;
+      }
+    | undefined;
 }) {
   const id = useId();
   const choices = target.choices ?? [];
@@ -177,6 +187,7 @@ export function ReviewStartForm({
         </div>
       ) : null}
       <AgentReviewFields form={form} />
+      {lessons ? <RepositoryLessonsLine {...lessons} /> : null}
       <Button type="submit" size="sm" disabled={!form.canStart}>
         {form.pending ? "Starting..." : "Start review"}
       </Button>

@@ -82,6 +82,7 @@ import {
   useLinkedPullRequestTitle,
 } from "./reviewIdentity";
 import { groupIssuesBySeverity, issueFileLabel } from "./reviewIssueGroups";
+import { ReviewLookFirst } from "./RepositoryLessons";
 import { FindIssuesButton, type ReviewStartTarget } from "./ReviewStart";
 import {
   firstFindingToReveal,
@@ -178,6 +179,10 @@ interface ReviewFindingsViewProps {
    * jump to the first finding.
    */
   readonly readerScrolled: () => boolean;
+  /** The risky parts of the change, found without a model; shown above the findings. */
+  readonly lookFirst?: ReadonlyArray<string> | undefined;
+  /** Says why a finding was rated down; absent where the server keeps no reasons. */
+  readonly onRatingReason?: ((key: ReviewFindingKey, reason: string | null) => void) | undefined;
 }
 
 /**
@@ -200,6 +205,8 @@ export const ReviewFindingsView = memo(
     previous.stillReviewing === next.stillReviewing &&
     previous.superseded === next.superseded &&
     previous.readerScrolled === next.readerScrolled &&
+    previous.lookFirst === next.lookFirst &&
+    previous.onRatingReason === next.onRatingReason &&
     previous.source.activityId === next.source.activityId &&
     previous.source.threadTitle === next.source.threadTitle &&
     postedReviewFindingsEqual(previous.posted, next.posted) &&
@@ -219,6 +226,8 @@ function ReviewFindingsViewContent({
   stillReviewing,
   superseded,
   readerScrolled,
+  lookFirst,
+  onRatingReason,
 }: ReviewFindingsViewProps) {
   const { findings } = source;
   const reviewThreadRef = scopeThreadRef(environmentId, source.threadId);
@@ -631,6 +640,7 @@ function ReviewFindingsViewContent({
       onToggleExpanded={toggleExpanded}
       onDismiss={dismiss}
       onRate={canRate ? rate : undefined}
+      onRatingReason={canRate ? onRatingReason : undefined}
       action={cardAction}
       busy={busyKeys.has(entry.key)}
       posted={posted.get(entry.key)}
@@ -793,6 +803,7 @@ function ReviewFindingsViewContent({
           </span>
         </div>
       ) : null}
+      {open && lookFirst !== undefined ? <ReviewLookFirst items={lookFirst} /> : null}
       {open ? (
         <>
           <header className="flex min-w-0 flex-wrap items-center gap-1.5 border-b border-border/60 px-3 py-1.5">

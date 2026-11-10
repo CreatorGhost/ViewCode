@@ -1,9 +1,22 @@
 import type { ReviewFindingsSource } from "@t3tools/client-runtime/review-findings";
-import { EnvironmentId, EventId, type ReviewFinding, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  EventId,
+  ProjectId,
+  type ReviewFinding,
+  type ReviewFindingRating,
+  ThreadId,
+} from "@t3tools/contracts";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { useState } from "react";
 
+import {
+  type RepositoryLesson,
+  RepositoryLessonsSheet,
+  type RepositoryLessonsStatus,
+} from "~/components/chat/RepositoryLessons";
 import { ReviewFindingsView } from "~/components/chat/ReviewFindingsView";
+import { ReviewStartForm } from "~/components/chat/ReviewStart";
 import { ReviewCard } from "~/components/chat/ReviewProgress";
 import { Button } from "~/components/ui/button";
 import { useServerConfigs } from "~/state/entities";
@@ -54,6 +67,25 @@ const source: ReviewFindingsSource = {
     mode: "fix",
     needsChecking: [],
     findings: [
+      {
+        severity: "blocker",
+        confidence: 92,
+        path: "backend/db/migrations/0042_add_owner.sql",
+        line: 7,
+        title: "Migration adds NOT NULL without a backfill",
+        detail:
+          "Existing rows in playbooks have no owner_id, so this migration fails on any database that already has playbooks. The deploy runs migrations before the app starts, so the release stops there.",
+        suggestedFix:
+          "UPDATE playbooks SET owner_id = created_by WHERE owner_id IS NULL;\nALTER TABLE playbooks ALTER COLUMN owner_id SET NOT NULL;",
+        lesson: {
+          text: "NOT NULL columns need a backfill",
+          occurrences: 4,
+          evidence: [1212, 1340, 1377, 1398].map((number) => ({
+            label: `#${number}`,
+            url: `https://github.com/example/agents/pull/${number}`,
+          })),
+        },
+      },
       finding(
         "important",
         "Revoking a callback key skips playbook execute permission",
@@ -100,8 +132,84 @@ const source: ReviewFindingsSource = {
   },
 };
 
+const LOOK_FIRST = [
+  "migration",
+  "CI workflow",
+  "2 major dependency bumps",
+  "removed export parseRef",
+];
+const RATINGS: ReadonlyMap<string, ReviewFindingRating> = new Map([["finding:5", "down"]]);
+const pulls = (...numbers: ReadonlyArray<number>) =>
+  numbers.map((number) => ({
+    label: `#${number}`,
+    url: `https://github.com/example/agents/pull/${number}`,
+  }));
+const LESSONS: ReadonlyArray<RepositoryLesson> = [
+  {
+    id: "backfill",
+    text: "NOT NULL columns need a backfill",
+    where: "backend/db/migrations/**",
+    source: "kept-breaking",
+    evidence: pulls(1212, 1340, 1377, 1398),
+    flagged: 6,
+    helpful: 5,
+    enabled: true,
+  },
+  {
+    id: "lock-order",
+    text: "Lock playbook rows before callback rows",
+    where: "agents/playbooks/**",
+    source: "kept-breaking",
+    evidence: pulls(1105, 1290, 1466),
+    flagged: 3,
+    helpful: 3,
+    enabled: true,
+  },
+  {
+    id: "contracts",
+    text: "API schema changes need the frontend client regenerated",
+    where: "backend/core/schemas/**",
+    source: "reviewers-ask",
+    evidence: pulls(1188, 1502),
+    flagged: 2,
+    helpful: 2,
+    enabled: true,
+  },
+  {
+    id: "retries",
+    text: "Outbound calls need a timeout and a bounded retry",
+    where: "agents/**/external_*.py",
+    source: "kept-breaking",
+    evidence: pulls(977, 1203, 1431),
+    flagged: 0,
+    helpful: 0,
+    enabled: true,
+  },
+  {
+    id: "docstrings",
+    text: "Docstrings on test helpers",
+    where: "**/tests/**",
+    source: "you-rated",
+    evidence: [],
+    flagged: 3,
+    helpful: 0,
+    enabled: false,
+    offReason: "off · you turned this down 3 times",
+  },
+];
+const noRatingReason = () => {};
+const LESSON_STATES: ReadonlyArray<RepositoryLessonsStatus> = [
+  { kind: "learned", count: 12 },
+  { kind: "never", reverts: 7, followUpFixes: 23 },
+  { kind: "learning" },
+  { kind: "stale", count: 12, mergesSince: 38 },
+];
+
 function ReviewFindingsPreview() {
   const [superseded, setSuperseded] = useState(true);
+  const [lessonState, setLessonState] = useState(0);
+  const [lessonsOpen, setLessonsOpen] = useState(false);
+  const [lessons, setLessons] = useState(LESSONS);
   const [startedAt] = useState(() => new Date(Date.now() - 79 * 60_000).toISOString());
   const environmentId = [...useServerConfigs().keys()][0] ?? EnvironmentId.make("env-local");
   return (
@@ -109,7 +217,46 @@ function ReviewFindingsPreview() {
       <Button variant="outline" size="xs" onClick={() => setSuperseded((value) => !value)}>
         {superseded ? "Newer review running" : "These are the latest"}
       </Button>
-      <div className="flex h-150 w-100 flex-col border-border border-x bg-background">
+      <Button
+        variant="outline"
+        size="xs"
+        onClick={() => setLessonState((value) => (value + 1) % LESSON_STATES.length)}
+      >
+        Lessons: {LESSON_STATES[lessonState]?.kind}
+      </Button>
+      <div data-preview="start" className="w-80 rounded-xl border bg-popover p-4 shadow-lg">
+        <ReviewStartForm
+          target={{
+            environmentId,
+            request: {
+              kind: "local",
+              projectId: ProjectId.make("project-preview"),
+              sourceThreadId: ThreadId.make("thread-preview"),
+            },
+            onStarted: () => {},
+          }}
+          lessons={{
+            status: LESSON_STATES[lessonState] ?? { kind: "learning" },
+            onLearn: () => setLessonState(2),
+            onView: () => setLessonsOpen(true),
+          }}
+        />
+      </div>
+      <RepositoryLessonsSheet
+        open={lessonsOpen}
+        onOpenChange={setLessonsOpen}
+        lessons={lessons}
+        learnedFrom="Learned from 214 merged pull requests · 3 days ago"
+        onToggle={(id, enabled) =>
+          setLessons((current) =>
+            current.map((lesson) => (lesson.id === id ? { ...lesson, enabled } : lesson)),
+          )
+        }
+      />
+      <div
+        data-preview="panel"
+        className="flex h-225 w-100 flex-col border-border border-x bg-background"
+      >
         {superseded ? (
           <ReviewCard
             icon={null}
@@ -143,12 +290,14 @@ function ReviewFindingsPreview() {
             projectId={null}
             cwd={undefined}
             posted={new Map()}
-            ratings={new Map()}
+            ratings={RATINGS}
             onFixInChat={undefined}
             startReview={null}
             stillReviewing={false}
             superseded={superseded}
             readerScrolled={() => false}
+            lookFirst={LOOK_FIRST}
+            onRatingReason={noRatingReason}
           />
         </div>
       </div>
