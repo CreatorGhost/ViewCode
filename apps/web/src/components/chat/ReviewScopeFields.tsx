@@ -50,7 +50,7 @@ export function ReviewScopeFields({
       </span>
       <ToggleGroup
         aria-labelledby={`${id}-scope`}
-        className="w-full *:flex-1"
+        className="w-full *:flex-auto"
         value={[kind]}
         onValueChange={(next) => {
           const value = next[0];
