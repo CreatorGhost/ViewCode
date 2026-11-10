@@ -24,6 +24,7 @@ import {
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { ShieldCheckIcon } from "lucide-react";
 import { useCallback, useId, useMemo, useState } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
@@ -55,7 +56,8 @@ import {
 } from "../ui/dialog";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Radio, RadioGroup } from "../ui/radio-group";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { readReviewStartPreference, writeReviewStartPreference } from "./reviewStartPreference";
 
@@ -135,7 +137,10 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
   );
   // The form opens on the depth and "What to review" last started on this device.
   const [remembered] = useState(readReviewStartPreference);
-  const [mode, setMode] = useState<AgentReviewMode>(remembered.mode);
+  // A security audit is started by its own button, so it is never the depth the form opens on.
+  const [mode, setMode] = useState<ReviewDepth>(
+    remembered.mode === "security" ? "deep" : remembered.mode,
+  );
   const [focus, setFocus] = useState("");
   // What of the local changes to read; null leaves it to the reviewer (uncommitted, else branch).
   const [scope, setScope] = useState<LocalReviewScope | null>(remembered.scope);
@@ -150,9 +155,9 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
     request.kind === "local"
       ? (sourceThread?.worktreePath ?? project?.workspaceRoot ?? null)
       : null;
-  const start = async (basedOn?: ReviewBasedOnInput) => {
+  const start = async (basedOn?: ReviewBasedOnInput, audit?: "security") => {
     const started = await starter.start({
-      mode,
+      mode: audit ?? mode,
       modelSelection: selection,
       focus,
       basedOn,
@@ -187,6 +192,22 @@ export function useAgentReviewForm(environmentId: EnvironmentId, request: AgentR
 
 export type AgentReviewForm = ReturnType<typeof useAgentReviewForm>;
 
+/** How thorough a review is. A security audit is a different job with its own button. */
+type ReviewDepth = Exclude<AgentReviewMode, "security">;
+const REVIEW_DEPTHS: ReadonlyArray<{
+  readonly mode: ReviewDepth;
+  readonly label: string;
+  readonly description: string;
+}> = [
+  { mode: "quick", label: "Quick", description: "One agent, one pass over the change." },
+  {
+    mode: "deep",
+    label: "Deep",
+    description:
+      "Several agents, security included, disprove each other's findings. Uses more of your plan.",
+  },
+];
+
 /** Mode, model and focus for an agent review, wherever one is started. */
 export function AgentReviewFields({ form }: { form: AgentReviewForm }) {
   const id = useId();
@@ -197,30 +218,30 @@ export function AgentReviewFields({ form }: { form: AgentReviewForm }) {
       : form.entries.find((entry) => entry.instanceId === selection.instanceId);
   return (
     <div className="flex flex-col gap-4">
-      <RadioGroup
-        aria-labelledby={`${id}-depth`}
-        value={form.mode}
-        onValueChange={(value) => {
-          const next = AGENT_REVIEW_MODES.find((entry) => entry.mode === value);
-          if (next) form.setMode(next.mode);
-        }}
-      >
+      <div className="flex flex-col gap-2">
         <span id={`${id}-depth`} className="font-medium text-xs text-muted-foreground">
           Depth
         </span>
-        {AGENT_REVIEW_MODES.map((entry) => (
-          <label
-            key={entry.mode}
-            className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm"
-          >
-            <Radio value={entry.mode} className="mt-0.5" />
-            <span className="flex min-w-0 flex-col">
-              <span className="font-medium">{entry.label}</span>
-              <span className="text-xs text-muted-foreground">{entry.description}</span>
-            </span>
-          </label>
-        ))}
-      </RadioGroup>
+        <ToggleGroup
+          aria-labelledby={`${id}-depth`}
+          className="w-full *:flex-1"
+          value={[form.mode]}
+          disabled={form.pending}
+          onValueChange={(next) => {
+            const depth = REVIEW_DEPTHS.find((entry) => entry.mode === next[0]);
+            if (depth) form.setMode(depth.mode);
+          }}
+        >
+          {REVIEW_DEPTHS.map((entry) => (
+            <Toggle key={entry.mode} value={entry.mode}>
+              {entry.label}
+            </Toggle>
+          ))}
+        </ToggleGroup>
+        <span className="text-xs text-muted-foreground">
+          {REVIEW_DEPTHS.find((entry) => entry.mode === form.mode)?.description}
+        </span>
+      </div>
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm">Model</span>
         {selection ? (
@@ -264,6 +285,35 @@ export function AgentReviewFields({ form }: { form: AgentReviewForm }) {
         />
       </Label>
     </div>
+  );
+}
+
+/**
+ * Starts a security audit of the same change with the form's model and focus. Apart from the
+ * depth: it hunts for vulnerabilities only, and is wanted far less often than a review.
+ */
+export function SecurityAuditButton({
+  disabled,
+  onStart,
+}: {
+  disabled: boolean;
+  onStart: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={onStart} />
+        }
+      >
+        <ShieldCheckIcon aria-hidden />
+        Security audit
+      </TooltipTrigger>
+      <TooltipPopup side="top">
+        Several agents hunt for vulnerabilities in the change and the code it reaches, instead of a
+        review. Uses more of your plan.
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -330,8 +380,8 @@ export function PullRequestAgentReviewDialog({
     sourceThreadId,
   });
 
-  const start = async () => {
-    const started = await form.start();
+  const start = async (audit?: "security") => {
+    const started = await form.start(undefined, audit);
     if (started === null) return;
     onClose();
     onStarted(started);
@@ -364,6 +414,7 @@ export function PullRequestAgentReviewDialog({
             <AgentReviewFields form={form} />
           </DialogPanel>
           <DialogFooter>
+            <SecurityAuditButton disabled={!form.canStart} onStart={() => void start("security")} />
             <Button type="button" variant="outline" disabled={form.pending} onClick={onClose}>
               Cancel
             </Button>

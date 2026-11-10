@@ -179,7 +179,9 @@ A lead agent (you) and child agents. This uses several agents and more of the us
    sees in their chat. Give each the change's identifiers, the areas, these ground rules and its
    lens:
    - correctness and edge cases
-   - security
+   - security, hunted by attack class: injection (shell, SQL, template, prompt), path traversal
+     and SSRF; authorization and data isolation; secrets in code, logs or URLs and crypto misuse;
+     unsafe parsing; new dependencies and scripts; resource exhaustion; XSS and IPC surfaces
    - performance and resource use
    - tests and behaviour coverage
    - API and contract changes, and consistency across every caller and surface

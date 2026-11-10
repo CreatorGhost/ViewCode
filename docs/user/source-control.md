@@ -237,8 +237,9 @@ declined pull request.
 ### Review with an agent
 
 Choose **Review with agent...** in a pull request's actions menu to have an agent review it. Pick
-**Quick review** (one pass), **Deep review** (several agents that check each other's findings), or
-**Security audit**, then the model and, optionally, what to focus on. Deep reviews and security
+**Quick** (one pass) or **Deep** (several agents, security included, that check each other's
+findings), then the model and, optionally, what to focus on. When you only want vulnerabilities
+hunted, **Security audit** beside **Start review** runs that instead. Deep reviews and security
 audits run several agents and use more of your plan; they can take 10 to 20 minutes. Started from
 a chat (its **Review** panel, or the pull request panel beside it), the reviewer is one of that
 chat's agents: you stay in the chat, which shows the review as one block with its time, its current

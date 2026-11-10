@@ -12,8 +12,7 @@ import { useState } from "react";
 
 import {
   type RepositoryLesson,
-  RepositoryLessonsSheet,
-  type RepositoryLessonsStatus,
+  RepositoryLessonsSettings,
 } from "~/components/chat/RepositoryLessons";
 import { ReviewFindingsView } from "~/components/chat/ReviewFindingsView";
 import { ReviewStartForm } from "~/components/chat/ReviewStart";
@@ -198,17 +197,8 @@ const LESSONS: ReadonlyArray<RepositoryLesson> = [
   },
 ];
 const noRatingReason = () => {};
-const LESSON_STATES: ReadonlyArray<RepositoryLessonsStatus> = [
-  { kind: "learned", count: 12 },
-  { kind: "never", reverts: 7, followUpFixes: 23 },
-  { kind: "learning" },
-  { kind: "stale", count: 12, mergesSince: 38 },
-];
-
 function ReviewFindingsPreview() {
   const [superseded, setSuperseded] = useState(true);
-  const [lessonState, setLessonState] = useState(0);
-  const [lessonsOpen, setLessonsOpen] = useState(false);
   const [lessons, setLessons] = useState(LESSONS);
   const [startedAt] = useState(() => new Date(Date.now() - 79 * 60_000).toISOString());
   const environmentId = [...useServerConfigs().keys()][0] ?? EnvironmentId.make("env-local");
@@ -216,13 +206,6 @@ function ReviewFindingsPreview() {
     <div className="flex min-h-screen flex-col items-center gap-6 bg-background p-10">
       <Button variant="outline" size="xs" onClick={() => setSuperseded((value) => !value)}>
         {superseded ? "Newer review running" : "These are the latest"}
-      </Button>
-      <Button
-        variant="outline"
-        size="xs"
-        onClick={() => setLessonState((value) => (value + 1) % LESSON_STATES.length)}
-      >
-        Lessons: {LESSON_STATES[lessonState]?.kind}
       </Button>
       <div data-preview="start" className="w-80 rounded-xl border bg-popover p-4 shadow-lg">
         <ReviewStartForm
@@ -235,24 +218,19 @@ function ReviewFindingsPreview() {
             },
             onStarted: () => {},
           }}
-          lessons={{
-            status: LESSON_STATES[lessonState] ?? { kind: "learning" },
-            onLearn: () => setLessonState(2),
-            onView: () => setLessonsOpen(true),
-          }}
         />
       </div>
-      <RepositoryLessonsSheet
-        open={lessonsOpen}
-        onOpenChange={setLessonsOpen}
-        lessons={lessons}
-        learnedFrom="Learned from 214 merged pull requests · 3 days ago"
-        onToggle={(id, enabled) =>
-          setLessons((current) =>
-            current.map((lesson) => (lesson.id === id ? { ...lesson, enabled } : lesson)),
-          )
-        }
-      />
+      <div data-preview="lessons" className="w-160 rounded-xl border bg-card p-4">
+        <RepositoryLessonsSettings
+          lessons={lessons}
+          learnedFrom="Learned from 214 merged pull requests and 31 of your ratings · updated 3 days ago"
+          onToggle={(id, enabled) =>
+            setLessons((current) =>
+              current.map((lesson) => (lesson.id === id ? { ...lesson, enabled } : lesson)),
+            )
+          }
+        />
+      </div>
       <div
         data-preview="panel"
         className="flex h-225 w-100 flex-col border-border border-x bg-background"
