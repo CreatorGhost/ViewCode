@@ -44,7 +44,7 @@ export const agentDesktopBinary = (
         platform === "win32" ? "viewcode-computer-driver.exe" : "viewcode-computer-driver",
       );
 
-export const layerAgentDesktop: Layer.Layer<ComputerDriver> = Layer.effect(
+const layerAgentDesktop: Layer.Layer<ComputerDriver> = Layer.effect(
   ComputerDriver,
   Effect.gen(function* () {
     const platform = yield* HostProcessPlatform;
