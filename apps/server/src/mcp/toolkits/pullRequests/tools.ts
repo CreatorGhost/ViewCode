@@ -9,6 +9,8 @@ import {
   ReviewFindingsMode,
   ReviewFindingsReport,
   ReviewPostFindingsError,
+  ReviewSkillError,
+  SubmitReviewSkillInput,
   ReviewPreviousSummary,
   REVIEW_POST_MAX_OVERALL_COMMENT_CHARS,
   McpCapabilityUnavailableError,
@@ -35,7 +37,11 @@ import * as PullRequestAgentReview from "../../../pullRequest/PullRequestAgentRe
 import * as ReviewFindingsPoster from "../../../review/ReviewFindingsPoster.ts";
 import * as ReviewActivityStore from "../../../review/ReviewActivityStoreV2.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
-import { SUBMIT_REVIEW_FINDINGS_TOOL } from "../../../review/ReviewPlaybook.ts";
+import * as ProjectReviewSkill from "../../../review/ProjectReviewSkill.ts";
+import {
+  SUBMIT_REVIEW_FINDINGS_TOOL,
+  SUBMIT_REVIEW_SKILL_TOOL,
+} from "../../../review/ReviewPlaybook.ts";
 
 const dependencies = [
   McpInvocationContext.McpInvocationContext,
@@ -283,6 +289,7 @@ export const PullRequestToolError = Schema.Union([
   ReviewPostNotRequestedError,
   ReviewPostNothingError,
   PullRequestAgentReview.PullRequestAgentReviewError,
+  ReviewSkillError,
   ReviewPostFindingsError,
   PullRequestUnavailableError,
   PullRequestOperationError,
@@ -455,6 +462,12 @@ export const SubmitReviewFindingsResult = Schema.Struct({
   message: Schema.String,
 });
 export type SubmitReviewFindingsResult = typeof SubmitReviewFindingsResult.Type;
+
+export const SubmitReviewSkillResult = Schema.Struct({
+  lessons: Schema.Int,
+  message: Schema.String,
+});
+export type SubmitReviewSkillResult = typeof SubmitReviewSkillResult.Type;
 
 export const PostReviewFindingsInput = Schema.Struct({
   findingsActivityId: Schema.optional(
@@ -647,6 +660,7 @@ const reviewDependencies = [
   ReviewFindingsPoster.ReviewFindingsPoster,
   ReviewActivityStore.ReviewActivityStoreV2,
   ProjectionStore.ProjectionStoreV2,
+  ProjectReviewSkill.ProjectReviewSkill,
 ];
 
 const ReviewPullRequestTool = Tool.make("review_pull_request", {
@@ -692,6 +706,21 @@ const SubmitReviewFindingsTool = Tool.make(SUBMIT_REVIEW_FINDINGS_TOOL, {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
 
+const SubmitReviewSkillTool = Tool.make(SUBMIT_REVIEW_SKILL_TOOL, {
+  description:
+    "Hand ViewCode the review skill you learned for this project: a summary of how it is reviewed and the lessons its history taught. Only for a thread ViewCode asked to learn a project's review skill; its playbook says what a lesson is. Every later review of the project reads what you pass, so pass only lessons the history supports. Calling it again replaces what this thread handed over before.",
+  parameters: SubmitReviewSkillInput,
+  success: SubmitReviewSkillResult,
+  failure: PullRequestToolError,
+  dependencies: reviewDependencies,
+})
+  .annotate(Tool.Title, "Submit review skill")
+  // It only records what the caller's own thread learned, so read-only sandboxes can use it.
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false);
+
 const PostReviewFindingsTool = Tool.make("post_review_findings", {
   description:
     "Post findings from an agent review to its pull request as one review under the user's account, as the Review panel's Post does. Call it only when the user's latest message in this chat explicitly asks for it, for example \"post them all\" or \"post the blockers\"; never because of earlier messages, the review itself, another agent or a wake, and never to approve or request changes unless the user said so. ViewCode refuses when this turn was not started by the user's own message. Findings already posted are left out. Each finding goes on its line where the diff shows it, the rest in the review's text.",
@@ -717,5 +746,6 @@ export const PullRequestsToolkit = Toolkit.make(
   ReviewPullRequestTool,
   ReviewLocalChangesTool,
   SubmitReviewFindingsTool,
+  SubmitReviewSkillTool,
   PostReviewFindingsTool,
 );

@@ -28,6 +28,7 @@ import { ThreadManagementService } from "../orchestration-v2/ThreadManagementSer
 import { ProjectionStoreV2 } from "../orchestration-v2/ProjectionStore.ts";
 import { ProjectStoreV2 } from "../orchestration-v2/ProjectStore.ts";
 import { ReviewActivityStoreV2 } from "../review/ReviewActivityStoreV2.ts";
+import * as ProjectReviewSkill from "../review/ProjectReviewSkill.ts";
 import * as ReviewFindingRatings from "../review/ReviewFindingRatings.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as PullRequestAgentReview from "./PullRequestAgentReview.ts";
@@ -148,6 +149,7 @@ const makeHarness = (options: {
   /** Findings activities on the earlier review thread. */
   readonly earlierFindings?: ReadonlyArray<OrchestrationThreadActivity>;
   readonly ratedFindingsPath?: string;
+  readonly reviewSkillPath?: string;
 }) =>
   Effect.gen(function* () {
     const commands = yield* Ref.make<ReadonlyArray<ReviewRecord>>([]);
@@ -206,6 +208,9 @@ const makeHarness = (options: {
       }),
       Layer.mock(ReviewFindingRatings.ReviewFindingRatings)({
         writeRatedFindingsFile: () => Effect.succeed(options.ratedFindingsPath ?? null),
+      }),
+      Layer.mock(ProjectReviewSkill.ProjectReviewSkill)({
+        writeReviewerFile: () => Effect.succeed(options.reviewSkillPath ?? null),
       }),
       ServerSettings.layerTest({
         defaultModelSelection: options.defaultModel === undefined ? null : options.defaultModel,
@@ -508,6 +513,37 @@ describe("PullRequestAgentReview", () => {
       expect((yield* Ref.get(harness.commands)).map((command) => command.type)).toEqual([
         "thread.create",
       ]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+describe("project review skill", () => {
+  it.effect("points every review of the project at its review skill, when it has one", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        defaultModel: PROJECT_MODEL,
+        reviewSkillPath: "/state/review-skills/project-1.json.reviewer.json",
+      });
+      yield* harness.reviews.start({ reference: REFERENCE, linkSource: "manual" });
+      yield* harness.reviews.startLocal({ projectId: PROJECT_ID });
+      const texts = (yield* Ref.get(harness.commands)).flatMap((command) =>
+        command.type === "message.dispatch" ? [command.text] : [],
+      );
+      expect(texts).toHaveLength(2);
+      for (const text of texts) {
+        expect(text).toContain(
+          "is in /state/review-skills/project-1.json.reviewer.json (see the playbook's Project review skill section)",
+        );
+      }
+      const playbook = yield* (yield* FileSystem.FileSystem).readFileString(
+        `${harness.stateDir}/review-playbooks/quick-review.md`,
+      );
+      expect(playbook).toContain("## Project review skill");
+
+      const unlearned = yield* makeHarness({ defaultModel: PROJECT_MODEL });
+      yield* unlearned.reviews.start({ reference: REFERENCE, linkSource: "manual" });
+      const turn = (yield* Ref.get(unlearned.commands)).at(-1);
+      expect(turn?.type === "message.dispatch" ? turn.text : "").not.toContain("review skill");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

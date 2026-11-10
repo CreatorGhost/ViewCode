@@ -16,6 +16,7 @@ import {
   clearComposerDraftContent,
 } from "../../state/use-composer-drafts";
 import { useWorktreeSetup } from "./use-worktree-setup";
+import { useAutoLearnReviewSkill } from "../review/skill/useAutoLearnReviewSkill";
 
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -383,6 +384,7 @@ function ThreadRouteContent(
       ? null
       : { environmentId: selectedThread.environmentId, threadId: selectedThread.id },
   );
+  useAutoLearnReviewSkill(selectedThread?.environmentId ?? null, selectedThread?.projectId ?? null);
   const selectedThreadDetailState = props.selectedThreadDetailState;
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
   const selectedThreadProjection = useSelectedThreadProjection();

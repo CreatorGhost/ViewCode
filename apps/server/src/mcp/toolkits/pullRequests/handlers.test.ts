@@ -25,6 +25,7 @@ import * as Stream from "effect/Stream";
 import type { Tool } from "effect/ai";
 
 import * as PullRequestAgentReview from "../../../pullRequest/PullRequestAgentReview.ts";
+import * as ProjectReviewSkill from "../../../review/ProjectReviewSkill.ts";
 import * as ReviewFindingsPoster from "../../../review/ReviewFindingsPoster.ts";
 import * as ReviewActivityStore from "../../../review/ReviewActivityStoreV2.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
@@ -181,6 +182,7 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
   const layerDependencies = Layer.mergeAll(
     Layer.mock(PullRequestAgentReview.PullRequestAgentReview)({}),
     Layer.mock(ReviewFindingsPoster.ReviewFindingsPoster)({}),
+    Layer.mock(ProjectReviewSkill.ProjectReviewSkill)({}),
     Layer.mock(ReviewActivityStore.ReviewActivityStoreV2)({ list: () => Effect.succeed([]) }),
     Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
     Layer.mock(ProjectService.ProjectService)({

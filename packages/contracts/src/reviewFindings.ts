@@ -52,6 +52,8 @@ export const REVIEW_FINDING_MAX_LESSON_EVIDENCE = 6;
  * wrong, with the pull requests or commits that showed it.
  */
 export const ReviewFindingLesson = Schema.Struct({
+  /** The lesson's id in the project's review skill, which ties ratings of the finding to it. */
+  id: Schema.optional(bounded(64)),
   text: bounded(REVIEW_FINDING_MAX_RULE_CHARS),
   /** How many times the history showed it. */
   occurrences: Schema.optional(PositiveInt),
@@ -434,6 +436,8 @@ export const ReviewRateFindingInput = Schema.Struct({
   findingsActivityId: EventId,
   findingKey: ReviewFindingKey,
   rating: Schema.NullOr(ReviewFindingRating),
+  /** Why it was rated down, in a few words; servers advertising `reviewSkill` keep it. */
+  reason: Schema.optional(bounded(REVIEW_FINDING_MAX_RULE_CHARS)),
 });
 export type ReviewRateFindingInput = typeof ReviewRateFindingInput.Type;
 
@@ -449,7 +453,10 @@ export const ReviewFindingRatingActivityPayload = Schema.Struct({
     severity: ReviewFindingSeverity,
     path: Schema.String,
     rule: Schema.optional(Schema.String),
+    /** The review-skill lesson the finding cited. */
+    lessonId: Schema.optional(Schema.String),
   }),
+  reason: Schema.optional(Schema.String),
 });
 export type ReviewFindingRatingActivityPayload = typeof ReviewFindingRatingActivityPayload.Type;
 

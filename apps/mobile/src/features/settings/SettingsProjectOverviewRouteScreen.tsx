@@ -4,6 +4,7 @@ import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { ProjectIconColor } from "@t3tools/contracts";
+import { useNavigation } from "@react-navigation/native";
 import { useState, type ReactNode } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,6 +17,7 @@ import {
 } from "../../lib/projectIcon";
 import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { SettingsRow } from "./components/SettingsRow";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import {
@@ -72,6 +74,13 @@ function ProjectOverviewContent(props: {
   readonly environments: readonly SettingsTarget[];
   readonly colorsUsedElsewhere: ReadonlySet<ProjectIconColor>;
 }) {
+  const navigation = useNavigation();
+  // Kept per checkout's server, so each environment that learns one has its own.
+  const reviewSkillMembers = props.members.filter(
+    (member) =>
+      props.environments.find((entry) => entry.environmentId === member.environmentId)?.serverConfig
+        .environment.capabilities.reviewSkill === true,
+  );
   const representative = props.members[0]!;
   const displayName = deriveProjectGroupLabel({ representative, members: props.members });
   const [draftName, setDraftName] = useState<string | null>(null);
@@ -203,6 +212,28 @@ function ProjectOverviewContent(props: {
           </Text>
         </View>
       </SettingsSection>
+
+      {reviewSkillMembers.length > 0 ? (
+        <SettingsSection title="Review skill">
+          {reviewSkillMembers.map((member) => (
+            <SettingsRow
+              key={`${member.environmentId}:${member.id}`}
+              icon="brain"
+              label="Lessons from history"
+              value={
+                props.environments.find((entry) => entry.environmentId === member.environmentId)
+                  ?.label
+              }
+              onPress={() =>
+                navigation.navigate("ProjectReviewSkill", {
+                  environmentId: member.environmentId,
+                  projectId: member.id,
+                })
+              }
+            />
+          ))}
+        </SettingsSection>
+      ) : null}
 
       <SettingsSection title="Checkouts">
         {props.members.map((member, index) => {

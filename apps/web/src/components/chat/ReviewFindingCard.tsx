@@ -88,6 +88,8 @@ export interface ReviewFindingCardProps {
     | undefined;
   /** Says why a finding was rated down; absent where the server keeps no reasons. */
   readonly onRatingReason?: ((key: ReviewFindingKey, reason: string | null) => void) | undefined;
+  /** Switches off the review-skill lesson a finding cited; absent where that cannot be done. */
+  readonly onStopLesson?: ((lessonId: string) => void) | undefined;
   /** The finding's main action: fix it, or in reviewer mode post it. */
   readonly action: ReviewFindingAction;
   /** A post of this finding is under way. */
@@ -121,6 +123,7 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
   onDismiss,
   onRate,
   onRatingReason,
+  onStopLesson,
   action,
   busy,
   posted,
@@ -132,6 +135,7 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
   const { finding, key } = entry;
   const SeverityIcon = SEVERITY_ICONS[finding.severity];
   const { lesson } = finding;
+  const lessonId = lesson?.id;
   const [reason, setChosenReason] = useState<string | null>(null);
   const setReason = (next: string | null) => {
     setChosenReason(next);
@@ -331,12 +335,15 @@ export const ReviewFindingCard = memo(function ReviewFindingCard({
                     {label}
                   </Button>
                 ))}
-                {lesson ? (
+                {lessonId !== undefined && onStopLesson ? (
                   <Button
                     type="button"
                     size="xs"
                     variant="ghost"
-                    onClick={() => setReason("Stop checking this here")}
+                    onClick={() => {
+                      setReason("Stop checking this here");
+                      onStopLesson(lessonId);
+                    }}
                   >
                     Stop checking this here
                   </Button>

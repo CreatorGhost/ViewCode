@@ -1474,6 +1474,12 @@ export const ServerSettings = Schema.Struct({
   pullRequestReviewStyles: Schema.Record(TrimmedNonEmptyString, PullRequestReviewStyle).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  /**
+   * Whether a project's review skill is learned on its own the first time the project is opened.
+   * Learning runs an agent on the user's plan, so it can be turned off; learning on request
+   * still works.
+   */
+  reviewSkillAutoLearn: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
 
   // The driver-specific config blob is `Schema.Unknown` at this layer so
   // envelopes with unknown drivers (forks, downgrades, in-flight PR branches)
@@ -1761,6 +1767,7 @@ export const ServerSettingsPatch = Schema.Struct({
   pullRequestReviewStyles: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, PullRequestReviewStyle),
   ),
+  reviewSkillAutoLearn: Schema.optionalKey(Schema.Boolean),
   observability: Schema.optionalKey(
     Schema.Struct({
       otlpTracesUrl: Schema.optionalKey(TrimmedString),

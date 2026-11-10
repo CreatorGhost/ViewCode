@@ -248,6 +248,10 @@ const RPC_AGGREGATES = {
   [WS_METHODS.reviewGetLearnedStyle]: "viewcode",
   [WS_METHODS.reviewLearnStyle]: "viewcode",
   [WS_METHODS.reviewForgetLearnedStyle]: "viewcode",
+  [WS_METHODS.reviewGetSkill]: "viewcode",
+  [WS_METHODS.reviewLearnSkill]: "viewcode",
+  [WS_METHODS.reviewEditSkill]: "viewcode",
+  [WS_METHODS.reviewForgetSkill]: "viewcode",
 } as const satisfies Readonly<Record<WsRpcMethod, string>>;
 
 const RPC_SPAN_PREFIX = "ws.rpc";

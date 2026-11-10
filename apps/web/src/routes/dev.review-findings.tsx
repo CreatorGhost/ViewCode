@@ -4,16 +4,14 @@ import {
   EventId,
   ProjectId,
   type ReviewFinding,
+  type ReviewSkillLesson,
   type ReviewFindingRating,
   ThreadId,
 } from "@t3tools/contracts";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { useState } from "react";
 
-import {
-  type RepositoryLesson,
-  RepositoryLessonsSettings,
-} from "~/components/chat/RepositoryLessons";
+import { ReviewSkillLessonList } from "~/components/chat/RepositoryLessons";
 import { ReviewFindingsView } from "~/components/chat/ReviewFindingsView";
 import { ReviewStartForm } from "~/components/chat/ReviewStart";
 import { ReviewCard } from "~/components/chat/ReviewProgress";
@@ -138,65 +136,54 @@ const LOOK_FIRST = [
   "removed export parseRef",
 ];
 const RATINGS: ReadonlyMap<string, ReviewFindingRating> = new Map([["finding:5", "down"]]);
-const pulls = (...numbers: ReadonlyArray<number>) =>
-  numbers.map((number) => ({
-    label: `#${number}`,
-    url: `https://github.com/example/agents/pull/${number}`,
-  }));
-const LESSONS: ReadonlyArray<RepositoryLesson> = [
-  {
-    id: "backfill",
-    text: "NOT NULL columns need a backfill",
-    where: "backend/db/migrations/**",
-    source: "kept-breaking",
-    evidence: pulls(1212, 1340, 1377, 1398),
-    flagged: 6,
-    helpful: 5,
-    enabled: true,
-  },
-  {
-    id: "lock-order",
-    text: "Lock playbook rows before callback rows",
-    where: "agents/playbooks/**",
-    source: "kept-breaking",
-    evidence: pulls(1105, 1290, 1466),
-    flagged: 3,
-    helpful: 3,
-    enabled: true,
-  },
-  {
-    id: "contracts",
-    text: "API schema changes need the frontend client regenerated",
-    where: "backend/core/schemas/**",
-    source: "reviewers-ask",
-    evidence: pulls(1188, 1502),
-    flagged: 2,
-    helpful: 2,
-    enabled: true,
-  },
-  {
-    id: "retries",
-    text: "Outbound calls need a timeout and a bounded retry",
-    where: "agents/**/external_*.py",
-    source: "kept-breaking",
-    evidence: pulls(977, 1203, 1431),
-    flagged: 0,
-    helpful: 0,
-    enabled: true,
-  },
-  {
-    id: "docstrings",
-    text: "Docstrings on test helpers",
-    where: "**/tests/**",
-    source: "you-rated",
-    evidence: [],
-    flagged: 3,
-    helpful: 0,
-    enabled: false,
-    offReason: "off · you turned this down 3 times",
-  },
+const lesson = (
+  text: string,
+  where: string,
+  source: ReviewSkillLesson["source"],
+  pullRequests: ReadonlyArray<number>,
+  rated: readonly [helpful: number, unhelpful: number],
+  off = false,
+) =>
+  ({
+    id: text.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    text,
+    where,
+    source,
+    evidence: pullRequests.map((number) => ({
+      label: `#${number}`,
+      url: `https://github.com/example/agents/pull/${number}`,
+    })),
+    enabled: !off,
+    ...(off ? { disabledByRatings: true } : {}),
+    helpful: rated[0],
+    unhelpful: rated[1],
+  }) as ReviewSkillLesson;
+const LESSONS: ReadonlyArray<ReviewSkillLesson> = [
+  lesson("Never log callback tokens", "agents/**", "yours", [], [0, 0]),
+  lesson(
+    "NOT NULL columns need a backfill",
+    "backend/db/migrations/**",
+    "kept-breaking",
+    [1212, 1340, 1377, 1398],
+    [5, 1],
+  ),
+  lesson(
+    "Lock playbook rows before callback rows",
+    "agents/playbooks/**",
+    "kept-breaking",
+    [1105, 1290, 1466],
+    [3, 0],
+  ),
+  lesson(
+    "API schema changes need the frontend client regenerated",
+    "backend/core/schemas/**",
+    "reviewers-ask",
+    [1188, 1502],
+    [2, 0],
+  ),
+  lesson("Docstrings on test helpers", "**/tests/**", "reviewers-ask", [1410, 1422], [0, 3], true),
 ];
-const noRatingReason = () => {};
+
 function ReviewFindingsPreview() {
   const [superseded, setSuperseded] = useState(true);
   const [lessons, setLessons] = useState(LESSONS);
@@ -221,13 +208,16 @@ function ReviewFindingsPreview() {
         />
       </div>
       <div data-preview="lessons" className="w-160 rounded-xl border bg-card p-4">
-        <RepositoryLessonsSettings
+        <ReviewSkillLessonList
           lessons={lessons}
-          learnedFrom="Learned from 214 merged pull requests and 31 of your ratings · updated 3 days ago"
-          onToggle={(id, enabled) =>
+          disabled={false}
+          onToggle={(changed, enabled) =>
             setLessons((current) =>
-              current.map((lesson) => (lesson.id === id ? { ...lesson, enabled } : lesson)),
+              current.map((entry) => (entry.id === changed.id ? { ...entry, enabled } : entry)),
             )
+          }
+          onRemove={(removed) =>
+            setLessons((current) => current.filter((entry) => entry.id !== removed.id))
           }
         />
       </div>
@@ -275,7 +265,6 @@ function ReviewFindingsPreview() {
             superseded={superseded}
             readerScrolled={() => false}
             lookFirst={LOOK_FIRST}
-            onRatingReason={noRatingReason}
           />
         </div>
       </div>

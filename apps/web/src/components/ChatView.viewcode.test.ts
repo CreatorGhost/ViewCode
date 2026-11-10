@@ -20,6 +20,11 @@ describe("ViewCode chat entry points", () => {
     expect(read("CommandPalette.tsx")).toContain("threadGoalRunState");
   });
 
+  it("learns a project's review skill when one of its chats is opened, and lists it in settings", () => {
+    expect(read("ChatView.tsx")).toContain("useAutoLearnReviewSkill(environmentId,");
+    expect(read("settings/ProjectSettingsPanel.tsx")).toContain("<ProjectReviewSkillSettings />");
+  });
+
   // 1afad9c67
   it("names a thread started by Run goal after its goal", () => {
     expect(read("ChatView.tsx")).toContain("threadGoalRunTitle({");

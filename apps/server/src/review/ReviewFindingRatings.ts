@@ -23,6 +23,7 @@ import * as ServerConfig from "../config.ts";
 import * as ReviewActivityStore from "../review/ReviewActivityStoreV2.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ReviewThreadContext from "../review/ReviewThreadContextV2.ts";
+import * as ProjectReviewSkill from "./ProjectReviewSkill.ts";
 
 /** How many of the project's latest rated findings a review is shown. */
 const RATED_FINDINGS_LIMIT = 30;
@@ -48,6 +49,7 @@ export class ReviewFindingRatings extends Context.Service<
 const make = Effect.gen(function* () {
   const activities = yield* ReviewActivityStore.ReviewActivityStoreV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const skills = yield* ProjectReviewSkill.ProjectReviewSkill;
   const readThread = (
     threadId: import("@t3tools/contracts").ThreadId,
     options?: { readonly activityKinds?: ReadonlyArray<string>; readonly allActivities?: boolean },
@@ -89,7 +91,10 @@ const make = Effect.gen(function* () {
         severity: finding.severity,
         path: finding.path,
         ...(finding.rule === undefined ? {} : { rule: finding.rule }),
+        ...(finding.lesson?.id === undefined ? {} : { lessonId: finding.lesson.id }),
       },
+      // A reason says why a thumbs-down; it means nothing on another rating.
+      ...(input.rating === "down" && input.reason !== undefined ? { reason: input.reason } : {}),
     };
     const createdAt = DateTime.formatIso(yield* DateTime.now);
     yield* activities
@@ -108,6 +113,7 @@ const make = Effect.gen(function* () {
         },
       })
       .pipe(Effect.mapError((cause) => new ReviewRateFindingError({ stage: "record", cause })));
+    if (rating.finding.lessonId !== undefined) yield* skills.ratingsChanged(thread.value.projectId);
   });
 
   const writeRatedFindingsFile = (projectId: ProjectId) =>

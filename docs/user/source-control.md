@@ -339,6 +339,21 @@ and when, with a few examples; **Learn again** refreshes them and **Forget** del
 on the server you are connected to and reach only the reviewing agent. Your written style wins
 where the two disagree. Other hosts do not offer this.
 
+### Review skill
+
+ViewCode learns how each project is reviewed. The first time you open a project, an agent reads
+how its pull requests were reviewed and what had to be fixed after merging, and writes down what
+to look for: the project's review skill. Every agent review of that project uses it, and a
+finding that came from a lesson says so, with the pull requests that showed it.
+
+The skill is yours, not the repository's. Rating findings shapes it: after a thumbs-down, say why
+in one tap, and later reviews are told. A learned lesson you turn down three times without ever
+finding it helpful is switched off.
+
+In **Settings → Project → Review skill** you can read the lessons, switch any off, add your own,
+learn again or forget the skill. Learning runs an agent on your plan, once per project; turn off
+**Learn new projects automatically** there to learn only when you ask.
+
 ### Mark files as viewed
 
 Tick a file off in the **Code** tab once you have read it and it collapses; the toolbar keeps a

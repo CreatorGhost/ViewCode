@@ -29,6 +29,8 @@ import type {
   PullRequestReviewVerdict,
   ReviewFindingRating,
   ReviewFindingSeverity,
+  ReviewRateFindingInput,
+  ReviewSkillLessonId,
   ReviewVerdict,
   ScopedThreadRef,
 } from "@t3tools/contracts";
@@ -181,8 +183,6 @@ interface ReviewFindingsViewProps {
   readonly readerScrolled: () => boolean;
   /** The risky parts of the change, found without a model; shown above the findings. */
   readonly lookFirst?: ReadonlyArray<string> | undefined;
-  /** Says why a finding was rated down; absent where the server keeps no reasons. */
-  readonly onRatingReason?: ((key: ReviewFindingKey, reason: string | null) => void) | undefined;
 }
 
 /**
@@ -206,7 +206,6 @@ export const ReviewFindingsView = memo(
     previous.superseded === next.superseded &&
     previous.readerScrolled === next.readerScrolled &&
     previous.lookFirst === next.lookFirst &&
-    previous.onRatingReason === next.onRatingReason &&
     previous.source.activityId === next.source.activityId &&
     previous.source.threadTitle === next.source.threadTitle &&
     postedReviewFindingsEqual(previous.posted, next.posted) &&
@@ -227,7 +226,6 @@ function ReviewFindingsViewContent({
   superseded,
   readerScrolled,
   lookFirst,
-  onRatingReason,
 }: ReviewFindingsViewProps) {
   const { findings } = source;
   const reviewThreadRef = scopeThreadRef(environmentId, source.threadId);
@@ -345,6 +343,33 @@ function ReviewFindingsViewContent({
     setDismissedFor(cardKey, identityOf(key), value);
   const rateFinding = useAtomCommand(reviewEnvironment.rateFinding, { reportFailure: false });
   const canRate = capabilities?.reviewFindingRatings === true;
+  // Servers with review skills keep why a finding was turned down and tell later reviews.
+  const canExplainRating = canRate && capabilities?.reviewSkill === true;
+  const editSkill = useAtomCommand(reviewEnvironment.editSkill, {
+    label: "switch off the lesson",
+  });
+  const rateReason = (key: ReviewFindingKey, reason: string | null) => {
+    void rateFinding({
+      environmentId,
+      input: {
+        reviewThreadId: source.threadId,
+        findingsActivityId: source.activityId,
+        findingKey: key,
+        rating: "down",
+        ...(reason === null ? {} : { reason: reason as ReviewRateFindingInput["reason"] }),
+      },
+    });
+  };
+  const stopLesson = (lessonId: string) => {
+    if (projectId === null) return;
+    void editSkill({
+      environmentId,
+      input: {
+        projectId,
+        edit: { kind: "set-enabled", lessonId: lessonId as ReviewSkillLessonId, enabled: false },
+      },
+    });
+  };
   const rate = (key: ReviewFindingKey, rating: ReviewFindingRating | null) => {
     setPendingRatings((current) => new Map(current).set(key, rating));
     void rateFinding({
@@ -640,7 +665,8 @@ function ReviewFindingsViewContent({
       onToggleExpanded={toggleExpanded}
       onDismiss={dismiss}
       onRate={canRate ? rate : undefined}
-      onRatingReason={canRate ? onRatingReason : undefined}
+      onRatingReason={canExplainRating ? rateReason : undefined}
+      onStopLesson={canExplainRating && projectId !== null ? stopLesson : undefined}
       action={cardAction}
       busy={busyKeys.has(entry.key)}
       posted={posted.get(entry.key)}

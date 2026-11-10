@@ -1,35 +1,26 @@
 /**
- * Repository lessons: what a repository's own history showed going wrong, which every review of
- * it is told to look for. The strip of risky parts of a change, and the lessons as Settings
- * lists them.
+ * A project's review skill as the Review panel and Settings show it: the strip of risky parts of
+ * a change, and the list of lessons with a switch each.
  */
-import { PlusIcon } from "lucide-react";
+import type { ReviewSkillLesson, ReviewSkillLessonSource } from "@t3tools/contracts";
+import { Trash2Icon } from "lucide-react";
 
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 
-export type RepositoryLessonSource = "kept-breaking" | "reviewers-ask" | "you-rated";
-
-export interface RepositoryLesson {
-  readonly id: string;
-  readonly text: string;
-  /** Where it applies, as path globs. */
-  readonly where: string;
-  readonly source: RepositoryLessonSource;
-  readonly evidence: ReadonlyArray<{ readonly label: string; readonly url: string }>;
-  readonly flagged: number;
-  readonly helpful: number;
-  readonly enabled: boolean;
-  /** Why it is off, when the reader's own ratings turned it off. */
-  readonly offReason?: string | undefined;
-}
-
-const SOURCE_LABELS: Record<RepositoryLessonSource, string> = {
+const SOURCE_LABELS: Record<ReviewSkillLessonSource, string> = {
   "kept-breaking": "kept breaking",
   "reviewers-ask": "reviewers ask",
-  "you-rated": "you rated",
+  yours: "yours",
 };
+
+/** How findings that cited a lesson were rated, or why it is off. */
+export function reviewSkillLessonStanding(lesson: ReviewSkillLesson): string {
+  if (lesson.disabledByRatings === true) return "off after your ratings";
+  if (lesson.helpful === 0 && lesson.unhelpful === 0) return "not rated yet";
+  return `${lesson.helpful} helpful, ${lesson.unhelpful} not`;
+}
 
 /** The risky parts of a change, found without a model, shown as soon as a review starts. */
 export function ReviewLookFirst({ items }: { items: ReadonlyArray<string> }) {
@@ -46,80 +37,71 @@ export function ReviewLookFirst({ items }: { items: ReadonlyArray<string> }) {
   );
 }
 
-/**
- * A repository's lessons in Settings: learned in the background from its history and from how
- * findings are rated, used by every review of it, and switched off here one at a time.
- */
-export function RepositoryLessonsSettings({
+export function ReviewSkillLessonList({
   lessons,
-  learnedFrom,
+  disabled,
   onToggle,
+  onRemove,
 }: {
-  lessons: ReadonlyArray<RepositoryLesson>;
-  /** What they were learned from and when, as one line. */
-  learnedFrom: string;
-  onToggle: (id: string, enabled: boolean) => void;
+  lessons: ReadonlyArray<ReviewSkillLesson>;
+  disabled: boolean;
+  onToggle: (lesson: ReviewSkillLesson, enabled: boolean) => void;
+  /** Removes a lesson of the user's own; learned ones are switched off instead. */
+  onRemove: (lesson: ReviewSkillLesson) => void;
 }) {
   return (
-    <div className="grid gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="min-w-0 text-muted-foreground text-xs">{learnedFrom}</p>
-        <div className="flex gap-2">
-          <Button type="button" size="xs" variant="ghost">
-            Save to repository
-          </Button>
-          <Button type="button" size="xs" variant="outline">
-            <PlusIcon aria-hidden />
-            Add a lesson
-          </Button>
-        </div>
-      </div>
-      <ul className="grid gap-2">
-        {lessons.map((lesson) => (
-          <li
-            key={lesson.id}
-            className="flex items-start gap-3 rounded-md border border-border px-3 py-2 text-sm"
-          >
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className={lesson.enabled ? "font-medium" : "text-muted-foreground"}>
-                {lesson.text}
-              </span>
-              <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-muted-foreground text-xs">
-                <Badge
-                  size="sm"
-                  variant={lesson.source === "kept-breaking" ? "warning" : "outline"}
-                >
-                  {SOURCE_LABELS[lesson.source]}
-                </Badge>
+    <ul className="grid gap-2">
+      {lessons.map((lesson) => (
+        <li
+          key={lesson.id}
+          className="flex items-start gap-3 rounded-md border border-border px-3 py-2 text-sm"
+        >
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className={lesson.enabled ? "font-medium" : "text-muted-foreground"}>
+              {lesson.text}
+            </span>
+            <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-muted-foreground text-xs">
+              <Badge size="sm" variant={lesson.source === "kept-breaking" ? "warning" : "outline"}>
+                {SOURCE_LABELS[lesson.source]}
+              </Badge>
+              {lesson.where === undefined ? null : (
                 <span className="font-mono">{lesson.where}</span>
-                {lesson.evidence.map((evidence) => (
-                  <a
-                    key={evidence.url}
-                    href={evidence.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="tabular-nums underline-offset-2 hover:text-foreground hover:underline"
-                  >
-                    {evidence.label}
-                  </a>
-                ))}
-                <span>
-                  {lesson.offReason ??
-                    (lesson.flagged === 0
-                      ? "not flagged yet"
-                      : `flagged ${lesson.flagged}, ${lesson.helpful} helpful`)}
-                </span>
-              </span>
-            </div>
-            <Switch
-              size="sm"
-              aria-label={`Use "${lesson.text}"`}
-              checked={lesson.enabled}
-              onCheckedChange={(checked) => onToggle(lesson.id, checked)}
-            />
-          </li>
-        ))}
-      </ul>
-    </div>
+              )}
+              {lesson.evidence.map((evidence) => (
+                <a
+                  key={evidence.url}
+                  href={evidence.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="tabular-nums underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  {evidence.label}
+                </a>
+              ))}
+              <span>{reviewSkillLessonStanding(lesson)}</span>
+            </span>
+          </div>
+          {lesson.source === "yours" ? (
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost-muted"
+              aria-label={`Remove "${lesson.text}"`}
+              disabled={disabled}
+              onClick={() => onRemove(lesson)}
+            >
+              <Trash2Icon aria-hidden />
+            </Button>
+          ) : null}
+          <Switch
+            size="sm"
+            aria-label={`Use "${lesson.text}"`}
+            checked={lesson.enabled}
+            disabled={disabled}
+            onCheckedChange={(checked) => onToggle(lesson, checked)}
+          />
+        </li>
+      ))}
+    </ul>
   );
 }

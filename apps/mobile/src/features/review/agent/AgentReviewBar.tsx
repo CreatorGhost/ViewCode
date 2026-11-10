@@ -16,13 +16,7 @@ import {
   reviewStatusText,
 } from "@t3tools/client-runtime/agent-review";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import {
-  AGENT_REVIEW_MODES,
-  type AgentReviewMode,
-  type EnvironmentId,
-  type ModelSelection,
-  type ThreadId,
-} from "@t3tools/contracts";
+import { type EnvironmentId, type ModelSelection, type ThreadId } from "@t3tools/contracts";
 import { REVIEW_VERDICT_LABELS } from "@t3tools/shared/reviewFindings";
 import {
   resolveThreadCurrentPullRequestLink,
@@ -46,7 +40,11 @@ import type { ReviewSectionItem } from "../reviewModel";
 import {
   AGENT_REVIEW_MODE_SHORT_LABELS,
   type LatestAgentReview,
+  REVIEW_DEPTHS,
+  SECURITY_AUDIT_DESCRIPTION,
+  SECURITY_AUDIT_LABEL,
   agentReviewModeLabel,
+  reviewDepth,
   useAgentReviewLabel,
   useChatAgentReviews,
   useMinuteClock,
@@ -54,6 +52,7 @@ import {
 } from "./useAgentReviews";
 
 const COMMIT_EVENT = "commit";
+const SECURITY_AUDIT_EVENT = "security-audit";
 /** Enough of the project's open pull requests to fill the menu after the chat's own. */
 const OPEN_PULL_REQUEST_LIMIT = 20;
 
@@ -67,7 +66,7 @@ function sectionHasChanges(section: ReviewSectionItem | null): boolean | null {
  * Agent review at the top of a chat's Review changes: Find issues starts one on what the diff on
  * screen is about (`inferAgentReviewTarget`), at the depth last picked on this device and on the
  * chat's model unless picked otherwise here; the menu also says what it reads and offers the
- * rest. Below, where the latest review stands, opening its findings. The reviewer runs as this
+ * rest, and starts a security audit of the same change, which is not a depth. Below, where the latest review stands, opening its findings. The reviewer runs as this
  * chat's agent. Nothing for a chat that is itself a reviewer, or a server without agent review.
  */
 export function AgentReviewBar(props: {
@@ -205,8 +204,9 @@ export function AgentReviewBar(props: {
 
   const preferences = useAtomValue(mobilePreferencesAtom);
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
-  const mode: AgentReviewMode =
-    (AsyncResult.isSuccess(preferences) ? preferences.value.agentReviewMode : undefined) ?? "quick";
+  const mode = reviewDepth(
+    AsyncResult.isSuccess(preferences) ? preferences.value.agentReviewMode : undefined,
+  );
   // The chat's own model unless picked otherwise, for this screen only.
   const [pickedModel, setPickedModel] = useState<ModelSelection | null>(null);
   const modelSelection = pickedModel ?? shell?.modelSelection ?? null;
@@ -221,11 +221,16 @@ export function AgentReviewBar(props: {
     [environmentId, navigation, threadId],
   );
   const startReview = useCallback(
-    async (chosen: AgentReviewTarget) => {
+    async (chosen: AgentReviewTarget, audit?: "security") => {
       if (projectId === null) return;
       const asked = agentReviewTargetRequest(chosen, { projectId, threadId });
       const scope = chosen.kind === "local" ? chosen.scope : null;
-      const started = await start(asked, { mode, modelSelection, focus: "", scope });
+      const started = await start(asked, {
+        mode: audit ?? mode,
+        modelSelection,
+        focus: "",
+        scope,
+      });
       if (started !== null) openFindings(started);
     },
     [mode, modelSelection, openFindings, projectId, start, threadId],
@@ -250,7 +255,7 @@ export function AgentReviewBar(props: {
       title: "Depth",
       displayInline: true,
       ...(android ? { subtitle: agentReviewModeLabel(mode) } : {}),
-      subactions: AGENT_REVIEW_MODES.map((entry) => ({
+      subactions: REVIEW_DEPTHS.map((entry) => ({
         id: `mode:${entry.mode}`,
         title: entry.label,
         subtitle: entry.description,
@@ -278,9 +283,19 @@ export function AgentReviewBar(props: {
           } satisfies MenuAction,
         ]
       : []),
+    {
+      id: SECURITY_AUDIT_EVENT,
+      title: SECURITY_AUDIT_LABEL,
+      subtitle: SECURITY_AUDIT_DESCRIPTION,
+      attributes: { disabled: pending || target === null || modelSelection === null },
+    },
   ];
   const onMenuAction = (event: string) => {
-    const nextMode = AGENT_REVIEW_MODES.find((entry) => `mode:${entry.mode}` === event)?.mode;
+    if (event === SECURITY_AUDIT_EVENT) {
+      if (target !== null) void startReview(target, "security");
+      return;
+    }
+    const nextMode = REVIEW_DEPTHS.find((entry) => `mode:${entry.mode}` === event)?.mode;
     if (nextMode !== undefined) {
       savePreferences({ agentReviewMode: nextMode });
       return;

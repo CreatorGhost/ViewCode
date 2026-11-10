@@ -10,12 +10,16 @@ import {
   type ReviewRateFindingInput,
   type LearnedReviewStyleAccount,
   type ReviewListCommitsInput,
+  type ReviewEditSkillInput,
+  type ReviewLearnSkillInput,
+  type ReviewSkillProjectInput,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
 import * as PullRequestAgentReview from "../pullRequest/PullRequestAgentReview.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as LearnedReviewStyles from "../review/LearnedReviewStyles.ts";
+import * as ProjectReviewSkill from "../review/ProjectReviewSkill.ts";
 import * as ReviewFindingRatings from "../review/ReviewFindingRatings.ts";
 import * as ReviewFindingsPoster from "../review/ReviewFindingsPoster.ts";
 import * as ReviewFixThread from "../review/ReviewFixThread.ts";
@@ -29,6 +33,7 @@ export const make = Effect.gen(function* () {
   const ratings = yield* ReviewFindingRatings.ReviewFindingRatings;
   const styles = yield* LearnedReviewStyles.LearnedReviewStyles;
   const review = yield* ReviewService.ReviewService;
+  const skills = yield* ProjectReviewSkill.ProjectReviewSkill;
 
   return {
     [WS_METHODS.pullRequestsStartReview]: (input: PullRequestStartReviewInput) => {
@@ -85,5 +90,10 @@ export const make = Effect.gen(function* () {
     [WS_METHODS.reviewLearnStyle]: (input: LearnedReviewStyleAccount) => styles.learn(input),
     [WS_METHODS.reviewForgetLearnedStyle]: (input: LearnedReviewStyleAccount) =>
       styles.forget(input),
+    [WS_METHODS.reviewGetSkill]: (input: ReviewSkillProjectInput) => skills.get(input.projectId),
+    [WS_METHODS.reviewLearnSkill]: (input: ReviewLearnSkillInput) => skills.learn(input),
+    [WS_METHODS.reviewEditSkill]: (input: ReviewEditSkillInput) => skills.edit(input),
+    [WS_METHODS.reviewForgetSkill]: (input: ReviewSkillProjectInput) =>
+      skills.forget(input.projectId),
   };
 });

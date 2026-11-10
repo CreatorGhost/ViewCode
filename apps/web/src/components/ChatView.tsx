@@ -1,3 +1,4 @@
+import { useAutoLearnReviewSkill } from "./chat/useAutoLearnReviewSkill";
 import { ViewCodeHeaderProjectActions } from "./chat/ViewCodeHeaderProjectActions";
 import { ViewCodeHeaderThreadActions } from "./chat/ViewCodeHeaderThreadActions";
 import { useEnsureViewCodePanelThread } from "./chat/useEnsureViewCodePanelThread";
@@ -1886,6 +1887,7 @@ export default function ChatView(props: ChatViewProps) {
       ? scopeProjectRef(activeThreadEnvironmentId, activeThreadProjectId)
       : null;
   const activeProject = useProject(activeProjectRef);
+  useAutoLearnReviewSkill(environmentId, activeProject?.id ?? null);
   // RockBot chats live in the scratch folder only to keep their agent out of every
   // repository; the header never offers that folder's project tools.
   const isRockBotChat = serverThread !== null && isRockBot(serverThread.source);

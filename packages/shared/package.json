@@ -519,6 +519,10 @@
       "types": "./src/reviewFindings.ts",
       "import": "./src/reviewFindings.ts"
     },
+    "./reviewSkill": {
+      "types": "./src/reviewSkill.ts",
+      "import": "./src/reviewSkill.ts"
+    },
     "./claudePromptCache": {
       "types": "./src/claudePromptCache.ts",
       "import": "./src/claudePromptCache.ts"
