@@ -481,6 +481,19 @@ closes any left from a restart.
   A real macOS `list-windows` observation was verified; synthetic input and Windows remain
   separate acceptance work, including whether managed security software tolerates them.
   The first run on such a machine should still be one `list-windows`.
+- A second driver is being brought up behind `VIEWCODE_COMPUTER_DRIVER=agent-desktop`:
+  `native/computer-driver`, a ViewCode helper that links agent-desktop's core and macOS crates
+  (Apache-2.0, pinned to one revision in its `Cargo.toml`), because xa11y exposes no native element
+  identity. We build our own helper instead of shipping agent-desktop's CLI, MCP server or C FFI:
+  those resolve and dispatch a ref in one call, which leaves no place for the two dispatch checks
+  and the lock, and its `command_policy` is an argument preflight, not a gate. The helper speaks
+  the xa11y worker's protocol as JSON lines on stdio, so `Xa11yComputerDriver.ts`'s client is the
+  only one. It observes only: every input op answers `unavailable` before any native call. It is
+  not packaged, so nothing ships it; packaging must add the agent-desktop notice to
+  `third-party-licenses.config.json` and pass TCC and endpoint-security acceptance on a managed
+  Mac. agent-desktop reads element and window identity through three private AX symbols it finds
+  with `dlsym` and does without when they are missing; that is accepted for identity only, and
+  private window activation stays out.
 
 ## Command Code
 
