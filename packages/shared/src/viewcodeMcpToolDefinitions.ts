@@ -35,6 +35,11 @@ export const VIEWCODE_MCP_TOOL_DEFINITIONS: Readonly<Record<string, T3McpToolDef
     "review-submit",
     "pull-request",
   ),
+  submit_review_skill: tool(
+    ["Record", "Recording", "Recorded", "review lessons"],
+    "review-submit",
+    "pull-request",
+  ),
   post_review_findings: tool(
     ["Post", "Posting", "Posted", "review findings"],
     "review-post",

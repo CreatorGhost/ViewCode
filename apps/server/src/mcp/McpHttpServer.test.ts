@@ -1,5 +1,6 @@
 import * as PullRequestAgentReview from "../pullRequest/PullRequestAgentReview.ts";
 import * as ReviewActivityStore from "../review/ReviewActivityStoreV2.ts";
+import * as ProjectReviewSkill from "../review/ProjectReviewSkill.ts";
 import * as ReviewFindingsPoster from "../review/ReviewFindingsPoster.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
@@ -87,6 +88,7 @@ const layerPullRequestsTest = McpHttpServer.layerPullRequestsToolkit.pipe(
       Layer.mock(PullRequestAgentReview.PullRequestAgentReview)({}),
       Layer.mock(ReviewActivityStore.ReviewActivityStoreV2)({}),
       Layer.mock(ReviewFindingsPoster.ReviewFindingsPoster)({}),
+      Layer.mock(ProjectReviewSkill.ProjectReviewSkill)({}),
       Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),
       Layer.mock(Orchestrator.OrchestratorV2)({}),
       Layer.mock(ProjectionStore.ProjectionStoreV2)({}),

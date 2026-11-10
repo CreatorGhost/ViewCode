@@ -173,6 +173,13 @@ import {
   ReviewUndoFixesResult,
   ReviewStartError,
 } from "./reviewFindings.ts";
+import {
+  ReviewEditSkillInput,
+  ReviewLearnSkillInput,
+  ReviewSkill,
+  ReviewSkillError,
+  ReviewSkillProjectInput,
+} from "./reviewSkill.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
   OrchestrationSearchThreadsError,
@@ -522,6 +529,10 @@ export const WS_METHODS = {
   reviewGetLearnedStyle: "review.getLearnedStyle",
   reviewLearnStyle: "review.learnStyle",
   reviewForgetLearnedStyle: "review.forgetLearnedStyle",
+  reviewGetSkill: "review.getSkill",
+  reviewLearnSkill: "review.learnSkill",
+  reviewEditSkill: "review.editSkill",
+  reviewForgetSkill: "review.forgetSkill",
 
   terminalOpen: "terminal.open",
   terminalAttach: "terminal.attach",
@@ -1803,6 +1814,32 @@ const WsReviewForgetLearnedStyleRpc = Rpc.make(WS_METHODS.reviewForgetLearnedSty
   error: Schema.Union([LearnedReviewStyleError, EnvironmentAuthorizationError]),
 });
 
+/** The review-skill methods only reach servers advertising `reviewSkill`. */
+const WsReviewGetSkillRpc = Rpc.make(WS_METHODS.reviewGetSkill, {
+  payload: ReviewSkillProjectInput,
+  success: Schema.NullOr(ReviewSkill),
+  error: Schema.Union([ReviewSkillError, EnvironmentAuthorizationError]),
+});
+
+/** Null when asked for on the client's own and the server has no reason to learn. */
+const WsReviewLearnSkillRpc = Rpc.make(WS_METHODS.reviewLearnSkill, {
+  payload: ReviewLearnSkillInput,
+  success: Schema.NullOr(ReviewSkill),
+  error: Schema.Union([ReviewSkillError, EnvironmentAuthorizationError]),
+});
+
+const WsReviewEditSkillRpc = Rpc.make(WS_METHODS.reviewEditSkill, {
+  payload: ReviewEditSkillInput,
+  success: ReviewSkill,
+  error: Schema.Union([ReviewSkillError, EnvironmentAuthorizationError]),
+});
+
+const WsReviewForgetSkillRpc = Rpc.make(WS_METHODS.reviewForgetSkill, {
+  payload: ReviewSkillProjectInput,
+  success: Schema.Void,
+  error: Schema.Union([ReviewSkillError, EnvironmentAuthorizationError]),
+});
+
 const WsTerminalOpenRpc = Rpc.make(WS_METHODS.terminalOpen, {
   payload: TerminalOpenInput,
   success: TerminalSessionSnapshot,
@@ -2414,6 +2451,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsReviewGetLearnedStyleRpc,
   WsReviewLearnStyleRpc,
   WsReviewForgetLearnedStyleRpc,
+  WsReviewGetSkillRpc,
+  WsReviewLearnSkillRpc,
+  WsReviewEditSkillRpc,
+  WsReviewForgetSkillRpc,
   WsTerminalOpenRpc,
   WsTerminalAttachRpc,
   WsTerminalObserveRpc,

@@ -621,6 +621,20 @@ repositories: resolve a ref by its repository, never by project id alone. An ide
 `ssh -G` went unanswered still carries the alias as its host, and the cross-host rule then makes
 origin win over upstream, so the resolver keeps it only for the negative TTL.
 
+A project's review skill (`review/ProjectReviewSkill.ts`, rules in
+`packages/shared/src/reviewSkill.ts`) is what the project's history teaches a reviewer. It is the
+user's, not the repository's: one JSON file per project in the state directory, so two people on
+one repository hold different skills. An agent learns it in an ordinary thread of the project and
+hands it over with `submit_review_skill`; every review start names a file of the lessons that are
+on. Every later review trusts that file, so only the thread the server asked to learn may submit:
+do not loosen that to "any thread of the project", or any agent that reads a hostile comment can
+poison all later reviews. Clients ask for learning when a chat of the project opens (`auto`), and
+the server alone decides: never learned, nothing learning, a repository, a model, and
+`reviewSkillAutoLearn`. Learning spends the user's plan, so keep the decision on the server and
+the setting honoured. The review-skill RPCs are registered with the setup group
+(`server/wsSetupRpcTags.ts`): added to the core group they pushed its handler table past
+TypeScript's instantiation depth, which shows as `any` requirements across `ws.ts` and `server.ts`.
+
 Posting findings requires the active user-authorized path; scheduled runs,
 agent-origin messages and review agents cannot silently post external comments.
 CLI and MCP use the same service validation. Review/browser/computer shims get

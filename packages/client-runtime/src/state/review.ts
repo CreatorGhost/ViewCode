@@ -100,6 +100,25 @@ export function createReviewEnvironmentAtoms<R, E>(
       label: "environment-data:review:forget-learned-style",
       tag: WS_METHODS.reviewForgetLearnedStyle,
     }),
+    /** A project's review skill, or null before it was learned; servers advertising `reviewSkill`. */
+    skill: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:review:skill",
+      tag: WS_METHODS.reviewGetSkill,
+      staleTimeMs: 30_000,
+    }),
+    /** Starts learning a project's review skill; with `auto`, only when the server sees reason to. */
+    learnSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:learn-skill",
+      tag: WS_METHODS.reviewLearnSkill,
+    }),
+    editSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:edit-skill",
+      tag: WS_METHODS.reviewEditSkill,
+    }),
+    forgetSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:forget-skill",
+      tag: WS_METHODS.reviewForgetSkill,
+    }),
     diffFileContents: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:review:diff-file-contents",
       tag: WS_METHODS.reviewGetDiffFileContents,

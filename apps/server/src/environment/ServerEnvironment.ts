@@ -230,6 +230,7 @@ export const make = Effect.gen(function* () {
       reviewFixUndo: true,
       reviewFindingRatings: true,
       learnedReviewStyle: true,
+      reviewSkill: true,
 
       inlineMessageContext: true,
       requiredWorktreeBootstrap: true,

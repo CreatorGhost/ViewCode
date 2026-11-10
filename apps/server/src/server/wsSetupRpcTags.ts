@@ -3,6 +3,13 @@ import { WS_METHODS } from "@t3tools/contracts";
 // Register setup handlers separately to keep Effect's service inference bounded.
 // Both groups use the same complete handler object and serve the same protocol.
 export const WS_SETUP_RPC_TAGS = [
+  WS_METHODS.reviewGetLearnedStyle,
+  WS_METHODS.reviewLearnStyle,
+  WS_METHODS.reviewForgetLearnedStyle,
+  WS_METHODS.reviewGetSkill,
+  WS_METHODS.reviewLearnSkill,
+  WS_METHODS.reviewEditSkill,
+  WS_METHODS.reviewForgetSkill,
   WS_METHODS.providerUploadFeedback,
   WS_METHODS.providerAuthStart,
   WS_METHODS.providerConsumeResetCredit,

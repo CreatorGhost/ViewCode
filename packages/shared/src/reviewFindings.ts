@@ -189,6 +189,8 @@ export interface RatedReviewFinding {
   readonly severity: ReviewFindingRatingActivityPayload["finding"]["severity"];
   readonly path: string;
   readonly rule?: string;
+  /** Why it was rated down, in the user's few words. */
+  readonly reason?: string;
 }
 
 /**
@@ -217,6 +219,7 @@ export function recentRatedReviewFindings(
             severity: payload.finding.severity,
             path: payload.finding.path,
             ...(payload.finding.rule === undefined ? {} : { rule: payload.finding.rule }),
+            ...(payload.reason === undefined ? {} : { reason: payload.reason }),
           },
     );
   }

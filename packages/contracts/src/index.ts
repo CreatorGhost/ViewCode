@@ -72,6 +72,7 @@ export * from "./rockbot.ts";
 export * from "./voiceModels.ts";
 export * from "./pushNotifications.ts";
 export * from "./reviewFindings.ts";
+export * from "./reviewSkill.ts";
 export * from "./computerUse.ts";
 export * from "./viewcodeThreadMetadata.ts";
 export * from "./viewcodeActivity.ts";

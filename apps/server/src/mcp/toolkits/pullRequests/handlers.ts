@@ -45,6 +45,7 @@ import { postedReviewFindings, readReviewFindings } from "@t3tools/shared/review
 import * as ReviewActivityStore from "../../../review/ReviewActivityStoreV2.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
 import * as PullRequestAgentReview from "../../../pullRequest/PullRequestAgentReview.ts";
+import * as ProjectReviewSkill from "../../../review/ProjectReviewSkill.ts";
 import * as ReviewFindingsPoster from "../../../review/ReviewFindingsPoster.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -398,6 +399,7 @@ const make = Effect.gen(function* () {
 
   const reviews = yield* PullRequestAgentReview.PullRequestAgentReview;
   const poster = yield* ReviewFindingsPoster.ReviewFindingsPoster;
+  const skills = yield* ProjectReviewSkill.ProjectReviewSkill;
   const activities = yield* ReviewActivityStore.ReviewActivityStoreV2;
   const submitReviewFindings = yield* makeSubmitReviewFindings;
   const reviewActivities = (threadId: ThreadId) =>
@@ -769,6 +771,26 @@ const make = Effect.gen(function* () {
       }),
     ),
     submit_review_findings: McpToolAccess.readsAsCaller(submitReviewFindings),
+    submit_review_skill: McpToolAccess.readsAsCaller((learned) =>
+      Effect.gen(function* () {
+        const capability = yield* McpInvocationContext.requireMcpCapability("pull-requests");
+        const scope = yield* McpInvocationContext.requireThreadScope(
+          capability,
+          "Submitting a review skill",
+        );
+        const thread = yield* requireThread(PullRequestReviewFailedError);
+        const skill = yield* skills.submit({
+          projectId: thread.projectId,
+          threadId: scope.thread.threadId,
+          learned,
+        });
+        const count = skill.lessons.filter((lesson) => lesson.source !== "yours").length;
+        return {
+          lessons: count,
+          message: `Saved as this project's review skill: ${count} ${count === 1 ? "lesson" : "lessons"}. Every later review of the project reads it. End your turn.`,
+        };
+      }),
+    ),
     post_review_findings: McpToolAccess.writesWithCapability((input) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(ReviewPostFailedError);

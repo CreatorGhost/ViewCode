@@ -83,6 +83,7 @@ import {
   REVIEW_SEVERITY_PRESENTATION,
   type ReviewFindingAction,
   ReviewFindingRow,
+  STOP_CHECKING_REASON,
 } from "./ReviewFindingRow";
 import { useReviewFix } from "./useReviewFix";
 import { useReviewThreadFindings } from "./useReviewThreadFindings";
@@ -156,6 +157,7 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
   } = useReviewThreadFindings(reviewRef);
   const serverConfig = useEnvironmentServerConfig(environmentId);
   const canRate = serverConfig?.environment.capabilities.reviewFindingRatings === true;
+  const hasReviewSkill = serverConfig?.environment.capabilities.reviewSkill === true;
   const findings = source?.findings ?? null;
   const { run, agents } = useReviewerRun(environmentId, reviewer);
   // Only a review thread has a run to tell; an older one without its start record reads as done.
@@ -248,6 +250,53 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
     },
     [activityId, environmentId, rateFinding, ratings, reviewThreadId],
   );
+  const editSkill = useAtomCommand(reviewEnvironment.editSkill, { reportFailure: false });
+  const projectId = reviewer?.projectId ?? null;
+  // The reason rides on the rating; taking it back sends the rating again without one. "Stop
+  // checking this here" also switches the cited lesson off, and its Undo switches it back on.
+  const rateReason = useCallback(
+    (entry: ReviewFindingEntry, reason: string | null, previous: string | null) => {
+      if (activityId === null) return;
+      void rateFinding({
+        environmentId,
+        input: {
+          reviewThreadId,
+          findingsActivityId: activityId,
+          findingKey: entry.key,
+          rating: "down",
+          ...(reason === null ? {} : { reason }),
+        },
+      }).then((result) => {
+        if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+        const error = squashAtomCommandFailure(result);
+        Alert.alert(
+          "Could not save the reason",
+          error instanceof Error ? error.message : "The reason could not be saved.",
+        );
+      });
+      const lessonId = entry.finding.lesson?.id;
+      const stops = reason === STOP_CHECKING_REASON;
+      if (lessonId === undefined || projectId === null) return;
+      if (!stops && previous !== STOP_CHECKING_REASON) return;
+      void editSkill({
+        environmentId,
+        input: { projectId, edit: { kind: "set-enabled", lessonId, enabled: !stops } },
+      }).then((result) => {
+        if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+        const error = squashAtomCommandFailure(result);
+        Alert.alert(
+          "Could not update the lesson",
+          error instanceof Error ? error.message : "The lesson could not be updated.",
+        );
+      });
+    },
+    [activityId, editSkill, environmentId, projectId, rateFinding, reviewThreadId],
+  );
+  const openEvidence = useCallback((url: string) => {
+    void tryOpenExternalUrl(url, "markdown-link").then((opened) => {
+      if (!opened) Alert.alert("Unable to open link", "The link could not be opened.");
+    });
+  }, []);
   const openPosted = useCallback((url: string) => {
     void tryOpenExternalUrl(url, "pull-request").then((opened) => {
       if (!opened) Alert.alert("Unable to open PR", "The pull request could not be opened.");
@@ -415,6 +464,18 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
         subtitle={changeLabel ?? undefined}
         onBack={() => navigation.goBack()}
         sidebar={false}
+        actions={
+          hasReviewSkill && projectId !== null
+            ? [
+                {
+                  accessibilityLabel: "Project review skill",
+                  icon: "brain",
+                  onPress: () =>
+                    navigation.navigate("ProjectReviewSkill", { environmentId, projectId }),
+                },
+              ]
+            : undefined
+        }
       />
       <MaterialScreenContent>
         {findings === null || source === null || verdictChip === null ? (
@@ -571,7 +632,9 @@ export function ReviewFindingsRouteScreen({ route }: StaticScreenProps<ReviewFin
                             onToggleExpanded={toggleExpanded}
                             onDismiss={dismiss}
                             onRate={rate}
+                            onRatingReason={hasReviewSkill ? rateReason : undefined}
                             onOpenPosted={openPosted}
+                            onOpenEvidence={openEvidence}
                           />
                         </View>
                       ))}

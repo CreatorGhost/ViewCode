@@ -6,6 +6,7 @@ import { useId, useState } from "react";
 import {
   AgentReviewFields,
   type AgentReviewRequest,
+  SecurityAuditButton,
   type StartedAgentReview,
   useAgentReviewForm,
   useStartAgentReview,
@@ -121,12 +122,13 @@ export function ReviewStartForm({
   const [scope, setScope] = useState<"rereview" | "full">(() =>
     rereviewBasis?.onlyChanges === true ? "rereview" : "full",
   );
+  const reReviewing = rereview !== null && scope === "rereview";
   return (
     <form
       className="flex w-full flex-col gap-3 text-left"
       onSubmit={(event) => {
         event.preventDefault();
-        const basedOn = rereview !== null && scope === "rereview" ? rereview.basedOn : undefined;
+        const basedOn = reReviewing ? rereview.basedOn : undefined;
         void form.start(basedOn).then((started) => {
           if (started !== null) target.onStarted(started);
         });
@@ -140,7 +142,7 @@ export function ReviewStartForm({
           onChange={setPickedKey}
         />
       ) : null}
-      {form.canScope && !(rereview !== null && scope === "rereview") ? (
+      {form.canScope && !reReviewing ? (
         <ReviewScopeFields
           environmentId={target.environmentId}
           cwd={form.checkoutCwd}
@@ -177,9 +179,21 @@ export function ReviewStartForm({
         </div>
       ) : null}
       <AgentReviewFields form={form} />
-      <Button type="submit" size="sm" disabled={!form.canStart}>
-        {form.pending ? "Starting..." : "Start review"}
-      </Button>
+      <div className="flex gap-2 *:first:flex-1">
+        <Button type="submit" size="sm" disabled={!form.canStart}>
+          {form.pending ? "Starting..." : "Start review"}
+        </Button>
+        {reReviewing ? null : (
+          <SecurityAuditButton
+            disabled={!form.canStart}
+            onStart={() =>
+              void form.start(undefined, "security").then((started) => {
+                if (started !== null) target.onStarted(started);
+              })
+            }
+          />
+        )}
+      </div>
     </form>
   );
 }

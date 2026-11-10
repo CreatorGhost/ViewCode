@@ -97,6 +97,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   reviewFixUndo: Schema.optionalKey(Schema.Boolean),
   reviewFindingRatings: Schema.optionalKey(Schema.Boolean),
   learnedReviewStyle: Schema.optionalKey(Schema.Boolean),
+  /** Project review skills, and reasons on ratings of findings. */
+  reviewSkill: Schema.optionalKey(Schema.Boolean),
 
   /** Absent on servers from before inline context shipped, which drop the records and forward
       the links as literal text -- so a client must serialize context the legacy way for them. */

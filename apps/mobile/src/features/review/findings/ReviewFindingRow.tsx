@@ -6,7 +6,7 @@ import {
   REVIEW_FINDING_SEVERITY_LABELS,
   reviewFindingLocation,
 } from "@t3tools/shared/reviewFindings";
-import { memo, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { Pressable, View } from "react-native";
 
 import { type AppSymbolName, SymbolView } from "../../../components/AppSymbol";
@@ -36,6 +36,11 @@ export const REVIEW_SEVERITY_PRESENTATION: Record<
     text: "text-adaptive-sky-700-300",
   },
 };
+
+/** Why a finding was not wanted, as the choices under a thumbs-down offer it; web's wording. */
+const RATING_REASONS = ["Not a real problem", "Intended here", "Too minor", "Handled elsewhere"];
+/** The reason that also switches the finding's lesson off for the project. */
+export const STOP_CHECKING_REASON = "Stop checking this here";
 
 /** A finding's main action: fixing it, or posting it to somebody else's pull request. */
 export interface ReviewFindingAction {
@@ -78,10 +83,17 @@ function FindingPill(props: {
   );
 }
 
-function Tag(props: { readonly children: ReactNode }) {
+function Tag(props: { readonly children: ReactNode; readonly tone?: "warning" }) {
   return (
     <View className="rounded-sm bg-subtle-strong px-1.5 py-0.5">
-      <Text className="text-3xs font-t3-medium text-foreground-muted">{props.children}</Text>
+      <Text
+        className={cn(
+          "text-3xs font-t3-medium",
+          props.tone === "warning" ? "text-adaptive-amber-700-300" : "text-foreground-muted",
+        )}
+      >
+        {props.children}
+      </Text>
     </View>
   );
 }
@@ -107,10 +119,30 @@ export const ReviewFindingRow = memo(function ReviewFindingRow(props: {
   readonly onTick?: ((entry: ReviewFindingEntry) => void) | undefined;
   readonly onDismiss: (entry: ReviewFindingEntry, dismissed: boolean) => void;
   readonly onRate: (entry: ReviewFindingEntry, rating: ReviewFindingRating) => void;
+  /**
+   * Says why a finding was rated down, or takes the reason back (null) with the one it replaces;
+   * absent where the server keeps no reasons.
+   */
+  readonly onRatingReason?:
+    | ((entry: ReviewFindingEntry, reason: string | null, previous: string | null) => void)
+    | undefined;
   readonly onOpenPosted: (url: string) => void;
+  readonly onOpenEvidence: (url: string) => void;
 }) {
   const { entry, expanded } = props;
   const { finding } = entry;
+  const { lesson } = finding;
+  // Only this screen's memory: the server keeps the reason but does not send it back.
+  const [reason, setChosenReason] = useState<string | null>(null);
+  const setReason = (next: string | null) => {
+    setChosenReason(next);
+    props.onRatingReason?.(entry, next, reason);
+  };
+  // A new rating starts without a reason: the server drops the old one with the old rating.
+  const rate = (rating: ReviewFindingRating) => {
+    setChosenReason(null);
+    props.onRate(entry, rating);
+  };
   const severity = REVIEW_SEVERITY_PRESENTATION[finding.severity];
   return (
     <View className={cn("px-4", props.dismissed && "opacity-60")}>
@@ -163,12 +195,16 @@ export const ReviewFindingRow = memo(function ReviewFindingRow(props: {
           </Text>
           {entry.needsChecking ||
           finding.preExisting ||
+          lesson?.occurrences !== undefined ||
           props.posted ||
           props.sentTo ||
           props.dismissed ? (
             <View className="flex-row flex-wrap gap-1.5 pt-0.5">
               {entry.needsChecking ? <Tag>Needs checking</Tag> : null}
               {finding.preExisting ? <Tag>Pre-existing</Tag> : null}
+              {lesson?.occurrences !== undefined ? (
+                <Tag tone="warning">broke {lesson.occurrences}× here</Tag>
+              ) : null}
               {props.dismissed ? <Tag>Dismissed</Tag> : null}
               {props.posted ? (
                 <Tag>
@@ -205,6 +241,27 @@ export const ReviewFindingRow = memo(function ReviewFindingRow(props: {
               Rule: {finding.rule}
             </Text>
           ) : null}
+          {lesson ? (
+            <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1">
+              <Text selectable className="text-[13px] text-foreground">
+                Lesson: {lesson.text}
+              </Text>
+              {lesson.evidence?.map((evidence) => (
+                <Pressable
+                  key={evidence.url}
+                  accessibilityRole="link"
+                  accessibilityLabel={`Open ${evidence.label}`}
+                  hitSlop={8}
+                  onPress={() => props.onOpenEvidence(evidence.url)}
+                  className="active:opacity-70"
+                >
+                  <Text className="text-[13px] text-foreground-muted underline">
+                    {evidence.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
           {finding.suggestedFix ? (
             <View className="gap-1">
               <Text className="text-[13px] font-t3-medium text-foreground-muted">
@@ -238,18 +295,49 @@ export const ReviewFindingRow = memo(function ReviewFindingRow(props: {
                   accessibilityLabel="Helpful"
                   icon={props.rating === "up" ? "hand.thumbsup.fill" : "hand.thumbsup"}
                   selected={props.rating === "up"}
-                  onPress={() => props.onRate(entry, "up")}
+                  onPress={() => rate("up")}
                 />
                 <FindingPill
                   label=""
                   accessibilityLabel="Not helpful"
                   icon={props.rating === "down" ? "hand.thumbsdown.fill" : "hand.thumbsdown"}
                   selected={props.rating === "down"}
-                  onPress={() => props.onRate(entry, "down")}
+                  onPress={() => rate("down")}
                 />
               </View>
             ) : null}
           </View>
+          {props.onRatingReason !== undefined && props.rating === "down" ? (
+            reason === null ? (
+              <View className="gap-2 border-t border-border-subtle pt-3">
+                <Text className="text-[13px] text-foreground-muted">Why not?</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {RATING_REASONS.map((label) => (
+                    <FindingPill key={label} label={label} onPress={() => setReason(label)} />
+                  ))}
+                  {lesson?.id !== undefined ? (
+                    <FindingPill
+                      label={STOP_CHECKING_REASON}
+                      onPress={() => setReason(STOP_CHECKING_REASON)}
+                    />
+                  ) : null}
+                </View>
+              </View>
+            ) : (
+              <View className="flex-row items-center gap-2 border-t border-border-subtle pt-3">
+                <SymbolView
+                  name="checkmark"
+                  size={14}
+                  tintColorClassName="accent-foreground-muted"
+                  type="monochrome"
+                />
+                <Text className="min-w-0 flex-1 text-[13px] text-foreground-muted">
+                  {reason} · noted for this project
+                </Text>
+                <FindingPill label="Undo" onPress={() => setReason(null)} />
+              </View>
+            )
+          ) : null}
         </View>
       ) : null}
     </View>

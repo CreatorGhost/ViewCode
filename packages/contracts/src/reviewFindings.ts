@@ -45,6 +45,26 @@ export type ReviewVerdict = typeof ReviewVerdict.Type;
 
 const bounded = (max: number) => TrimmedNonEmptyString.check(Schema.isMaxLength(max));
 
+const REVIEW_FINDING_MAX_LESSON_EVIDENCE = 6;
+
+/**
+ * A repository lesson a finding came from: something this repository's own history showed going
+ * wrong, with the pull requests or commits that showed it.
+ */
+export const ReviewFindingLesson = Schema.Struct({
+  /** The lesson's id in the project's review skill, which ties ratings of the finding to it. */
+  id: Schema.optional(bounded(64)),
+  text: bounded(REVIEW_FINDING_MAX_RULE_CHARS),
+  /** How many times the history showed it. */
+  occurrences: Schema.optional(PositiveInt),
+  evidence: Schema.optional(
+    Schema.Array(Schema.Struct({ label: bounded(40), url: bounded(500) })).check(
+      Schema.isMaxLength(REVIEW_FINDING_MAX_LESSON_EVIDENCE),
+    ),
+  ),
+});
+export type ReviewFindingLesson = typeof ReviewFindingLesson.Type;
+
 export const ReviewFinding = Schema.Struct({
   severity: ReviewFindingSeverity,
   /** 0-100: 100 is proven from the code, 50 plausible but unverified. */
@@ -67,6 +87,8 @@ export const ReviewFinding = Schema.Struct({
   rule: Schema.optional(bounded(REVIEW_FINDING_MAX_RULE_CHARS)),
   /** The problem was there before the change; the change makes it worse or reachable. */
   preExisting: Schema.optional(Schema.Boolean),
+  /** The repository lesson the finding came from, when it came from one. */
+  lesson: Schema.optional(ReviewFindingLesson),
 }).check(
   Schema.makeFilter(
     (finding) =>
@@ -414,6 +436,8 @@ export const ReviewRateFindingInput = Schema.Struct({
   findingsActivityId: EventId,
   findingKey: ReviewFindingKey,
   rating: Schema.NullOr(ReviewFindingRating),
+  /** Why it was rated down, in a few words; servers advertising `reviewSkill` keep it. */
+  reason: Schema.optional(bounded(REVIEW_FINDING_MAX_RULE_CHARS)),
 });
 export type ReviewRateFindingInput = typeof ReviewRateFindingInput.Type;
 
@@ -429,7 +453,10 @@ export const ReviewFindingRatingActivityPayload = Schema.Struct({
     severity: ReviewFindingSeverity,
     path: Schema.String,
     rule: Schema.optional(Schema.String),
+    /** The review-skill lesson the finding cited. */
+    lessonId: Schema.optional(Schema.String),
   }),
+  reason: Schema.optional(Schema.String),
 });
 export type ReviewFindingRatingActivityPayload = typeof ReviewFindingRatingActivityPayload.Type;
 

@@ -26,6 +26,7 @@ import { postedReviewFindings, REVIEW_VERDICT_LABELS } from "@t3tools/shared/rev
 import { useMemo, useState } from "react";
 import { Alert } from "react-native";
 
+import { showConfirmDialog } from "../../components/ConfirmDialogHost";
 import { ControlPillMenu } from "../../components/ControlPillMenu";
 import {
   buildModelOptions,
@@ -41,6 +42,11 @@ import {
 } from "../../state/review-findings";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useStickyComposerModelSelection } from "../../state/use-composer-drafts";
+import {
+  REVIEW_DEPTHS,
+  SECURITY_AUDIT_DESCRIPTION,
+  SECURITY_AUDIT_LABEL,
+} from "../review/agent/useAgentReviews";
 import { PullRequestCardGroup, PullRequestCardRow } from "./PullRequestControls";
 import { pullRequestTarget, type PullRequestParams } from "./usePullRequestDiff";
 
@@ -219,13 +225,13 @@ export function PullRequestAgentReview(props: {
       {canStartReview ? (
         <ControlPillMenu
           title="Review with agent"
-          actions={AGENT_REVIEW_MODES.map((entry) => ({
+          actions={REVIEW_DEPTHS.map((entry) => ({
             id: `review:${entry.mode}`,
             title: entry.label,
             subtitle: entry.description,
           }))}
           onPressAction={({ nativeEvent }) => {
-            const next = AGENT_REVIEW_MODES.find(
+            const next = REVIEW_DEPTHS.find(
               (entry) => `review:${entry.mode}` === nativeEvent.event,
             );
             if (next) startAgentReview(next.mode);
@@ -240,6 +246,24 @@ export function PullRequestAgentReview(props: {
             accessibilityLabel="Review with agent"
           />
         </ControlPillMenu>
+      ) : null}
+      {/* Not a depth: a different job, so it starts from its own row. */}
+      {canStartReview ? (
+        <PullRequestCardRow
+          title={SECURITY_AUDIT_LABEL}
+          icon="shield"
+          detail="Hunts for vulnerabilities instead of a review."
+          accessibilityLabel={SECURITY_AUDIT_LABEL}
+          // A row is easier to tap by accident than a menu item, and an audit runs several agents.
+          onPress={() =>
+            showConfirmDialog({
+              title: "Start a security audit?",
+              message: SECURITY_AUDIT_DESCRIPTION,
+              confirmText: "Start audit",
+              onConfirm: () => startAgentReview("security"),
+            })
+          }
+        />
       ) : null}
     </PullRequestCardGroup>
   );

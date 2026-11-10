@@ -74,6 +74,9 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.reviewUndoFixes]: AuthOrchestrationOperateScope,
   [WS_METHODS.reviewLearnStyle]: AuthOrchestrationOperateScope,
   [WS_METHODS.reviewForgetLearnedStyle]: AuthOrchestrationOperateScope,
+  [WS_METHODS.reviewLearnSkill]: AuthOrchestrationOperateScope,
+  [WS_METHODS.reviewEditSkill]: AuthOrchestrationOperateScope,
+  [WS_METHODS.reviewForgetSkill]: AuthOrchestrationOperateScope,
   // Registration belongs to the authenticated phone session; preserve the server's read grant.
   [WS_METHODS.pushRegister]: AuthOrchestrationReadScope,
   [WS_METHODS.pushUnregister]: AuthOrchestrationReadScope,

@@ -1,5 +1,6 @@
 import * as PullRequestAgentReview from "../../../pullRequest/PullRequestAgentReview.ts";
 import * as ReviewActivityStore from "../../../review/ReviewActivityStoreV2.ts";
+import * as ProjectReviewSkill from "../../../review/ProjectReviewSkill.ts";
 import * as ReviewFindingsPoster from "../../../review/ReviewFindingsPoster.ts";
 import * as AgentMessaging from "../../../agents/AgentMessagingV2.ts";
 import * as AgentSessionImporter from "../../../project/AgentSessionImporter.ts";
@@ -54,6 +55,7 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(PullRequestAgentReview.PullRequestAgentReview)({}),
   Layer.mock(ReviewActivityStore.ReviewActivityStoreV2)({}),
   Layer.mock(ReviewFindingsPoster.ReviewFindingsPoster)({}),
+  Layer.mock(ProjectReviewSkill.ProjectReviewSkill)({}),
   Layer.mock(AgentMessaging.AgentMessaging)({}),
   Layer.mock(AgentSessionImporter.AgentSessionImporter)({}),
   Layer.mock(AgentSessionScanner.AgentSessionScanner)({}),

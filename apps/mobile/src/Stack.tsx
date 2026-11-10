@@ -44,6 +44,7 @@ import { ReviewFindingsRouteScreen } from "./features/review/findings/ReviewFind
 import { ReviewFixSheet } from "./features/review/findings/ReviewFixSheet";
 import { ReviewPostSheet } from "./features/review/findings/ReviewPostSheet";
 import { ReviewCommitSheet } from "./features/review/agent/ReviewCommitSheet";
+import { ProjectReviewSkillRouteScreen } from "./features/review/skill/ProjectReviewSkillRouteScreen";
 import { ReviewSheet } from "./features/review/ReviewSheet";
 import { ThreadTerminalRouteScreen } from "./features/terminal/ThreadTerminalRouteScreen";
 import { DevicePreviewRouteScreen } from "./features/devices/DevicePreviewRouteScreen";
@@ -506,6 +507,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "ThreadReviewFindings",
   "ThreadReviewFindingsFix",
   "ThreadReviewFindingsPost",
+  "ProjectReviewSkill",
   "ThreadDevicePreview",
   "ThreadSettingsSheet",
 ]);
@@ -776,6 +778,13 @@ const RootStackConfig = createNativeStackNavigator({
         sheetAllowedDetents: [0.7, 0.92],
         sheetGrabberVisible: true,
       },
+    }),
+    // Opened over the findings or over Settings, so like them it leaves the workspace beneath
+    // as it is.
+    ProjectReviewSkill: createNativeStackScreen({
+      screen: ProjectReviewSkillRouteScreen,
+      linking: "review-skill/:environmentId/:projectId",
+      options: { title: "Review skill" },
     }),
     ThreadFiles: createNativeStackScreen({
       screen: ThreadFilesTreeScreen,

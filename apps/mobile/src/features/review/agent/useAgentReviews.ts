@@ -66,6 +66,33 @@ export const AGENT_REVIEW_MODE_SHORT_LABELS: Record<AgentReviewMode, string> = {
   security: "Security",
 };
 
+/** How thorough a review is. A security audit is a different job with its own action. */
+export type ReviewDepth = Exclude<AgentReviewMode, "security">;
+
+/** The depths a review is started at, in web's words. */
+export const REVIEW_DEPTHS: ReadonlyArray<{
+  readonly mode: ReviewDepth;
+  readonly label: string;
+  readonly description: string;
+}> = [
+  { mode: "quick", label: "Quick", description: "One agent, one pass over the change." },
+  {
+    mode: "deep",
+    label: "Deep",
+    description:
+      "Several agents, security included, disprove each other's findings. Uses more of your plan.",
+  },
+];
+
+export const SECURITY_AUDIT_LABEL = "Security audit";
+export const SECURITY_AUDIT_DESCRIPTION =
+  "Several agents hunt for vulnerabilities in the change and the code it reaches, instead of a review. Uses more of your plan.";
+
+/** A depth remembered from when a security audit was one is the deep review, as on web. */
+export function reviewDepth(mode: AgentReviewMode | undefined): ReviewDepth {
+  return mode === undefined ? "quick" : mode === "security" ? "deep" : mode;
+}
+
 export function agentReviewModeLabel(mode: AgentReviewMode): string {
   return AGENT_REVIEW_MODES.find((entry) => entry.mode === mode)?.label ?? "Review";
 }

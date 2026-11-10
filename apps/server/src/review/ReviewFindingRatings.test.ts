@@ -10,6 +10,7 @@ import * as Schema from "effect/Schema";
 import * as ServerConfig from "../config.ts";
 import { ProjectionStoreV2 } from "../orchestration-v2/ProjectionStore.ts";
 import { ReviewActivityStoreV2 } from "./ReviewActivityStoreV2.ts";
+import * as ProjectReviewSkill from "./ProjectReviewSkill.ts";
 import * as ReviewFindingRatings from "./ReviewFindingRatings.ts";
 
 const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
@@ -34,6 +35,14 @@ const findingsActivity: OrchestrationThreadActivity = {
         detail: "It reads as the opposite.",
         rule: "Name booleans for what is true.",
       },
+      {
+        severity: "important",
+        confidence: 90,
+        path: "db/0042.sql",
+        title: "No backfill",
+        detail: "Existing rows fail the constraint.",
+        lesson: { id: "not-null-needs-a-backfill", text: "NOT NULL columns need a backfill" },
+      },
     ],
     needsChecking: [],
     target: { kind: "local" },
@@ -47,6 +56,7 @@ const makeHarness = (ratingActivities: ReadonlyArray<OrchestrationThreadActivity
     const commands = yield* Ref.make<
       ReadonlyArray<Parameters<ReviewActivityStoreV2["Service"]["append"]>[0]>
     >([]);
+    const recounted = yield* Ref.make<ReadonlyArray<ProjectId>>([]);
     const dependencies = Layer.mergeAll(
       Layer.mock(ProjectionStoreV2)({
         getThreadShell: (threadId) =>
@@ -55,6 +65,9 @@ const makeHarness = (ratingActivities: ReadonlyArray<OrchestrationThreadActivity
               ? ({ id: REVIEW_THREAD_ID, projectId: PROJECT_ID } as never)
               : null,
           ),
+      }),
+      Layer.mock(ProjectReviewSkill.ProjectReviewSkill)({
+        ratingsChanged: (projectId) => Ref.update(recounted, (all) => [...all, projectId]),
       }),
       Layer.mock(ReviewActivityStoreV2)({
         list: () => Effect.succeed([findingsActivity]),
@@ -72,10 +85,41 @@ const makeHarness = (ratingActivities: ReadonlyArray<OrchestrationThreadActivity
       ratings: ReviewFindingRatings.ReviewFindingRatings,
       config: ServerConfig.ServerConfig,
     }).pipe(Effect.provide(ReviewFindingRatings.layer.pipe(Layer.provideMerge(dependencies))));
-    return { ratings, commands, stateDir: config.stateDir };
+    return { ratings, commands, recounted, stateDir: config.stateDir };
   });
 
 describe("ReviewFindingRatings", () => {
+  it.effect("keeps why a finding was rated down, and recounts the lesson it cited", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      const rate = (findingKey: "finding:0" | "finding:1", rating: "up" | "down") =>
+        harness.ratings.rate({
+          reviewThreadId: REVIEW_THREAD_ID,
+          findingsActivityId: EventId.make("findings"),
+          findingKey,
+          rating,
+          reason: "Intended here" as never,
+        });
+      yield* rate("finding:1", "down");
+      yield* rate("finding:1", "up");
+      yield* rate("finding:0", "down");
+      const payloads = (yield* Ref.get(harness.commands)).map(
+        (command) => command.activity.payload as Record<string, unknown>,
+      );
+      expect(payloads[0]).toMatchObject({
+        rating: "down",
+        reason: "Intended here",
+        finding: { lessonId: "not-null-needs-a-backfill" },
+      });
+      // A reason explains a thumbs-down only.
+      expect(payloads[1]).not.toHaveProperty("reason");
+      expect(payloads[2]).toMatchObject({ reason: "Intended here" });
+      expect(payloads[2]?.["finding"]).not.toHaveProperty("lessonId");
+      // Only ratings of findings that cite a lesson touch the skill.
+      expect(yield* Ref.get(harness.recounted)).toEqual([PROJECT_ID, PROJECT_ID]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("records a rating with the finding it is about, outside any turn", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();
@@ -114,7 +158,7 @@ describe("ReviewFindingRatings", () => {
     Effect.gen(function* () {
       const harness = yield* makeHarness();
       for (const [findingsActivityId, findingKey] of [
-        ["findings", "finding:1"],
+        ["findings", "finding:7"],
         ["findings", "check:0"],
         ["elsewhere", "finding:0"],
       ] as const) {

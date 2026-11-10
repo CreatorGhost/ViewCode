@@ -1,9 +1,19 @@
 import type { ReviewFindingsSource } from "@t3tools/client-runtime/review-findings";
-import { EnvironmentId, EventId, type ReviewFinding, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  EventId,
+  ProjectId,
+  type ReviewFinding,
+  type ReviewSkillLesson,
+  type ReviewFindingRating,
+  ThreadId,
+} from "@t3tools/contracts";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { useState } from "react";
 
+import { ReviewSkillLessonList } from "~/components/chat/RepositoryLessons";
 import { ReviewFindingsView } from "~/components/chat/ReviewFindingsView";
+import { ReviewStartForm } from "~/components/chat/ReviewStart";
 import { ReviewCard } from "~/components/chat/ReviewProgress";
 import { Button } from "~/components/ui/button";
 import { useServerConfigs } from "~/state/entities";
@@ -54,6 +64,25 @@ const source: ReviewFindingsSource = {
     mode: "fix",
     needsChecking: [],
     findings: [
+      {
+        severity: "blocker",
+        confidence: 92,
+        path: "backend/db/migrations/0042_add_owner.sql",
+        line: 7,
+        title: "Migration adds NOT NULL without a backfill",
+        detail:
+          "Existing rows in playbooks have no owner_id, so this migration fails on any database that already has playbooks. The deploy runs migrations before the app starts, so the release stops there.",
+        suggestedFix:
+          "UPDATE playbooks SET owner_id = created_by WHERE owner_id IS NULL;\nALTER TABLE playbooks ALTER COLUMN owner_id SET NOT NULL;",
+        lesson: {
+          text: "NOT NULL columns need a backfill",
+          occurrences: 4,
+          evidence: [1212, 1340, 1377, 1398].map((number) => ({
+            label: `#${number}`,
+            url: `https://github.com/example/agents/pull/${number}`,
+          })),
+        },
+      },
       finding(
         "important",
         "Revoking a callback key skips playbook execute permission",
@@ -100,8 +129,64 @@ const source: ReviewFindingsSource = {
   },
 };
 
+const LOOK_FIRST = [
+  "migration",
+  "CI workflow",
+  "2 major dependency bumps",
+  "removed export parseRef",
+];
+const RATINGS: ReadonlyMap<string, ReviewFindingRating> = new Map([["finding:5", "down"]]);
+const lesson = (
+  text: string,
+  where: string,
+  source: ReviewSkillLesson["source"],
+  pullRequests: ReadonlyArray<number>,
+  rated: readonly [helpful: number, unhelpful: number],
+  off = false,
+) =>
+  ({
+    id: text.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    text,
+    where,
+    source,
+    evidence: pullRequests.map((number) => ({
+      label: `#${number}`,
+      url: `https://github.com/example/agents/pull/${number}`,
+    })),
+    enabled: !off,
+    ...(off ? { disabledByRatings: true } : {}),
+    helpful: rated[0],
+    unhelpful: rated[1],
+  }) as ReviewSkillLesson;
+const LESSONS: ReadonlyArray<ReviewSkillLesson> = [
+  lesson("Never log callback tokens", "agents/**", "yours", [], [0, 0]),
+  lesson(
+    "NOT NULL columns need a backfill",
+    "backend/db/migrations/**",
+    "kept-breaking",
+    [1212, 1340, 1377, 1398],
+    [5, 1],
+  ),
+  lesson(
+    "Lock playbook rows before callback rows",
+    "agents/playbooks/**",
+    "kept-breaking",
+    [1105, 1290, 1466],
+    [3, 0],
+  ),
+  lesson(
+    "API schema changes need the frontend client regenerated",
+    "backend/core/schemas/**",
+    "reviewers-ask",
+    [1188, 1502],
+    [2, 0],
+  ),
+  lesson("Docstrings on test helpers", "**/tests/**", "reviewers-ask", [1410, 1422], [0, 3], true),
+];
+
 function ReviewFindingsPreview() {
   const [superseded, setSuperseded] = useState(true);
+  const [lessons, setLessons] = useState(LESSONS);
   const [startedAt] = useState(() => new Date(Date.now() - 79 * 60_000).toISOString());
   const environmentId = [...useServerConfigs().keys()][0] ?? EnvironmentId.make("env-local");
   return (
@@ -109,7 +194,37 @@ function ReviewFindingsPreview() {
       <Button variant="outline" size="xs" onClick={() => setSuperseded((value) => !value)}>
         {superseded ? "Newer review running" : "These are the latest"}
       </Button>
-      <div className="flex h-150 w-100 flex-col border-border border-x bg-background">
+      <div data-preview="start" className="w-80 rounded-xl border bg-popover p-4 shadow-lg">
+        <ReviewStartForm
+          target={{
+            environmentId,
+            request: {
+              kind: "local",
+              projectId: ProjectId.make("project-preview"),
+              sourceThreadId: ThreadId.make("thread-preview"),
+            },
+            onStarted: () => {},
+          }}
+        />
+      </div>
+      <div data-preview="lessons" className="w-160 rounded-xl border bg-card p-4">
+        <ReviewSkillLessonList
+          lessons={lessons}
+          disabled={false}
+          onToggle={(changed, enabled) =>
+            setLessons((current) =>
+              current.map((entry) => (entry.id === changed.id ? { ...entry, enabled } : entry)),
+            )
+          }
+          onRemove={(removed) =>
+            setLessons((current) => current.filter((entry) => entry.id !== removed.id))
+          }
+        />
+      </div>
+      <div
+        data-preview="panel"
+        className="flex h-225 w-100 flex-col border-border border-x bg-background"
+      >
         {superseded ? (
           <ReviewCard
             icon={null}
@@ -143,12 +258,13 @@ function ReviewFindingsPreview() {
             projectId={null}
             cwd={undefined}
             posted={new Map()}
-            ratings={new Map()}
+            ratings={RATINGS}
             onFixInChat={undefined}
             startReview={null}
             stillReviewing={false}
             superseded={superseded}
             readerScrolled={() => false}
+            lookFirst={LOOK_FIRST}
           />
         </div>
       </div>

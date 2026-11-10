@@ -2,6 +2,7 @@ import * as Layer from "effect/Layer";
 
 import * as PullRequestAgentReview from "../pullRequest/PullRequestAgentReview.ts";
 import * as LearnedReviewStyles from "../review/LearnedReviewStyles.ts";
+import * as ProjectReviewSkill from "../review/ProjectReviewSkill.ts";
 import * as ReviewActivityStore from "../review/ReviewActivityStoreV2.ts";
 import * as ReviewFindingRatings from "../review/ReviewFindingRatings.ts";
 import * as ReviewFindingsPoster from "../review/ReviewFindingsPoster.ts";
@@ -14,4 +15,8 @@ export const layer = Layer.mergeAll(
   ReviewFixThread.layer,
   ReviewFindingsPoster.layer,
   LearnedReviewStyles.layer,
-).pipe(Layer.provideMerge(ReviewActivityStore.layer));
+).pipe(
+  // Reviews read the project's skill and ratings count into it.
+  Layer.provideMerge(ProjectReviewSkill.layer),
+  Layer.provideMerge(ReviewActivityStore.layer),
+);
