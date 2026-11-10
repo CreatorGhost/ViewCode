@@ -488,10 +488,14 @@ closes any left from a restart.
   those resolve and dispatch a ref in one call, which leaves no place for the two dispatch checks
   and the lock, and its `command_policy` is an argument preflight, not a gate. The helper speaks
   the xa11y worker's protocol as JSON lines on stdio, so `Xa11yComputerDriver.ts`'s client is the
-  only one. It observes only: every input op answers `unavailable` before any native call. It is
-  not packaged, so nothing ships it; packaging must add the agent-desktop notice to
-  `third-party-licenses.config.json` and pass TCC and endpoint-security acceptance on a managed
-  Mac. agent-desktop reads element and window identity through three private AX symbols it finds
+  only one. It observes only: every input op answers `unavailable` before any native call. The
+  macOS desktop app ships it under `Resources/computer-driver`
+  (`scripts/lib/viewcode-computer-driver.ts`), and the server finds it beside the resource monitor
+  whose path the app already passes, so no bootstrap field was added. While the driver is opt-in a
+  helper that fails to build does not fail the app build: the folder ships empty and selecting the
+  driver reports it unavailable. Make that fatal when it becomes the default. `build.sh` builds it
+  only when the flag is set. It has not yet passed TCC and endpoint-security acceptance on a
+  managed Mac. agent-desktop reads element and window identity through three private AX symbols it finds
   with `dlsym` and does without when they are missing; that is accepted for identity only, and
   private window activation stays out.
 

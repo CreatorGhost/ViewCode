@@ -7,7 +7,11 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { afterAll } from "vite-plus/test";
 
-import { agentDesktopBinary, agentDesktopSelected } from "./AgentDesktopComputerDriver.ts";
+import {
+  agentDesktopBinary,
+  agentDesktopBinaryCandidates,
+  agentDesktopSelected,
+} from "./AgentDesktopComputerDriver.ts";
 import { makeXa11yComputerDriver } from "./Xa11yComputerDriver.ts";
 
 // Stands in for the native helper: the same requests, as JSON lines on stdio.
@@ -104,12 +108,53 @@ describe("AgentDesktopComputerDriver", () => {
     assert.isFalse(agentDesktopSelected("xa11y"));
   });
 
-  it("uses the helper a source checkout builds unless a path is given", () => {
-    const moduleUrl = "file:///repo/apps/server/src/computerUse/AgentDesktopComputerDriver.ts";
+  it("looks beside the app's resource monitor first, then beside the server, then in a checkout", () => {
+    const candidates = agentDesktopBinaryCandidates({
+      platform: "darwin",
+      override: "",
+      resourceMonitorPath: "/App/Contents/Resources/resource-monitor/t3-resource-monitor",
+      moduleDir: "/repo/apps/server/src/computerUse",
+    });
     assert.strictEqual(
-      agentDesktopBinary("darwin", "", moduleUrl),
+      candidates[0],
+      "/App/Contents/Resources/computer-driver/viewcode-computer-driver",
+    );
+    assert.include(
+      candidates,
       "/repo/native/computer-driver/target/release/viewcode-computer-driver",
     );
-    assert.strictEqual(agentDesktopBinary("darwin", " /opt/helper ", moduleUrl), "/opt/helper");
+    // From a built server (`apps/server/dist` or `dist-exe`) the checkout is one level closer.
+    assert.include(
+      agentDesktopBinaryCandidates({
+        platform: "darwin",
+        override: "",
+        resourceMonitorPath: undefined,
+        moduleDir: "/repo/apps/server/dist",
+      }),
+      "/repo/native/computer-driver/target/release/viewcode-computer-driver",
+    );
+  });
+
+  it("a given path is the only place looked at", () => {
+    assert.deepStrictEqual(
+      agentDesktopBinaryCandidates({
+        platform: "darwin",
+        override: " /opt/helper ",
+        resourceMonitorPath: "/App/Contents/Resources/resource-monitor/t3-resource-monitor",
+        moduleDir: "/repo/apps/server/dist",
+      }),
+      ["/opt/helper"],
+    );
+  });
+
+  it("starts the first helper that exists, else the first place it looked", () => {
+    assert.strictEqual(
+      agentDesktopBinary(["/a", "/b", "/c"], (path) => path !== "/a"),
+      "/b",
+    );
+    assert.strictEqual(
+      agentDesktopBinary(["/a", "/b"], () => false),
+      "/a",
+    );
   });
 });

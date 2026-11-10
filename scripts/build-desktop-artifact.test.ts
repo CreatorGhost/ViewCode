@@ -16,6 +16,11 @@ import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import {
+  MAC_COMPUTER_DRIVER_EXTRA_RESOURCE,
+  MAC_COMPUTER_DRIVER_FILE_EXCLUSIONS,
+} from "./lib/viewcode-computer-driver.ts";
+
+import {
   BundleNotSelfContainedError,
   BuildCommandFailedError,
   parseWslRuntimeArchiveMembers,
@@ -733,12 +738,16 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(win.asarUnpack, [WINDOWS_NATIVE_ASAR_UNPACK_GLOB]);
       assert.deepStrictEqual(winWithoutWslRuntime.asar, win.asar);
       assert.deepStrictEqual(winWithoutWslRuntime.asarUnpack, win.asarUnpack);
-      assert.deepStrictEqual(mac.extraResources, DESKTOP_EXTRA_RESOURCES);
+      assert.deepStrictEqual(mac.extraResources, [
+        ...DESKTOP_EXTRA_RESOURCES,
+        MAC_COMPUTER_DRIVER_EXTRA_RESOURCE,
+      ]);
       // A staged macOS CLI archive ships as the backend the app runs.
       assert.deepStrictEqual(macWithServerRuntime.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,
         MAC_SERVER_RUNTIME_EXTRA_RESOURCE,
         MAC_SERVER_RUNTIME_NODE_MODULES_EXTRA_RESOURCE,
+        MAC_COMPUTER_DRIVER_EXTRA_RESOURCE,
       ]);
       assert.deepStrictEqual(linux.extraResources, [
         ...DESKTOP_EXTRA_RESOURCES,
@@ -797,7 +806,11 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       assert.deepStrictEqual(linux.toolsets, { appimage: "1.0.3" });
       assert.notProperty(mac, "toolsets");
       assert.notProperty(win, "toolsets");
-      assert.deepStrictEqual(mac.files, [...DESKTOP_FILE_EXCLUSIONS, ...MAC_FILE_EXCLUSIONS]);
+      assert.deepStrictEqual(mac.files, [
+        ...DESKTOP_FILE_EXCLUSIONS,
+        ...MAC_FILE_EXCLUSIONS,
+        ...MAC_COMPUTER_DRIVER_FILE_EXCLUSIONS,
+      ]);
       assert.deepStrictEqual(linux.files, [...DESKTOP_FILE_EXCLUSIONS, ...LINUX_FILE_EXCLUSIONS]);
       assert.deepStrictEqual(win.files, DESKTOP_FILE_EXCLUSIONS);
       assert.deepStrictEqual(winWithoutWslRuntime.files, win.files);
