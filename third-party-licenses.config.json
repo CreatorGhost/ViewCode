@@ -177,6 +177,21 @@
       "name": "Expo text editor implementation",
       "noticeFile": "apps/mobile/modules/t3-composer-editor/LICENSE",
       "sourceUrl": "https://github.com/expo/expo"
+    },
+    {
+      "bundles": ["desktop", "web"],
+      "license": "Apache-2.0",
+      "name": "agent-desktop",
+      "sourceUrl": "https://github.com/vercel-labs/agent-desktop",
+      "version": "1.2.0",
+      "generatedNotices": [
+        {
+          "licenseId": "Apache-2.0",
+          "preamble": [
+            "agent-desktop by Vercel Labs is the accessibility code inside ViewCode's computer-use helper for macOS (native/computer-driver), which the macOS desktop app ships. ViewCode links its core and macos crates unmodified, pinned to commit ab7dfb218cddc1594aa1d87a5bfcd0ac76da2276."
+          ]
+        }
+      ]
     }
   ],
   "packageOverrides": [

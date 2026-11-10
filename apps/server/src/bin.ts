@@ -30,9 +30,6 @@ if (
         ? (await import("./reviewCli/ReviewCli.ts")).runReviewCliMain
         : (await import("./computerUse/ComputerUseCli.ts")).runComputerCliMain;
     process.exitCode = await run(forwarded);
-  } else if (command === "__computer-use-driver") {
-    const { runComputerUseDriverWorker } = await import("./computerUse/Xa11yDriverWorker.ts");
-    await runComputerUseDriverWorker();
   } else if (command === "__mcp-stdio-bridge") {
     const { runMcpStdioBridgeMain } = await import("./mcp/McpStdioBridge.ts");
     process.exitCode = await runMcpStdioBridgeMain(process.argv.slice(3));

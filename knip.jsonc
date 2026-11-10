@@ -39,7 +39,6 @@
         "src/bin.ts!",
         "src/claude-history-worker.ts!",
         "src/mcp-stdio-bridge.ts!",
-        "src/computer-use-driver.ts!",
         "src/viewcode-computer.ts!",
         "src/viewcode-browser.ts!",
         "src/viewcode-review.ts!",

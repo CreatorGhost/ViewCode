@@ -3,7 +3,7 @@ import * as ComputerUse from "../computerUse/ComputerUseService.ts";
 import * as ThreadState from "../computerUse/ComputerUseThreadState.ts";
 import * as RuntimeRequest from "../computerUse/ComputerUseRuntimeRequest.ts";
 import * as Bridge from "../computerUse/ComputerUseV2Bridge.ts";
-import * as Driver from "../computerUse/Xa11yComputerDriver.ts";
+import * as Driver from "../computerUse/NativeComputerDriver.ts";
 import * as Ancestry from "../computerUse/computerUseAncestry.ts";
 import * as Cursor from "../computerUse/ComputerUseCursor.ts";
 

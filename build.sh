@@ -23,6 +23,9 @@
 #                         Nothing is deleted; the script prints how to restore.
 #                         Refuses to run while ViewCode is open.
 #
+# Computer use (macOS) needs Rust installed: the script builds its helper when
+# `cargo` is available and carries on without it otherwise.
+#
 # Run from anywhere; it works in the folder this script lives in.
 set -euo pipefail
 
@@ -43,7 +46,7 @@ for arg in "$@"; do
     --fresh) fresh=1 ;;
     --install) install=1 ;;
     -h | --help)
-      sed -n '2,27p' "$0"
+      sed -n '2,30p' "$0"
       exit 0
       ;;
     *)
@@ -264,6 +267,17 @@ if [ "$relay" = 1 ]; then
   # node scripts/viewcode-relay.ts deploy
   "$state_node" scripts/viewcode-relay.ts deploy --mode "$mode" ||
     echo "Quick connect setup did not finish; continuing without it. Re-run: node scripts/viewcode-relay.ts deploy" >&2
+fi
+
+# Computer use runs through a small helper written in Rust (native/computer-driver).
+# Without it ViewCode still works; computer use then shows as unavailable.
+if [ "$(uname -s)" = Darwin ]; then
+  step "Building the computer-use helper"
+  if ! command -v cargo >/dev/null; then
+    echo "Rust is not installed, so computer use will be unavailable. To enable it, install Rust (https://rustup.rs) and run this script again." >&2
+  elif ! cargo build --locked --release --manifest-path native/computer-driver/Cargo.toml; then
+    echo "The computer-use helper did not build (it needs Rust 1.89 or newer and Xcode's command-line tools), so computer use will be unavailable. Everything else works." >&2
+  fi
 fi
 
 if [ "$mode" = web ]; then
