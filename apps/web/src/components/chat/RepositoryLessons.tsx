@@ -16,7 +16,7 @@ const SOURCE_LABELS: Record<ReviewSkillLessonSource, string> = {
 };
 
 /** How findings that cited a lesson were rated, or why it is off. */
-export function reviewSkillLessonStanding(lesson: ReviewSkillLesson): string {
+function reviewSkillLessonStanding(lesson: ReviewSkillLesson): string {
   if (lesson.disabledByRatings === true) return "off after your ratings";
   if (lesson.helpful === 0 && lesson.unhelpful === 0) return "not rated yet";
   return `${lesson.helpful} helpful, ${lesson.unhelpful} not`;

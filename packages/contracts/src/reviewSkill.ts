@@ -18,8 +18,8 @@ import { ModelSelection } from "./modelSelection.ts";
  */
 export const REVIEW_SKILL_MAX_LESSONS = 40;
 export const REVIEW_SKILL_MAX_LESSON_CHARS = 200;
-export const REVIEW_SKILL_MAX_SUMMARY_CHARS = 4_000;
-export const REVIEW_SKILL_MAX_EVIDENCE = 6;
+const REVIEW_SKILL_MAX_SUMMARY_CHARS = 4_000;
+const REVIEW_SKILL_MAX_EVIDENCE = 6;
 /** A learned lesson turned down this often, and never found helpful, is switched off. */
 export const REVIEW_SKILL_UNHELPFUL_LIMIT = 3;
 

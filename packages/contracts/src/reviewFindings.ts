@@ -45,7 +45,7 @@ export type ReviewVerdict = typeof ReviewVerdict.Type;
 
 const bounded = (max: number) => TrimmedNonEmptyString.check(Schema.isMaxLength(max));
 
-export const REVIEW_FINDING_MAX_LESSON_EVIDENCE = 6;
+const REVIEW_FINDING_MAX_LESSON_EVIDENCE = 6;
 
 /**
  * A repository lesson a finding came from: something this repository's own history showed going

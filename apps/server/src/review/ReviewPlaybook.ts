@@ -374,8 +374,6 @@ export const ensureReviewPlaybook = (input: {
     content: reviewPlaybookMarkdown(input.mode),
   });
 
-export const reviewSkillPlaybookMarkdown = (): string => LEARN_SKILL;
-
 /** The learning agent's playbook, written the way a review's is. */
 export const ensureReviewSkillPlaybook = (input: { readonly stateDir: string }) =>
   ensurePlaybookFile({
