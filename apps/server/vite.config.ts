@@ -73,7 +73,6 @@ export default mergeConfig(
             "src/viewcode-review.ts",
             "src/viewcode-review.ts",
             "src/viewcode-computer.ts",
-            "src/computer-use-driver.ts",
           ],
       outDir: packExecutable ? "dist-exe" : "dist",
       sourcemap: !packExecutable,

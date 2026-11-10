@@ -27,9 +27,9 @@ pub struct ObservedElement {
     pub focused: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Observation {
-    pub elements: Vec<ObservedElement>,
+/// Each control with the node it was read from, which carries its native identity.
+pub struct Observation<'a> {
+    pub elements: Vec<(ObservedElement, &'a AccessibilityNode)>,
     pub truncated: bool,
 }
 
@@ -49,7 +49,7 @@ fn non_empty(value: Option<&String>) -> Option<&str> {
 }
 
 /// The label the agent sees and the identity is checked against.
-fn label_of(node: &AccessibilityNode) -> String {
+pub fn label_of(node: &AccessibilityNode) -> String {
     non_empty(node.identity.name.as_ref())
         .or_else(|| non_empty(node.identity.description.as_ref()))
         .unwrap_or("")
@@ -94,7 +94,11 @@ struct Kept<'a> {
 }
 
 /// Reads the observed controls of `root`'s descendants (the root is the window).
-pub fn flatten(root: &AccessibilityNode, max_elements: usize, query: Option<&str>) -> Observation {
+pub fn flatten<'a>(
+    root: &'a AccessibilityNode,
+    max_elements: usize,
+    query: Option<&str>,
+) -> Observation<'a> {
     let cap = max_elements.min(OBSERVE_MAX_VISITED);
     let needle = query
         .map(|text| text.trim().to_lowercase())
@@ -159,7 +163,7 @@ pub fn flatten(root: &AccessibilityNode, max_elements: usize, query: Option<&str
         .zip(placement)
         .map(|(entry, (section, instance))| {
             let secure = is_secure(entry.node, &entry.label);
-            ObservedElement {
+            let element = ObservedElement {
                 role: entry.node.role.clone(),
                 label: clip(&entry.label),
                 value: if secure {
@@ -171,13 +175,44 @@ pub fn flatten(root: &AccessibilityNode, max_elements: usize, query: Option<&str
                 instance,
                 enabled: !has_state(entry.node, state::DISABLED),
                 focused: has_state(entry.node, state::FOCUSED),
-            }
+            };
+            (element, entry.node)
         })
         .collect();
     Observation {
         elements,
         truncated,
     }
+}
+
+/// The smallest labelled node whose bounds contain `point`, so approvals and
+/// the destructive check can name what a coordinate click hits.
+pub fn labelled_at(root: &AccessibilityNode, x: f64, y: f64) -> Option<(String, String)> {
+    let mut best: Option<(f64, &AccessibilityNode)> = None;
+    let mut stack: Vec<&AccessibilityNode> = root.children.iter().collect();
+    let mut visited = 0usize;
+    while let Some(node) = stack.pop() {
+        visited += 1;
+        if visited > OBSERVE_MAX_VISITED {
+            break;
+        }
+        stack.extend(node.children.iter());
+        let Some(bounds) = node.presentation.bounds else {
+            continue;
+        };
+        let inside = x >= bounds.x
+            && x <= bounds.x + bounds.width
+            && y >= bounds.y
+            && y <= bounds.y + bounds.height;
+        if !inside || label_of(node).is_empty() {
+            continue;
+        }
+        let area = bounds.width * bounds.height;
+        if best.is_none_or(|(smallest, _)| area < smallest) {
+            best = Some((area, node));
+        }
+    }
+    best.map(|(_, node)| (node.role.clone(), clip(&label_of(node))))
 }
 
 /// `section` is the nearest heading before the control in reading order;
@@ -262,8 +297,8 @@ mod tests {
         let saves: Vec<_> = observed
             .elements
             .iter()
-            .filter(|element| element.label == "Save")
-            .map(|element| (element.section.clone(), element.instance.clone()))
+            .filter(|(element, _)| element.label == "Save")
+            .map(|(element, _)| (element.section.clone(), element.instance.clone()))
             .collect();
         assert_eq!(
             saves,
@@ -272,8 +307,8 @@ mod tests {
                 (Some("Shipping".into()), Some("2 of 2".into())),
             ]
         );
-        assert_eq!(observed.elements[0].label, "Billing");
-        assert_eq!(observed.elements[0].section, None);
+        assert_eq!(observed.elements[0].0.label, "Billing");
+        assert_eq!(observed.elements[0].0.section, None);
         assert!(!observed.truncated);
     }
 
@@ -282,7 +317,7 @@ mod tests {
         let tree = window(vec![node("group", "", vec![node("textfield", "", vec![])])]);
         let observed = flatten(&tree, 50, None);
         assert_eq!(observed.elements.len(), 1);
-        assert_eq!(observed.elements[0].role, "textfield");
+        assert_eq!(observed.elements[0].0.role, "textfield");
     }
 
     #[test]
@@ -293,7 +328,11 @@ mod tests {
             node("button", "Shallow B", vec![]),
         ]);
         let observed = flatten(&tree, 2, None);
-        let labels: Vec<_> = observed.elements.iter().map(|e| e.label.as_str()).collect();
+        let labels: Vec<_> = observed
+            .elements
+            .iter()
+            .map(|(e, _)| e.label.as_str())
+            .collect();
         assert_eq!(labels, vec!["Shallow A", "Shallow B"]);
         assert!(observed.truncated);
     }
@@ -307,7 +346,7 @@ mod tests {
         ]);
         let observed = flatten(&tree, 1, Some("  NEEDLE "));
         assert_eq!(observed.elements.len(), 1);
-        assert_eq!(observed.elements[0].label, "Search");
+        assert_eq!(observed.elements[0].0.label, "Search");
     }
 
     #[test]
@@ -324,7 +363,7 @@ mod tests {
         let values: Vec<_> = flatten(&tree, 50, None)
             .elements
             .into_iter()
-            .map(|element| element.value)
+            .map(|(element, _)| element.value)
             .collect();
         assert_eq!(values, vec![None, None, None, Some("visible".into())]);
     }
@@ -336,8 +375,8 @@ mod tests {
             with_state(node("textfield", "Here", vec![]), "focused"),
         ]);
         let observed = flatten(&tree, 50, None);
-        assert!(!observed.elements[0].enabled);
-        assert!(observed.elements[1].enabled && observed.elements[1].focused);
+        assert!(!observed.elements[0].0.enabled);
+        assert!(observed.elements[1].0.enabled && observed.elements[1].0.focused);
     }
 
     #[test]
@@ -345,6 +384,42 @@ mod tests {
         let mut cut = node("group", "", vec![]);
         cut.subtree_truncated = true;
         assert!(flatten(&window(vec![cut]), 50, None).truncated);
+    }
+
+    #[test]
+    fn names_the_smallest_labelled_node_under_a_point() {
+        let at = |mut node: AccessibilityNode, x: f64, y: f64, width: f64, height: f64| {
+            node.presentation.bounds = Some(agent_desktop_core::Rect {
+                x,
+                y,
+                width,
+                height,
+            });
+            node
+        };
+        let tree = window(vec![at(
+            node(
+                "group",
+                "Toolbar",
+                vec![
+                    at(node("button", "Delete", vec![]), 10.0, 10.0, 20.0, 20.0),
+                    at(node("image", "", vec![]), 12.0, 12.0, 4.0, 4.0),
+                ],
+            ),
+            0.0,
+            0.0,
+            200.0,
+            40.0,
+        )]);
+        assert_eq!(
+            labelled_at(&tree, 13.0, 13.0),
+            Some(("button".into(), "Delete".into()))
+        );
+        assert_eq!(
+            labelled_at(&tree, 150.0, 20.0),
+            Some(("group".into(), "Toolbar".into()))
+        );
+        assert_eq!(labelled_at(&tree, 500.0, 500.0), None);
     }
 
     #[test]

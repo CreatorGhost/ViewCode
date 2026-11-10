@@ -53,7 +53,7 @@ it("the macOS release build always has Rust for the computer-use helper", () => 
 });
 
 it("the server looks for the helper where the desktop build puts it", () => {
-  const server = read("apps/server/src/computerUse/AgentDesktopComputerDriver.ts");
+  const server = read("apps/server/src/computerUse/NativeComputerDriver.ts");
   assert.include(server, `"../../${COMPUTER_DRIVER_RESOURCE_DIR}"`);
   assert.include(server, `"${COMPUTER_DRIVER_EXECUTABLE}"`);
   assert.include(

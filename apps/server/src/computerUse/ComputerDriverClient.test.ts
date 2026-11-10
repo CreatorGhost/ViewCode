@@ -1,32 +1,23 @@
 // @effect-diagnostics nodeBuiltinImport:off - writes a stub worker script for the real child-process client.
-import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 
-import { assert, describe, expect, it } from "@effect/vitest";
+import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Logger from "effect/Logger";
 import { afterAll } from "vite-plus/test";
 
-import {
-  ComputerDriver,
-  ComputerDriverDispatchCheck,
-  ComputerDriverError,
-} from "./ComputerDriver.ts";
-import {
-  layer,
-  computerDriverHost,
-  macHelperExecutable,
-  makeXa11yComputerDriver,
-} from "./Xa11yComputerDriver.ts";
+import { ComputerDriverDispatchCheck, ComputerDriverError } from "./ComputerDriver.ts";
+import { makeComputerDriverClient } from "./ComputerDriverClient.ts";
+import { STDIO_STUB_SHIM } from "./computerDriverStub.test-support.ts";
 import { HostProcessOnShutdown } from "@t3tools/shared/hostProcess";
 
-// Answers by op instead of driving xa11y: each op exercises one way a real
-// worker can misbehave.
-const STUB_WORKER = `
+// Answers by op instead of driving a desktop: each op exercises one way a real
+// helper can misbehave.
+const STUB_WORKER = `${STDIO_STUB_SHIM}
 const fs = require("node:fs");
 const log = process.argv[2];
 const nonce = process.env.VIEWCODE_COMPUTER_DRIVER_NONCE;
@@ -109,7 +100,7 @@ const makeDriver = (
   } = {},
 ) => {
   const script = stubScript();
-  return makeXa11yComputerDriver({
+  return makeComputerDriverClient({
     platform: options.platform ?? "darwin",
     launch: () => ({
       command: options.command ?? process.execPath,
@@ -144,7 +135,7 @@ const allowAll = Effect.provideService(ComputerDriverDispatchCheck, () =>
 const failureOf = <A>(effect: Effect.Effect<A, ComputerDriverError>) =>
   Effect.flip(effect).pipe(Effect.map(({ kind, dispatched }) => ({ kind, dispatched })));
 
-describe("Xa11yComputerDriver", () => {
+describe("ComputerDriverClient", () => {
   it.effect("decodes valid replies and passes worker refusals through", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -270,21 +261,6 @@ describe("Xa11yComputerDriver", () => {
         assert.strictEqual((yield* unsupported.status()).available, false);
       }),
     ),
-  );
-
-  // The real worker entry, launched the way the server launches it. Without
-  // a display or permissions it reports why it is unavailable; the point is
-  // that it started and answered rather than failing to launch.
-  it.effect("launches the real driver worker from source", () =>
-    Effect.gen(function* () {
-      const driver = yield* ComputerDriver;
-      const status = yield* driver.status();
-      assert.notStrictEqual(status.reason, "The computer-use driver could not start.");
-      assert.notStrictEqual(
-        status.reason,
-        "The computer-use driver answered with an invalid reply.",
-      );
-    }).pipe(Effect.provide(layer)),
   );
 
   it.effect("hands every worker a fresh nonce it must echo", () =>
@@ -496,65 +472,4 @@ describe("Xa11yComputerDriver", () => {
       }),
     ),
   );
-
-  // The hidden entry, started by hand the way an agent's shell could.
-  it.each([
-    ["without a nonce", {}, undefined],
-    ["with the wrong nonce", { VIEWCODE_COMPUTER_DRIVER_NONCE: "a".repeat(64) }, "b".repeat(64)],
-  ] as const)("the driver worker refuses to serve %s", async (_name, extraEnv, sentNonce) => {
-    const entry = NodePath.join(import.meta.dirname, "..", "computer-use-driver.ts");
-    const child = NodeChildProcess.spawn(process.execPath, [entry], {
-      env: { ...process.env, ...extraEnv },
-      stdio: ["ignore", "ignore", "ignore", "ipc"],
-    });
-    const replies: unknown[] = [];
-    child.on("message", (message) => replies.push(message));
-    const exited = new Promise<number | null>((resolve) => child.once("exit", resolve));
-    child.send({ id: 1, nonce: sentNonce, request: { op: "status" } }, () => undefined);
-    assert.strictEqual(await exited, 2);
-    assert.deepStrictEqual(replies, []);
-  });
-});
-
-describe("macHelperExecutable", () => {
-  const app = "/Applications/ViewCode (Alpha).app/Contents/MacOS/ViewCode (Alpha)";
-  const helper =
-    "/Applications/ViewCode (Alpha).app/Contents/Frameworks/ViewCode (Alpha) Helper.app/Contents/MacOS/ViewCode (Alpha) Helper";
-
-  it("defaults macOS bundles to Helper while honoring the main override", () => {
-    const exists = (path: string) => path === helper;
-    expect(computerDriverHost("darwin", app, undefined, exists)).toEqual({
-      command: helper,
-      host: "helper",
-    });
-    expect(computerDriverHost("darwin", app, "helper", exists)).toEqual({
-      command: helper,
-      host: "helper",
-    });
-    expect(computerDriverHost("darwin", app, "main", exists)).toEqual({
-      command: app,
-      host: "main",
-    });
-    expect(computerDriverHost("darwin", app, undefined, () => false)).toEqual({
-      command: app,
-      host: "main",
-    });
-    expect(computerDriverHost("darwin", "/usr/local/bin/node", undefined, exists)).toEqual({
-      command: "/usr/local/bin/node",
-      host: "main",
-    });
-    expect(computerDriverHost("linux", app, "helper", exists)).toEqual({
-      command: app,
-      host: "main",
-    });
-  });
-
-  it("finds the Helper beside an app bundle's main executable", () => {
-    expect(macHelperExecutable(app, (path) => path === helper)).toBe(helper);
-  });
-
-  it("falls back when the Helper is missing or the executable is not in a bundle", () => {
-    expect(macHelperExecutable(app, () => false)).toBeUndefined();
-    expect(macHelperExecutable("/usr/local/bin/node", () => true)).toBeUndefined();
-  });
 });

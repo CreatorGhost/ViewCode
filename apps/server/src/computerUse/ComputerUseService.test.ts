@@ -41,7 +41,8 @@ import {
 import { ServerProcessAncestry } from "./computerUseAncestry.ts";
 import * as ComputerUseService from "./ComputerUseService.ts";
 import { ComputerUseCursor } from "./ComputerUseCursor.ts";
-import { makeXa11yComputerDriver } from "./Xa11yComputerDriver.ts";
+import { makeComputerDriverClient } from "./ComputerDriverClient.ts";
+import { STDIO_STUB_SHIM } from "./computerDriverStub.test-support.ts";
 import * as NodeHttp from "node:http";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -1131,7 +1132,7 @@ it.effect.each(
     const script = NodePath.join(dir, "worker.cjs");
     NodeFS.writeFileSync(
       script,
-      `const http=require('node:http');
+      `${STDIO_STUB_SHIM}const http=require('node:http');
 const get = path => new Promise(resolve => http.get('http://127.0.0.1:${address.port}'+path, res => {res.resume(); res.on('end',resolve);}));
 process.on('message', async message => {
  const {id,request,decision}=message;
@@ -1152,7 +1153,7 @@ process.on('message', async message => {
           }),
       ),
     );
-    const real = yield* makeXa11yComputerDriver({
+    const real = yield* makeComputerDriverClient({
       platform: "darwin",
       launch: () => ({ command: process.execPath, args: [script], env: { ...process.env } }),
     });
@@ -1403,14 +1404,14 @@ const stubWorker = (handlers: Record<string, () => void>, source: (port: number)
           }),
       ),
     );
-    const driver = yield* makeXa11yComputerDriver({
+    const driver = yield* makeComputerDriverClient({
       platform: "darwin",
       launch: () => ({ command: process.execPath, args: [script], env: { ...process.env } }),
     });
     return { driver, release: (path: string) => held.get(path)?.() };
   });
 
-const workerPrelude = (port: number) => `const http=require('node:http');
+const workerPrelude = (port: number) => `${STDIO_STUB_SHIM}const http=require('node:http');
 const get = path => new Promise(resolve => http.get('http://127.0.0.1:${port}'+path, res => {res.resume(); res.on('end',resolve);}));
 const notes = {window:{handle:'w-notes',app:'Notes',pid:10,title:'Shopping list',focused:true}};`;
 

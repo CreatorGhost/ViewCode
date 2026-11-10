@@ -119,8 +119,10 @@ once Codex is turned off. Two launches were flagged:
   `--mac-server-runtime`), and `./build.sh` builds `apps/server/dist-exe/t3`
   and passes it as `T3CODE_DESKTOP_SERVER_EXECUTABLE`. Intel Macs keep the old
   backend because Node single-executables do not run there. Under `t3` the
-  server's helpers (MCP bridge, computer use, Claude history) are subcommands
-  of `t3`, not more Electron-as-Node launches. The snapshot accessibility
+  server's helpers (MCP bridge, Claude history) are subcommands
+  of `t3`, not more Electron-as-Node launches. Computer use runs in its own
+  native helper, `viewcode-computer-driver`, which the server starts on first
+  use; endpoint security has not yet been seen to tolerate it. The snapshot accessibility
   reader (`SnapShotAccessibilityProcess`) still uses `ELECTRON_RUN_AS_NODE`,
   only when a snapshot is taken.
 

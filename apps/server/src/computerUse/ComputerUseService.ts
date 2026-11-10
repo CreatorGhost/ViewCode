@@ -86,7 +86,6 @@ import {
   type ShotRecord,
   type WindowRecord,
 } from "./computerUseTargets.ts";
-import { clipValue } from "./Xa11yDriverCore.ts";
 import { ComputerUseCursor } from "./ComputerUseCursor.ts";
 
 /** Who is calling: resolved from the session credential, never from the body. */
@@ -190,6 +189,10 @@ const APPROVAL_APP_NAME = "Computer use";
 /** No answer within this long counts as a decline. */
 const APPROVAL_TIMEOUT = Duration.minutes(10);
 const MAX_OBSERVED_ELEMENTS = 300;
+/** The driver clips every label and value it reports to this many characters. */
+const VALUE_MAX_CHARS = 200;
+const clipValue = (value: string): string =>
+  value.length <= VALUE_MAX_CHARS ? value : `${value.slice(0, VALUE_MAX_CHARS - 1)}…`;
 /** Requests kept for the settings "Recent actions" list. */
 export const ACTIVITY_ENTRIES_KEPT = 100;
 /** Recent screenshots are the agent's working memory in coordinate mode. */
